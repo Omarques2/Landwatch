@@ -68,10 +68,10 @@ jobs:
           cache-dependency-path: apps/api/package-lock.json
       - name: Install
         working-directory: apps/api
-        run: npm ci
+        run: npm ci --ignore-scripts
       - name: Prisma generate
         working-directory: apps/api
-        run: npx prisma generate
+        run: npm run prisma:generate
       - name: Migrate DB (staging)
         working-directory: apps/api
         env:
@@ -110,10 +110,10 @@ jobs:
           cache-dependency-path: apps/api/package-lock.json
       - name: Install
         working-directory: apps/api
-        run: npm ci
+        run: npm ci --ignore-scripts
       - name: Prisma generate
         working-directory: apps/api
-        run: npx prisma generate
+        run: npm run prisma:generate
       - name: Migrate DB (prod)
         working-directory: apps/api
         env:

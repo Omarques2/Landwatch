@@ -41,10 +41,10 @@ jobs:
           cache-dependency-path: apps/api/package-lock.json
       - name: Install
         working-directory: apps/api
-        run: npm ci
+        run: npm ci --ignore-scripts
       - name: Generate Prisma Client
         working-directory: apps/api
-        run: npx prisma generate
+        run: npm run prisma:generate
       - name: Lint
         working-directory: apps/api
         run: npm run lint:check
