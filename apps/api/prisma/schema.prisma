@@ -1,0 +1,28 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id          String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  entraSub    String     @unique @map("entra_sub")
+  email       String?    @map("email")
+  displayName String?    @map("display_name")
+  status      UserStatus @default(active)
+  createdAt   DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  lastLoginAt DateTime?  @map("last_login_at") @db.Timestamptz(6)
+
+  @@index([email], map: "idx_app_user_email")
+  @@map("app_user")
+}
+
+enum UserStatus {
+  pending
+  active
+  disabled
+
+  @@map("user_status")
+}

@@ -1,0 +1,82 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+/* Faz o dark: responder à classe .dark no <html> */
+@variant dark (&:where(.dark, .dark *));
+
+:root {
+  --background: hsl(210 20% 98%);
+  --foreground: hsl(222 47% 11%);
+  --card: hsl(210 20% 98%);
+  --card-foreground: hsl(222 47% 11%);
+  --popover: hsl(210 20% 98%);
+  --popover-foreground: hsl(222 47% 11%);
+  --primary: hsl(142 72% 35%);
+  --primary-foreground: hsl(210 40% 98%);
+  --secondary: hsl(210 20% 94%);
+  --secondary-foreground: hsl(222 47% 11%);
+  --muted: hsl(210 16% 92%);
+  --muted-foreground: hsl(215 16% 45%);
+  --accent: hsl(210 20% 94%);
+  --accent-foreground: hsl(222 47% 11%);
+  --destructive: hsl(0 74% 50%);
+  --destructive-foreground: hsl(210 40% 98%);
+  --border: hsl(214 20% 90%);
+  --input: hsl(214 20% 90%);
+  --ring: hsl(142 72% 35%);
+  --radius: 14px;
+}
+
+.dark {
+  --background: hsl(222 47% 9%);
+  --foreground: hsl(210 40% 96%);
+  --card: hsl(222 47% 11%);
+  --card-foreground: hsl(210 40% 96%);
+  --popover: hsl(222 47% 11%);
+  --popover-foreground: hsl(210 40% 96%);
+  --primary: hsl(142 70% 45%);
+  --primary-foreground: hsl(222 47% 9%);
+  --secondary: hsl(217 25% 18%);
+  --secondary-foreground: hsl(210 40% 96%);
+  --muted: hsl(217 18% 16%);
+  --muted-foreground: hsl(215 18% 65%);
+  --accent: hsl(217 25% 18%);
+  --accent-foreground: hsl(210 40% 96%);
+  --destructive: hsl(0 62% 32%);
+  --destructive-foreground: hsl(210 40% 98%);
+  --border: hsl(217 22% 18%);
+  --input: hsl(217 22% 18%);
+  --ring: hsl(142 70% 45%);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 4px);
+}
+
+@layer base {
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+  }
+}

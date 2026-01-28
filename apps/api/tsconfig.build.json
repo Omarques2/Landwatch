@@ -1,0 +1,14 @@
+{
+  "extends": "./tsconfig.json",
+  "include": ["src/**/*.ts"],
+  "exclude": [
+    "node_modules",
+    "test",
+    "dist",
+    "**/*spec.ts",
+    "src/admin-rls/**",
+    "src/admin-users/**",
+    "src/bi-authz/**",
+    "src/powerbi/**"
+  ]
+}
