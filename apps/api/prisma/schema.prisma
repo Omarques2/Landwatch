@@ -4,6 +4,7 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+  schemas  = ["app"]
 }
 
 model User {
@@ -15,8 +16,12 @@ model User {
   createdAt   DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
   lastLoginAt DateTime?  @map("last_login_at") @db.Timestamptz(6)
 
+  memberships OrgMembership[]
+  groupMemberships OrgGroupMembership[]
+
   @@index([email], map: "idx_app_user_email")
   @@map("app_user")
+  @@schema("app")
 }
 
 enum UserStatus {
@@ -25,4 +30,140 @@ enum UserStatus {
   disabled
 
   @@map("user_status")
+  @@schema("app")
+}
+
+model Org {
+  id        String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name      String
+  slug      String        @unique
+  status    OrgStatus     @default(active)
+  createdAt DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  memberships OrgMembership[]
+  groups      OrgGroup[]
+  apiClients  ApiClient[]
+
+  @@map("org")
+  @@schema("app")
+}
+
+model OrgMembership {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId     String    @map("org_id") @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  role      OrgRole   @default(member)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  org  Org  @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, userId], map: "org_membership_org_user_key")
+  @@map("org_membership")
+  @@schema("app")
+}
+
+model OrgGroup {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId     String    @map("org_id") @db.Uuid
+  name      String
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  org         Org                @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  memberships OrgGroupMembership[]
+
+  @@unique([orgId, name], map: "org_group_org_name_key")
+  @@map("org_group")
+  @@schema("app")
+}
+
+model OrgGroupMembership {
+  id        String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  groupId   String     @map("group_id") @db.Uuid
+  userId    String     @map("user_id") @db.Uuid
+  role      GroupRole  @default(member)
+  createdAt DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  group OrgGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, userId], map: "org_group_membership_group_user_key")
+  @@map("org_group_membership")
+  @@schema("app")
+}
+
+model ApiClient {
+  id        String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name      String
+  orgId     String?        @map("org_id") @db.Uuid
+  status    ApiClientStatus @default(active)
+  createdAt DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  org   Org?     @relation(fields: [orgId], references: [id], onDelete: SetNull)
+  keys  ApiKey[]
+
+  @@map("api_client")
+  @@schema("app")
+}
+
+model ApiKey {
+  id         String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  clientId   String        @map("client_id") @db.Uuid
+  keyPrefix  String        @map("key_prefix")
+  keyHash    String        @unique @map("key_hash")
+  scopes     ApiKeyScope[]
+  expiresAt  DateTime?     @map("expires_at") @db.Timestamptz(6)
+  lastUsedAt DateTime?     @map("last_used_at") @db.Timestamptz(6)
+  revokedAt  DateTime?     @map("revoked_at") @db.Timestamptz(6)
+  createdAt  DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  client ApiClient @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([clientId], map: "api_key_client_id_idx")
+  @@index([keyPrefix], map: "api_key_prefix_idx")
+  @@map("api_key")
+  @@schema("app")
+}
+
+enum OrgStatus {
+  active
+  disabled
+
+  @@map("org_status")
+  @@schema("app")
+}
+
+enum OrgRole {
+  owner
+  admin
+  member
+
+  @@map("org_role")
+  @@schema("app")
+}
+
+enum GroupRole {
+  admin
+  member
+
+  @@map("org_group_role")
+  @@schema("app")
+}
+
+enum ApiClientStatus {
+  active
+  disabled
+
+  @@map("api_client_status")
+  @@schema("app")
+}
+
+enum ApiKeyScope {
+  analysis_read
+  analysis_write
+  pdf_read
+  pdf_write
+
+  @@map("api_key_scope")
+  @@schema("app")
 }

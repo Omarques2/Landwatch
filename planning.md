@@ -5,10 +5,10 @@
 - Fonte de verdade: dados estruturados no Postgres (app.*). PDF e um artefato cacheavel e regeneravel.
 - Dados geoespaciais: schema landwatch.* (read-only) com historico e estado corrente.
 - Arquitetura: API + Worker (NestJS), fila BullMQ/Redis, Postgres + PostGIS, Blob Storage, SPA Vue 3.
-- Multi-tenant: usuario individual e corporativo, com suporte LandWatch e permissoes finas.
+- Multi-tenant (visao futuro): usuario individual e corporativo, com suporte LandWatch e permissoes finas.
 
 ## Decisoes tomadas (2026-01-27)
-- Provedor de tiles/satelite para PDF: Azure Maps (fase de teste).
+- Provedor de tiles/satelite para PDF: Mapbox no MVP (avaliar custo/licenca para produção).
 - Validacao publica do PDF: token aleatorio + QR apontando para URL publica com token.
 - Retencao de PDF: TTL curto (1h) com regeneracao sob demanda.
 - Realtime: Socket.IO no MVP.
@@ -17,6 +17,20 @@
 - MVP inclui todos os datasets.
 - Data access: Prisma para `app.*`; queries PostGIS (landwatch.*) via SQL direto (read-only).
 - Versionamento SHP/PostGIS vive em repo separado e sera refatorado depois.
+
+## Decisoes tomadas (2026-01-28)
+- Auth: somente Entra External ID (sem email/senha local e sem Google no MVP).
+- Acesso: sem politica de "pending" no MVP; usuarios ativos no primeiro login.
+- MVP sem orgs/grupos (modo usuarios unicos). Orgs serao adicionadas depois.
+- Mapa web e PDF: satelite (preferencia Google), mas escolher provedor com menor custo/licenca adequada.
+- Analise: uma query principal (PostGIS) + status para feedback no UI.
+- Entrada minima: CAR ou selecao de area no mapa (SICAR visivel em zoom alto).
+- CPF/CNPJ opcional destrava consultas adicionais (metadata).
+- Documentos anexos com aprovacao administrativa (sem bloquear PDF).
+- API deve suportar uso por automacoes externas (Fabric) para criar analises e baixar PDF.
+- Integracao M2M: entra no MVP via API Key.
+- Schema deve nascer org-ready (tabelas e campos preparados, mesmo sem uso no MVP).
+- Mapa de coordenadas: SICAR carregado apenas acima de um zoom minimo (inicial 13, ajustavel).
 
 ## Principios de projeto (NestJS + Prisma)
 - Modules por feature (evitar camadas tecnicas). (nestjs-best-practices: arch-feature-modules)
@@ -38,19 +52,22 @@
 
 ## Escopo do MVP (fase inicial)
 Incluido:
-- Auth (Entra External ID) + contexto de org.
+- Auth (Entra External ID) + contexto de usuario.
 - Farms (CRUD) com regra de leitura global e escrita restrita.
 - Lookup CAR por coordenadas.
+- Mapa de busca por coordenadas com exibicao de fazendas proximas (SICAR) em zoom alto.
 - Analise assincrona (BullMQ) com resultados persistidos no DB.
 - Realtime (Socket.IO) para status.
 - PDF assincrono, Blob + pagina publica de validacao (QR/Token).
 - Todos os datasets no MVP (com possibilidade de feature-flag por config).
+- UI MVP: Login, Dashboard, Lista de Analises, Detalhe da Analise, Nova Analise, Fazendas (lista) e Detalhe da Fazenda.
+- API publica para automacao (criar analise, consultar status, baixar PDF).
 
 Fora do MVP:
 - Documentos anexados.
 - Schedules/alerts.
 - Admin completo.
-- UI completa (apenas SPA minima).
+- Funcionalidades avancadas de UI (alertas, agendamentos, admin completo).
 
 ## Nao objetivos (por enquanto)
 - Ingestao de camadas (fica no Fabric).
@@ -68,7 +85,7 @@ Fora do MVP:
   - Redis (BullMQ)
   - Blob Storage (Azure)
   - Entra External ID (JWT)
-  - Azure Maps (tiles/satelite para PDF)
+  - Google Maps (tiles/satelite para web e PDF)
 - Realtime:
   - Socket.IO no API (adapter Redis para scale-out futuro)
 
@@ -87,6 +104,8 @@ Fora do MVP:
 - document (blob_key, type, meta, created_by, visibility)
 - document_feature_link (dataset_id, feature_id, document_id)
 - document_farm_link (farm_id, document_id)
+- api_client (name, org_id?, status)
+- api_key (client_id, key_hash, scopes, last_used_at, expires_at)
 - schedule + schedule_run
 - alert_policy + alert + alert_event
 
@@ -98,6 +117,7 @@ Fora do MVP:
 - Acesso read-only ao schema landwatch.* (usuario DB separado).
 - Queries geoespaciais sempre parametrizadas.
 - Camada de queries PostGIS isolada (repositorio/servico dedicado).
+- Consulta de SICAR para mapa com limite de zoom (carregar apenas quando proximo; default 13).
 
 ## Jobs e idempotencia
 - BullMQ com filas separadas: analysis:run, pdf:render, alerts:tick.
@@ -112,12 +132,27 @@ Fora do MVP:
 - Sem versionamento de template no MVP.
 - Token aleatorio + QR apontando para URL publica com token.
 - TTL curto (1h) + regeneracao sob demanda.
-- Azure Maps para render do mapa (validar custos/licenca).
+- Google Maps para render do mapa (validar custos/licenca).
+
+## Autenticacao e acesso (MVP)
+- Login apenas via Entra External ID (MSAL).
+- Usuarios ativos no primeiro login (sem etapa pending).
+- Sem organizacoes no MVP (usuarios unicos).
+- Futuro: usuarios podem criar orgs e gerenciar membros; platform admin com escopo global.
+
+## Integracao externa (Fabric)
+- API deve aceitar automacoes (job submit + polling + download PDF).
+- Auth M2M: API Key no MVP (rate limit + escopos).
 
 ## Realtime
 - Eventos: analysis.status.changed, pdf.ready, alert.created.
 - Rooms: user:{id}, org:{id}, analysis:{id}.
 - Redis adapter para scale-out (opcional no MVP).
+
+## UX/UI
+- Direcao visual e telas base em `docs/ui-design.md`.
+- Layout base: header + sidebar + content cards.
+- Foco em legibilidade, fluxo simples e estados vazios claros.
 
 ## Seguranca e compliance
 - JWT validation (aud/iss) e guard global.
@@ -167,9 +202,9 @@ Card P0 — JWT Entra + AuthGuard
 - Objetivo: validar JWT com JWKS remoto.
 - Aceite: 401 sem token, 200 com token valido.
 
-Card P0 — User bootstrap + membership
-- Objetivo: criar user no primeiro login e exigir status ativo.
-- Aceite: user pending recebe 403 com code padrao.
+Card P0 — User bootstrap
+- Objetivo: criar user no primeiro login (status ativo).
+- Aceite: usuario entra sem bloqueio no MVP.
 
 ### EPIC-02: Farms + CAR lookup (P0)
 Card P0 — CRUD farms com regra global-read/restricted-write
@@ -215,6 +250,21 @@ Card P2 — Admin basico (orgs/users/grants)
 Card P1 — Fluxo essencial (login -> farm -> analise -> pdf)
 - Aceite: usuario consegue executar o fluxo completo sem refresh.
 
+Card P1 — Telas base (Dashboard, Analises, Fazendas, Nova Analise)
+- Aceite: UI consistente com `docs/ui-design.md` e responsiva.
+
+Card P1 — Detalhe de analise com mapa (MVP)
+- Aceite: mapa mostra CAR + intersecoes e tabela abaixo.
+
+### EPIC-11: Automacao externa (P1)
+Card P1 — API para automacao (Fabric)
+- Objetivo: endpoints para criar analise, consultar status, baixar PDF.
+- Aceite: automacao externa consegue executar o fluxo sem UI.
+
+Card P0 — API Key para M2M
+- Objetivo: autenticar chamadas de automacao via X-API-Key.
+- Aceite: chave valida permite criar analise e baixar PDF, com rate limit.
+
 ### EPIC-10: Hardening e qualidade (P1/P2)
 Card P1 — Envelope + ExceptionFilter + correlationId
 - Aceite: respostas padronizadas com correlationId.
@@ -229,6 +279,7 @@ Card P2 — Tests e2e + factories
 - Performance: estrategias de cache e views materializadas.
 - Governanca: RBAC puro vs RBAC + grants + ABAC leve.
 - Politica de retencao de PDFs por org (pos-MVP).
+- Workflow de aprovacao de documentos (regras, SLA, selo no PDF).
 
 ## Riscos principais e mitigacoes
 - PostGIS pesado -> limitar bbox, indexes e batch.

@@ -5,6 +5,7 @@ import { validateEnv } from './config/config.schema';
 import { HealthModule } from './health/health.module';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
+import { AdminApiKeysModule } from './admin-api-keys/admin-api-keys.module';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { UsersModule } from './users/users.module';
     HealthModule,
     AuthModule,
     UsersModule,
+    AdminApiKeysModule,
   ],
 })
 export class AppModule {}

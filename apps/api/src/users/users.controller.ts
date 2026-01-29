@@ -16,6 +16,8 @@ export class UsersController {
     const user = await this.usersService.upsertFromClaims(claims);
 
     return {
+      id: user.id,
+      entraSub: user.entraSub,
       email: user.email ?? null,
       displayName: user.displayName ?? null,
       status: user.status,
