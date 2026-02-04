@@ -1,2 +1,16 @@
 .codex/
 .agents/
+apps/Versionamento/Dados/
+apps/Versionamento/Dados.bkp/
+apps/Versionamento/Dados-12-25/
+apps/Versionamento/work/
+apps/Versionamento/storage/
+apps/Versionamento/manifests/
+apps/Versionamento/raw/
+apps/Versionamento/__pycache__/
+apps/Versionamento/**/__pycache__/
+apps/Versionamento/.venv/
+apps/Versionamento/*.log
+apps/Versionamento/Logs_OGR2OGR/
+Versionamento/Dados*
+.env

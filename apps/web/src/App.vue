@@ -1,7 +1,11 @@
 <template>
-  <router-view />
+  <router-view v-slot="{ Component }">
+    <Transition name="page-fade" mode="out-in">
+      <component :is="Component" />
+    </Transition>
+  </router-view>
 </template>
 
 <script setup lang="ts">
-// minimal shell for now
+// Router view wrapped for page transitions.
 </script>

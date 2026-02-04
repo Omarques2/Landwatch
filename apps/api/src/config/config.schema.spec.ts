@@ -4,6 +4,7 @@ import { validateEnv } from './config.schema';
 const baseEnv = {
   DATABASE_URL: 'postgresql://user:pass@host:5432/db?sslmode=require',
   ENTRA_API_AUDIENCE: 'api://test',
+  API_KEY_PEPPER: 'test-pepper',
 };
 
 describe('validateEnv', () => {

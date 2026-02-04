@@ -80,3 +80,345 @@
     color: var(--foreground);
   }
 }
+
+.page-fade-enter-active,
+.page-fade-leave-active {
+  transition: opacity 180ms ease, transform 200ms ease;
+}
+
+.page-fade-enter-from,
+.page-fade-leave-to {
+  opacity: 0;
+  transform: translateY(6px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page-fade-enter-active,
+  .page-fade-leave-active {
+    transition: none;
+  }
+  .page-fade-enter-from,
+  .page-fade-leave-to {
+    transform: none;
+  }
+}
+
+@media print {
+  @page {
+    size: A4;
+    margin: 0;
+  }
+  * {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  html,
+  body {
+    height: auto !important;
+    overflow: visible !important;
+    margin: 0 !important;
+  }
+  body {
+    background: #ffffff;
+    color: #111827;
+  }
+  .app-sidebar,
+  .app-topbar,
+  .app-drawer {
+    display: none !important;
+  }
+  body.print-preview .app-shell {
+    display: none !important;
+  }
+  body.print-preview .analysis-print-teleport {
+    display: block !important;
+  }
+  body.print-preview .analysis-print-root {
+    display: none !important;
+  }
+  .app-shell,
+  .app-main {
+    height: auto !important;
+    overflow: visible !important;
+  }
+  .app-shell,
+  .app-main {
+    display: block !important;
+  }
+  .app-main {
+    width: 100% !important;
+  }
+  .analysis-print-root {
+    display: block !important;
+    gap: 0 !important;
+  }
+  .analysis-print-root > * {
+    display: block !important;
+  }
+  .analysis-print-root .print-map-row {
+    display: block;
+  }
+  .mx-auto {
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+  }
+  .max-w-6xl {
+    max-width: 100% !important;
+  }
+  .screen-only {
+    display: none !important;
+  }
+  .print-only {
+    display: block !important;
+  }
+  .print-card {
+    box-shadow: none !important;
+    border: 1px solid #e5e7eb !important;
+    break-inside: auto;
+    page-break-inside: auto;
+    width: 100% !important;
+    max-width: 100% !important;
+    padding: 16px !important;
+  }
+  .print-legend-swatch {
+    border-width: 1px;
+  }
+  .print-page-1,
+  .print-page-2 {
+    break-after: auto;
+    page-break-after: auto;
+    break-before: auto;
+    page-break-before: auto;
+    break-inside: auto;
+    page-break-inside: auto;
+    display: block !important;
+    position: relative;
+  }
+  .analysis-map-frame {
+    height: var(--print-map-height, 360px) !important;
+  }
+  .analysis-print-root .analysis-map-frame {
+    overflow: hidden !important;
+  }
+  .analysis-print-root .analysis-map-frame .leaflet-container {
+    background: #e5e7eb;
+  }
+  .analysis-print-root .text-xl {
+    font-size: 16px !important;
+  }
+  .analysis-print-root .text-lg {
+    font-size: 14px !important;
+  }
+  .analysis-print-root .text-sm {
+    font-size: 11px !important;
+  }
+  .analysis-print-root .text-xs {
+    font-size: 10px !important;
+  }
+  .analysis-print-root .rounded-2xl {
+    border-radius: 10px !important;
+  }
+  .analysis-print-root .gap-6 {
+    gap: 16px !important;
+  }
+  .analysis-print-root .mb-6 {
+    margin-bottom: 16px !important;
+  }
+  .analysis-print-root .mt-4 {
+    margin-top: 12px !important;
+  }
+  .analysis-print-root .grid {
+    gap: 8px !important;
+  }
+  .analysis-print-root .p-6 {
+    padding: 16px !important;
+  }
+  .analysis-print-root .h-10 {
+    height: 36px !important;
+    width: 36px !important;
+  }
+  .analysis-print-root .analysis-map-legend {
+    display: none !important;
+  }
+  .analysis-print-root .print-legend-swatch {
+    height: 10px !important;
+    width: 10px !important;
+  }
+  .analysis-print-root .intersections-grid {
+    display: grid !important;
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+    gap: 6px !important;
+  }
+  .analysis-print-root .print-intersection-item {
+    padding: 6px 8px !important;
+    border-radius: 10px !important;
+    font-size: 10px !important;
+    gap: 8px !important;
+    border-color: #e5e7eb !important;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .analysis-print-root .print-intersection-item span {
+    line-height: 1.2 !important;
+  }
+  .analysis-print-root .print-map-row {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) 180px !important;
+    align-items: start;
+    gap: 12px !important;
+  }
+  .analysis-print-root .print-legend-col .grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  }
+  .analysis-print-root .print-legend-col {
+    align-self: start;
+  }
+  .analysis-print-root .print-page-1 {
+    break-after: page;
+    page-break-after: always;
+    position: relative;
+  }
+  .analysis-print-root .print-page-2 {
+    break-before: page;
+    page-break-before: always;
+    position: relative;
+  }
+  .analysis-print-root .print-breakable {
+    break-inside: auto;
+    page-break-inside: auto;
+  }
+  .analysis-map-frame .leaflet-control-container,
+  .analysis-map-frame .leaflet-control-attribution {
+    display: none !important;
+  }
+  .print-footer {
+    position: fixed;
+    bottom: 6mm;
+    left: 0;
+    right: 0;
+    text-align: center;
+    color: #6b7280;
+  }
+  .analysis-map-legend {
+    display: none !important;
+  }
+}
+
+.print-only {
+  display: none;
+}
+
+@media screen {
+  body.print-preview {
+    background: #ffffff;
+    color: #111827;
+  }
+
+  body.print-preview .app-sidebar,
+  body.print-preview .app-topbar,
+  body.print-preview .app-drawer {
+    display: none !important;
+  }
+
+  body.print-preview #app {
+    display: none !important;
+  }
+
+  body.print-preview .app-shell,
+  body.print-preview .app-main {
+    height: auto !important;
+    overflow: visible !important;
+    display: block !important;
+  }
+
+  body.print-preview .app-main {
+    width: 100% !important;
+  }
+
+  body.print-preview .app-main > div {
+    height: auto !important;
+    overflow: visible !important;
+    flex: unset !important;
+  }
+
+  body.print-preview .analysis-print-root {
+    display: none !important;
+  }
+
+  body.print-preview .analysis-print-teleport {
+    position: static;
+    inset: auto;
+    background: #ffffff;
+    overflow: visible;
+    z-index: 60;
+    display: block;
+  }
+
+  body.print-preview .analysis-print-root > * {
+    display: block !important;
+  }
+
+  body.print-preview .analysis-print-root .print-map-row {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) 180px !important;
+    align-items: start;
+    gap: 12px !important;
+  }
+
+  body.print-preview .analysis-print-root .print-legend-col .grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  }
+
+  body.print-preview .analysis-print-root .mx-auto {
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+  }
+
+  body.print-preview .analysis-print-root .max-w-6xl {
+    max-width: 100% !important;
+  }
+
+  body.print-preview .analysis-print-root .screen-only {
+    display: none !important;
+  }
+
+  body.print-preview .analysis-print-root .print-only {
+    display: block !important;
+  }
+
+  body.print-preview .analysis-print-root .print-card {
+    box-shadow: none !important;
+    border: 1px solid #e5e7eb !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    padding: 16px !important;
+  }
+
+  body.print-preview .analysis-print-root .analysis-map-frame {
+    height: var(--print-map-height, 360px) !important;
+    overflow: hidden !important;
+  }
+
+  body.print-preview .analysis-print-root .analysis-map-frame .leaflet-container {
+    background: #e5e7eb;
+  }
+
+  body.print-preview .analysis-print-root .analysis-map-legend,
+  body.print-preview .analysis-map-frame .leaflet-control-container,
+  body.print-preview .analysis-map-frame .leaflet-control-attribution {
+    display: none !important;
+  }
+}
+
+@media print {
+  body.print-preview #app {
+    display: none !important;
+  }
+  body.print-preview .analysis-print-teleport {
+    position: static !important;
+    inset: auto !important;
+    height: auto !important;
+    overflow: visible !important;
+    background: #ffffff !important;
+  }
+}

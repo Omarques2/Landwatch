@@ -39,8 +39,8 @@
         :open="drawerOpen"
         overlay-class="lg:hidden"
         panel-class="lg:hidden"
-        @close="drawerOpen = false"
         class="app-drawer"
+        @close="drawerOpen = false"
       >
         <SidebarContent
           mode="mobile"

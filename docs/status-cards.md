@@ -26,7 +26,7 @@ Legenda:
 ## EPIC-01 - Schema base org-ready + M2M (evita retrabalho)
 - [x] Criar modelos org-ready (org, org_membership, org_group, org_group_membership)
   Aceite: migrations criadas e prisma generate ok.
-- [ ] Adicionar campos org_id nulos nas entidades MVP (farm, analysis, pdf, etc.)
+- [x] Campos org_id nas entidades MVP (farm, analysis, api_client)
   Aceite: schema atualiza sem quebrar endpoints existentes.
 - [x] Criar modelos M2M (api_client, api_key, api_key_scope)
   Aceite: tabela com hash de chave + scopes + expiracao.
@@ -56,36 +56,42 @@ Legenda:
   Aceite: excesso retorna 429 com correlationId.
 - [x] Endpoint admin interno para criar/revogar API keys
   Aceite: chave gerada uma unica vez e armazenada como hash.
-- [x] Logs de uso por api_key (last_used_at, count)
+- [x] Logs de uso por api_key (last_used_at)
   Aceite: uso atualiza last_used_at.
 
 ## EPIC-04 - Fazendas + Lookup por coordenadas (core)
-- [ ] Modelos Farm (org-ready, owner, metadata basica)
+- [x] Modelos Farm (org-ready, owner, metadata basica)
   Aceite: schema com campos car_key, owner, org_id nullable.
-- [ ] CRUD Farm (create/list/get/update)
+- [x] CRUD Farm (create/list/get/update)
   Aceite: endpoints CRUD com paginacao.
-- [ ] Regra de visibilidade (global read, restricted write)
+- [x] Regra de visibilidade (global read, restricted write)
   Aceite: usuario sem permissao nao edita farm.
-- [ ] Endpoint lookup por coordenadas (ST_DWithin)
+- [x] Endpoint lookup por coordenadas (ST_DWithin)
   Aceite: retorna lista ranqueada por distancia.
-- [ ] Endpoint bbox para SICAR (zoom >= 13)
+- [x] Endpoint bbox para SICAR (zoom >= 13)
   Aceite: retorna geometrias simplificadas por bbox.
-- [ ] Validacoes de CAR e CPF/CNPJ (DTO + class-validator)
+- [x] Validacoes de CAR e CPF/CNPJ (DTO + class-validator)
   Aceite: entradas invalidas retornam 400 com VALIDATION_ERROR.
 
 ## EPIC-05 - Analises (core)
-- [ ] Modelo Analysis (status, requested_by, analysis_date)
+- [x] Modelo Analysis (status, analysis_date, created_by)
   Aceite: status enum + timestamps.
-- [ ] Modelo AnalysisResult + AnalysisBiome
+- [x] Modelo AnalysisResult
   Aceite: results vinculados por analysis_id.
-- [ ] POST /v1/analyses (idempotency-key)
+- [ ] AnalysisBiome (quando BIOMAS entrar no MVP)
+  Aceite: biomas vinculados por analysis_id.
+- [~] POST /v1/analyses (sincrono no MVP)
+  Aceite: cria analysis + results e retorna resumo.
+- [ ] Idempotency-Key em POST /analyses
   Aceite: mesma key nao cria duplicado.
-- [ ] Persistencia de resultados (upsert por analysis_id)
-  Aceite: rerun nao duplica intersecoes.
-- [ ] GET /v1/analyses (lista + filtros)
-  Aceite: filtros por data/status/farm.
-- [ ] GET /v1/analyses/:id (detalhe + resultados)
-  Aceite: retorna resumo + tabela de intersecoes.
+- [x] Persistencia de resultados (createMany)
+  Aceite: results gravados para a analise.
+- [x] GET /v1/analyses (lista + filtros basicos)
+  Aceite: filtros por carKey + paginacao.
+- [x] GET /v1/analyses/:id (detalhe + resultados)
+  Aceite: retorna header + resultados.
+- [x] Consultas via funcoes landwatch (fn_intersections_* e fn_doc_*)
+  Aceite: SQL usa funcoes do schema landwatch.
 
 ## EPIC-06 - Worker + fila (assinc)
 - [ ] BullMQ setup (redis + queues)
@@ -94,7 +100,7 @@ Legenda:
   Aceite: job executa query e atualiza status.
 - [ ] Retry/backoff + dead-letter
   Aceite: falha repetida envia job para DLQ.
-- [ ] Locks por farm_id + analysis_date
+- [ ] Locks por carKey + analysis_date
   Aceite: concorrencia nao duplica execucao.
 
 ## EPIC-07 - Realtime (status)
@@ -120,8 +126,8 @@ Legenda:
 ## EPIC-09 - UI MVP (fluxo completo)
 - [x] Login Entra
   Aceite: login redireciona e token permite /v1/users/me.
-- [x] Home placeholder
-  Aceite: rota inicial ok com token valido.
+- [x] Console de testes (home) para farms/analises/lookup
+  Aceite: UI simples permite criar farm, rodar analise e ver resultados.
 - [ ] Dashboard (cards + ultimas analises)
   Aceite: cards com dados reais e estados vazios.
 - [ ] Lista de analises + filtros
@@ -146,3 +152,7 @@ Legenda:
   Aceite: suite e2e roda em staging.
 - [ ] Checklist de deploy (staging -> prod)
   Aceite: checklist documentado e aprovado.
+- [ ] MV de feicoes ativas (current) para acelerar interseccoes do SICAR (sem DETER)
+  Aceite: consultas de interseccao current usam MV e reduzem latencia significativamente.
+- [ ] Downloads + ingest via Blob com limpeza automatica (job unico modular)
+  Aceite: job baixa, ingere por categoria e remove blobs antigos com retencao curta (1–2 execucoes).

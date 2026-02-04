@@ -29,12 +29,13 @@ export class PrismaService
     }
 
     const schema = schemaFromEnv || schemaFromUrl || 'app';
+    const searchPath = `${schema},public`;
 
     // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call
     const pool = new Pool({
       connectionString: databaseUrl,
       ssl: { rejectUnauthorized: !allowInvalid },
-      ...(hasOptions ? {} : { options: `-c search_path=${schema}` }),
+      ...(hasOptions ? {} : { options: `-c search_path=${searchPath}` }),
     });
 
     const PrismaPgAdapter = PrismaPg as unknown as new (

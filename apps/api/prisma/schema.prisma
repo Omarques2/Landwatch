@@ -18,6 +18,8 @@ model User {
 
   memberships OrgMembership[]
   groupMemberships OrgGroupMembership[]
+  farms Farm[]
+  analyses Analysis[] @relation("UserAnalyses")
 
   @@index([email], map: "idx_app_user_email")
   @@map("app_user")
@@ -43,6 +45,8 @@ model Org {
   memberships OrgMembership[]
   groups      OrgGroup[]
   apiClients  ApiClient[]
+  farms       Farm[]
+  analyses    Analysis[]
 
   @@map("org")
   @@schema("app")
@@ -125,6 +129,94 @@ model ApiKey {
   @@schema("app")
 }
 
+model Farm {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name        String
+  carKey      String   @map("car_key")
+  cpfCnpj     String?  @map("cpf_cnpj")
+  ownerUserId String   @map("owner_user_id") @db.Uuid
+  orgId       String?  @map("org_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  owner User @relation(fields: [ownerUserId], references: [id], onDelete: Restrict)
+  org   Org? @relation(fields: [orgId], references: [id], onDelete: SetNull)
+  analyses Analysis[]
+
+  @@unique([carKey], map: "farm_car_key_key")
+  @@index([ownerUserId], map: "farm_owner_user_id_idx")
+  @@index([orgId], map: "farm_org_id_idx")
+  @@map("farm")
+  @@schema("app")
+}
+
+model Analysis {
+  id             String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  carKey         String         @map("car_key")
+  cpfCnpj        String?        @map("cpf_cnpj")
+  analysisDate   DateTime       @map("analysis_date") @db.Date
+  status         AnalysisStatus @default(pending)
+  createdByUserId String        @map("created_by_user_id") @db.Uuid
+  orgId          String?        @map("org_id") @db.Uuid
+  createdAt      DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  completedAt    DateTime?      @map("completed_at") @db.Timestamptz(6)
+  farmId         String?        @map("farm_id") @db.Uuid
+  pdfStatus      AnalysisPdfStatus? @map("pdf_status")
+  pdfPath        String?        @map("pdf_path")
+  pdfGeneratedAt DateTime?      @map("pdf_generated_at") @db.Timestamptz(6)
+  pdfExpiresAt   DateTime?      @map("pdf_expires_at") @db.Timestamptz(6)
+  pdfError       String?        @map("pdf_error")
+  hasIntersections Boolean      @default(false) @map("has_intersections")
+  intersectionCount Int         @default(0) @map("intersection_count")
+
+  results AnalysisResult[]
+  createdBy User @relation("UserAnalyses", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  org Org? @relation(fields: [orgId], references: [id], onDelete: SetNull)
+  farm Farm? @relation(fields: [farmId], references: [id], onDelete: SetNull)
+
+  @@index([carKey], map: "analysis_car_key_idx")
+  @@index([createdByUserId], map: "analysis_created_by_idx")
+  @@index([farmId], map: "analysis_farm_id_idx")
+  @@index([status], map: "analysis_status_idx")
+  @@index([pdfStatus], map: "analysis_pdf_status_idx")
+  @@map("analysis")
+  @@schema("app")
+}
+
+model AnalysisResult {
+  id                 String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  analysisId         String   @map("analysis_id") @db.Uuid
+  categoryCode       String   @map("category_code")
+  datasetCode        String   @map("dataset_code")
+  snapshotDate       DateTime? @map("snapshot_date") @db.Date
+  featureId          BigInt?  @map("feature_id")
+  isSicar            Boolean  @default(false) @map("is_sicar")
+  sicarAreaM2        Decimal? @map("sicar_area_m2")
+  featureAreaM2      Decimal? @map("feature_area_m2")
+  overlapAreaM2      Decimal? @map("overlap_area_m2")
+  overlapPctOfSicar  Decimal? @map("overlap_pct_of_sicar")
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  analysis Analysis @relation(fields: [analysisId], references: [id], onDelete: Cascade)
+
+  @@index([analysisId], map: "analysis_result_analysis_id_idx")
+  @@index([categoryCode], map: "analysis_result_category_idx")
+  @@map("analysis_result")
+  @@schema("app")
+}
+
+model CnpjInfo {
+  cnpj      String   @id @map("cnpj")
+  nome      String?  @map("nome")
+  fantasia  String?  @map("fantasia")
+  situacao  String?  @map("situacao")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("cnpj_info")
+  @@schema("app")
+}
+
 enum OrgStatus {
   active
   disabled
@@ -165,5 +257,25 @@ enum ApiKeyScope {
   pdf_write
 
   @@map("api_key_scope")
+  @@schema("app")
+}
+
+enum AnalysisStatus {
+  running
+  pending
+  completed
+  failed
+
+  @@map("analysis_status")
+  @@schema("app")
+}
+
+enum AnalysisPdfStatus {
+  pending
+  ready
+  failed
+  expired
+
+  @@map("analysis_pdf_status")
   @@schema("app")
 }

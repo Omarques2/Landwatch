@@ -6,6 +6,9 @@ import { HealthModule } from './health/health.module';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { AdminApiKeysModule } from './admin-api-keys/admin-api-keys.module';
+import { FarmsModule } from './farms/farms.module';
+import { CarsModule } from './cars/cars.module';
+import { AnalysesModule } from './analyses/analyses.module';
 
 @Module({
   imports: [
@@ -19,6 +22,9 @@ import { AdminApiKeysModule } from './admin-api-keys/admin-api-keys.module';
     AuthModule,
     UsersModule,
     AdminApiKeysModule,
+    FarmsModule,
+    CarsModule,
+    AnalysesModule,
   ],
 })
 export class AppModule {}

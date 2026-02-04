@@ -1,0 +1,57 @@
+name: CD Versionamento
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "apps/Versionamento/**"
+      - ".github/workflows/cd-versionamento.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: cd-versionamento
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository_owner }}/landwatch-versionamento
+
+jobs:
+  versionamento-build:
+    runs-on: ubuntu-latest
+    outputs:
+      image: ${{ steps.meta.outputs.image }}
+      image_digest: ${{ steps.meta.outputs.image_digest }}
+      digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Normalize image name
+        shell: bash
+        run: |
+          echo "IMAGE_NAME=${GITHUB_REPOSITORY_OWNER,,}/landwatch-versionamento" >> "$GITHUB_ENV"
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./apps/Versionamento/Dockerfile
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+      - name: Set image outputs
+        id: meta
+        run: |
+          echo "image=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          echo "image_digest=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}" >> "$GITHUB_OUTPUT"

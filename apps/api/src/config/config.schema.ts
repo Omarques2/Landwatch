@@ -44,21 +44,29 @@ const envBaseSchema = z.object({
   RATE_LIMIT_AUTH_WINDOW_MS: numberSchema.default(60_000),
   RATE_LIMIT_AUTH_MAX: numberSchema.default(20),
 
-    TRUST_PROXY: booleanSchema.default(false),
-    DB_SSL_ALLOW_INVALID: booleanSchema.default(false),
+  TRUST_PROXY: booleanSchema.default(false),
+  DB_SSL_ALLOW_INVALID: booleanSchema.default(false),
 
-    API_KEY_PEPPER: z.string().min(1, 'API_KEY_PEPPER is required'),
-    API_KEY_PREFIX_LENGTH: z
+  API_KEY_PEPPER: z.string().min(1, 'API_KEY_PEPPER is required'),
+  API_KEY_PREFIX_LENGTH: z
     .preprocess((value) => {
       if (value === undefined || value === null || value === '')
         return undefined;
       if (typeof value === 'string') return Number(value);
       return value;
-      }, z.number().int().min(4).max(32))
-      .default(8),
+    }, z.number().int().min(4).max(32))
+    .default(8),
 
-    DB_SCHEMA: z.string().optional(),
-  });
+  DB_SCHEMA: z.string().optional(),
+  LANDWATCH_SCHEMA: z.string().default('landwatch'),
+  LANDWATCH_SICAR_CATEGORY_CODE: z.string().default('SICAR'),
+  LANDWATCH_CAR_MAX_RADIUS_METERS: numberSchema.default(5000),
+  LANDWATCH_CAR_MAX_RESULTS: numberSchema.default(25),
+
+  LANDWATCH_PDF_STORAGE_DIR: z.string().optional(),
+  LANDWATCH_PDF_TTL_HOURS: numberSchema.default(2),
+  LANDWATCH_PDF_TILE_PROVIDERS: z.string().optional(),
+});
 
 const envSchema = envBaseSchema.superRefine(
   (values: z.infer<typeof envBaseSchema>, ctx) => {

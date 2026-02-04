@@ -4,25 +4,25 @@
 - Produto: plataforma de analise socioambiental e compliance em imoveis rurais, baseada em interseccoes geoespaciais.
 - Fonte de verdade: dados estruturados no Postgres (app.*). PDF e um artefato cacheavel e regeneravel.
 - Dados geoespaciais: schema landwatch.* (read-only) com historico e estado corrente.
-- Arquitetura: API + Worker (NestJS), fila BullMQ/Redis, Postgres + PostGIS, Blob Storage, SPA Vue 3.
-- Multi-tenant (visao futuro): usuario individual e corporativo, com suporte LandWatch e permissoes finas.
+- Arquitetura alvo: API + Worker (NestJS), fila BullMQ/Redis, Postgres + PostGIS, Blob Storage, SPA Vue 3.
+- MVP atual: analises **sincronas** na API (para testes manuais), com evolucao para assinc via Worker.
 
 ## Decisoes tomadas (2026-01-27)
 - Provedor de tiles/satelite para PDF: Mapbox no MVP (avaliar custo/licenca para produção).
 - Validacao publica do PDF: token aleatorio + QR apontando para URL publica com token.
 - Retencao de PDF: TTL curto (1h) com regeneracao sob demanda.
-- Realtime: Socket.IO no MVP.
+- Realtime: Socket.IO no MVP (postergado para MVP+).
 - Concurrency de jobs: configuravel, mas fora do MVP.
 - Sem versionamento de template do PDF no MVP.
 - MVP inclui todos os datasets.
 - Data access: Prisma para `app.*`; queries PostGIS (landwatch.*) via SQL direto (read-only).
-- Versionamento SHP/PostGIS vive em repo separado e sera refatorado depois.
+- Versionamento SHP/PostGIS vive em repo separado e foi refatorado (LandwatchVersionamento).
 
 ## Decisoes tomadas (2026-01-28)
 - Auth: somente Entra External ID (sem email/senha local e sem Google no MVP).
 - Acesso: sem politica de "pending" no MVP; usuarios ativos no primeiro login.
 - MVP sem orgs/grupos (modo usuarios unicos). Orgs serao adicionadas depois.
-- Mapa web e PDF: satelite (preferencia Google), mas escolher provedor com menor custo/licenca adequada.
+- Mapa web e PDF: satelite (Mapbox no MVP).
 - Analise: uma query principal (PostGIS) + status para feedback no UI.
 - Entrada minima: CAR ou selecao de area no mapa (SICAR visivel em zoom alto).
 - CPF/CNPJ opcional destrava consultas adicionais (metadata).
@@ -54,23 +54,22 @@
 Incluido:
 - Auth (Entra External ID) + contexto de usuario.
 - Farms (CRUD) com regra de leitura global e escrita restrita.
-- Lookup CAR por coordenadas.
-- Mapa de busca por coordenadas com exibicao de fazendas proximas (SICAR) em zoom alto.
-- Analise assincrona (BullMQ) com resultados persistidos no DB.
-- Realtime (Socket.IO) para status.
-- PDF assincrono, Blob + pagina publica de validacao (QR/Token).
-- Todos os datasets no MVP (com possibilidade de feature-flag por config).
-- UI MVP: Login, Dashboard, Lista de Analises, Detalhe da Analise, Nova Analise, Fazendas (lista) e Detalhe da Fazenda.
-- API publica para automacao (criar analise, consultar status, baixar PDF).
+- Lookup CAR por coordenadas + bbox para mapa.
+- Analise **sincrona** na API (usa funcoes landwatch) com resultados persistidos.
+- API M2M com API Key para automacoes (Fabric).
+- UI simples para testes manuais (console home).
 
-Fora do MVP:
+Fora do MVP (ou MVP+):
+- Worker + BullMQ (analises assinc).
+- Realtime (Socket.IO).
+- PDF server-side + Blob + pagina publica de validacao.
 - Documentos anexados.
 - Schedules/alerts.
 - Admin completo.
-- Funcionalidades avancadas de UI (alertas, agendamentos, admin completo).
+- UI completa (dashboard, listas, detalhes com mapas).
 
 ## Nao objetivos (por enquanto)
-- Ingestao de camadas (fica no Fabric).
+- Ingestao de camadas (fica no Fabric/Versionamento).
 - Observabilidade completa (APM/tracing avancado).
 - Regras de governanca complexas (ABAC profundo).
 
@@ -85,54 +84,48 @@ Fora do MVP:
   - Redis (BullMQ)
   - Blob Storage (Azure)
   - Entra External ID (JWT)
-  - Google Maps (tiles/satelite para web e PDF)
+  - Mapbox (tiles/satelite)
 - Realtime:
   - Socket.IO no API (adapter Redis para scale-out futuro)
 
-## Data model (app.*) - proposta base
+## Data model (app.*) - baseline
 - user (entra_sub, status, last_login_at)
 - org
 - org_membership (user_id, org_id, role, status)
 - org_group + org_group_membership
-- farm (owner_org_id, car_key, car_dataset_id, meta)
-- farm_edit_grant (farm_id, org_id, granted_by)
-- analysis (farm_id, analysis_date, status, requested_by, org_context)
-- analysis_job (job_id, attempts, error, duration_ms)
-- analysis_result (analysis_id, dataset_id, feature_id, area_ha, pct_farm, valid_from, valid_to)
-- analysis_biome (analysis_id, biome_code, area_ha, pct_farm)
-- pdf_artifact (analysis_id, status, blob_key, token, generated_at, expires_at)
-- document (blob_key, type, meta, created_by, visibility)
-- document_feature_link (dataset_id, feature_id, document_id)
-- document_farm_link (farm_id, document_id)
+- farm (owner_user_id, car_key, cpf_cnpj, org_id?)
+- analysis (car_key, analysis_date, status, created_by_user_id, org_id?)
+- analysis_result (analysis_id, dataset_code, feature_id, areas, pct)
 - api_client (name, org_id?, status)
 - api_key (client_id, key_hash, scopes, last_used_at, expires_at)
-- schedule + schedule_run
-- alert_policy + alert + alert_event
 
-## Integração com landwatch.* (read-only)
-- Normalizar analysisTs para DATE (America/Sao_Paulo).
-- Consultas atuais: feature_state + valid_to IS NULL.
-- Consultas historicas: valid_from <= D AND (valid_to IS NULL OR valid_to > D).
+## Integracao com landwatch.* (read-only)
+- Normalizar analysisDate para DATE.
+- Estrutura atual (2026-02-01): tabelas lw_* (lw_category, lw_dataset, lw_feature, lw_feature_geom_hist, lw_geom_store, lw_doc_index, etc).
+- Funcoes oficiais do schema landwatch (DB_ANALYSIS_GUIDE.md):
+  - fn_sicar_feature_current / fn_sicar_feature_asof
+  - fn_intersections_current_simple / fn_intersections_asof_simple
+  - fn_intersections_current_area / fn_intersections_asof_area
+  - fn_doc_current / fn_doc_asof
+- Consultas historicas seguem valid_from/valid_to no historico.
 - Identificacao de feicao: dataset_id + feature_id (surrogate estavel).
 - Acesso read-only ao schema landwatch.* (usuario DB separado).
 - Queries geoespaciais sempre parametrizadas.
-- Camada de queries PostGIS isolada (repositorio/servico dedicado).
 - Consulta de SICAR para mapa com limite de zoom (carregar apenas quando proximo; default 13).
 
-## Jobs e idempotencia
+## Jobs e idempotencia (MVP+)
 - BullMQ com filas separadas: analysis:run, pdf:render, alerts:tick.
 - Idempotency-Key em POST /analyses e /pdf para evitar duplicacao.
-- Locks por (farm_id, analysis_date, category_set) no banco.
+- Locks por (car_key, analysis_date, category_set) no banco.
 - Status consistentes: QUEUED -> RUNNING -> DONE/FAILED.
 - Dead-letter e backoff para jobs falhos.
-- Concurrency configuravel (fora do MVP).
 
 ## PDF (artefato cacheavel)
 - PDF nunca e fonte de verdade; DB e a fonte.
 - Sem versionamento de template no MVP.
 - Token aleatorio + QR apontando para URL publica com token.
 - TTL curto (1h) + regeneracao sob demanda.
-- Google Maps para render do mapa (validar custos/licenca).
+- Mapbox Static Image + overlay de CAR + interseccoes.
 
 ## Autenticacao e acesso (MVP)
 - Login apenas via Entra External ID (MSAL).
@@ -144,11 +137,6 @@ Fora do MVP:
 - API deve aceitar automacoes (job submit + polling + download PDF).
 - Auth M2M: API Key no MVP (rate limit + escopos).
 
-## Realtime
-- Eventos: analysis.status.changed, pdf.ready, alert.created.
-- Rooms: user:{id}, org:{id}, analysis:{id}.
-- Redis adapter para scale-out (opcional no MVP).
-
 ## UX/UI
 - Direcao visual e telas base em `docs/ui-design.md`.
 - Layout base: header + sidebar + content cards.
@@ -156,8 +144,8 @@ Fora do MVP:
 
 ## Seguranca e compliance
 - JWT validation (aud/iss) e guard global.
-- RBAC basico + grants (farm_edit_grant).
-- Rate limiting em auth/admin.
+- RBAC basico + grants (farm_edit_grant) para fase futura.
+- Rate limiting em auth/admin e M2M.
 - Sanitizacao de output e validacao de inputs.
 - Logs sem dados sensiveis.
 
@@ -185,6 +173,12 @@ Fora do MVP:
 - Queries limitadas por bbox e thresholds.
 - Cache de geometria do CAR na analysis_date (se necessario).
 - Analise por lotes para evitar overload (concurrency por org).
+- Planejar MV de feicoes ativas (current) para acelerar interseccoes do SICAR (sem DETER), mantendo historico intacto.
+- Nao precomputar todas as interseccoes (custo/armazenamento alto); usar MV de feicoes ativas como fonte corrente.
+## Ingest (Downloads + Blob)
+- Downloads temporarios via Azure Blob Storage com limpeza automatica apos ingest.
+- Job unico modular: download -> manifest -> ingest seletivo por categoria.
+- Retencao curta (1–2 execucoes) para reprocessamento rapido.
 
 ## Backlog por epicos (P0/P1/P2)
 
@@ -213,12 +207,9 @@ Card P0 — CRUD farms com regra global-read/restricted-write
 Card P0 — Lookup CAR por coordenadas
 - Aceite: endpoint retorna candidatos com distancia e area.
 
-### EPIC-03: Analises assincronas (P0)
-Card P0 — POST /analyses + job queue
-- Aceite: cria analysis, enfileira job, status evolui.
-
-Card P0 — Persistencia de resultados
-- Aceite: analysis_result e analysis_biome populados e consultaveis.
+### EPIC-03: Analises (P0)
+Card P0 — POST /analyses (sincrono)
+- Aceite: cria analysis e results com base no schema landwatch.
 
 Card P1 — Idempotencia e locks
 - Aceite: mesma request nao duplica analise.
@@ -247,23 +238,11 @@ Card P2 — Admin basico (orgs/users/grants)
 - Aceite: suporte gerencia orgs e grants.
 
 ### EPIC-09: SPA MVP (P1)
-Card P1 — Fluxo essencial (login -> farm -> analise -> pdf)
+Card P1 — Fluxo essencial (login -> farm -> analise)
 - Aceite: usuario consegue executar o fluxo completo sem refresh.
 
 Card P1 — Telas base (Dashboard, Analises, Fazendas, Nova Analise)
 - Aceite: UI consistente com `docs/ui-design.md` e responsiva.
-
-Card P1 — Detalhe de analise com mapa (MVP)
-- Aceite: mapa mostra CAR + intersecoes e tabela abaixo.
-
-### EPIC-11: Automacao externa (P1)
-Card P1 — API para automacao (Fabric)
-- Objetivo: endpoints para criar analise, consultar status, baixar PDF.
-- Aceite: automacao externa consegue executar o fluxo sem UI.
-
-Card P0 — API Key para M2M
-- Objetivo: autenticar chamadas de automacao via X-API-Key.
-- Aceite: chave valida permite criar analise e baixar PDF, com rate limit.
 
 ### EPIC-10: Hardening e qualidade (P1/P2)
 Card P1 — Envelope + ExceptionFilter + correlationId
