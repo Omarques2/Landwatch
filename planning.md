@@ -205,7 +205,7 @@ Card P0 — CRUD farms com regra global-read/restricted-write
 - Aceite: leitura global; escrita apenas owner org ou support.
 
 Card P0 — Lookup CAR por coordenadas
-- Aceite: endpoint retorna candidatos com distancia e area.
+- Aceite: endpoint por ponto retorna apenas CARs que intersectam a coordenada, com resposta rapida.
 
 ### EPIC-03: Analises (P0)
 Card P0 — POST /analyses (sincrono)

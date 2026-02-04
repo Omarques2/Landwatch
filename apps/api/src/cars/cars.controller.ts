@@ -5,6 +5,7 @@ import { CarsService } from './cars.service';
 import { BboxCarsQuery } from './dto/bbox-cars.query';
 import { LookupCarsQuery } from './dto/lookup-cars.query';
 import { NearbyCarsQuery } from './dto/nearby-cars.query';
+import { PointCarsQuery } from './dto/point-cars.query';
 
 @Controller('v1/cars')
 @UseGuards(AuthGuard, ActiveUserGuard)
@@ -24,5 +25,10 @@ export class CarsController {
   @Get('nearby')
   nearby(@Query() query: NearbyCarsQuery) {
     return this.cars.nearby(query);
+  }
+
+  @Get('point')
+  point(@Query() query: PointCarsQuery) {
+    return this.cars.point(query);
   }
 }

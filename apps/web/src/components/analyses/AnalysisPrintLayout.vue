@@ -7,27 +7,32 @@
           <div class="print-title">Sigfarm LandWatch - Análise Socioambiental</div>
         </div>
         <div class="print-subtitle">
-          <span>{{ analysis?.farmName ?? "Fazenda sem cadastro" }}</span>
-          <span class="print-divider">·</span>
-          <span>{{ analysis?.carKey ?? "-" }}</span>
-          <span
-            v-if="analysis?.sicarStatus"
-            class="print-badge"
-            :class="sicarStatusOk ? 'print-badge-ok' : 'print-badge-warn'"
-          >
-            <span class="print-badge-icon">{{ sicarStatusOk ? "✓" : "!" }}</span>
-            {{ formatStatusLabel(analysis?.sicarStatus).toUpperCase() }}
-          </span>
+          <span>Estabelecimento {{ analysis?.farmName ?? "Fazenda sem cadastro" }}</span>
+          <template v-if="analysis?.sicarStatus">
+            <span class="print-divider">-</span>
+            <span
+              class="print-badge"
+              :class="sicarStatusOk ? 'print-badge-ok' : 'print-badge-warn'"
+            >
+              {{ sicarBadgeText }}
+              <span class="print-badge-icon">{{ sicarStatusOk ? "✓" : "!" }}</span>
+            </span>
+          </template>
         </div>
-        <div v-if="docInfoLine" class="print-subtitle muted">
-          <span>{{ docInfoLine }}</span>
+        <div v-if="docBadgeText" class="print-subtitle muted">
+          <template v-if="docInfoType === 'CNPJ'">
+            <span>CNPJ {{ docLineLabel }}</span>
+            <span class="print-divider">-</span>
+          </template>
+          <template v-else-if="docInfoType === 'CPF'">
+            <span>CPF</span>
+          </template>
           <span
-            v-if="badgeLine"
             class="print-badge"
             :class="badgeOk ? 'print-badge-ok' : 'print-badge-warn'"
           >
+            {{ docBadgeText }}
             <span class="print-badge-icon">{{ badgeOk ? "✓" : "!" }}</span>
-            {{ badgeLine }}
           </span>
         </div>
       </header>
@@ -113,7 +118,7 @@
                 >
                   {{ item.hit ? "✕" : "✓" }}
                 </span>
-                <span class="print-chip-text">{{ formatDatasetLabelPrint(item.datasetCode) }}</span>
+                <span class="print-chip-text">{{ formatDatasetLabelPrint(item) }}</span>
               </div>
             </div>
           </div>
@@ -126,6 +131,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { colorForDataset, formatDatasetLabel } from "@/features/analyses/analysis-colors";
+import { buildIndigenaLegendItems, buildLegendCodes } from "@/features/analyses/analysis-legend";
 import AnalysisMap from "@/components/maps/AnalysisMap.vue";
 import QRCode from "qrcode";
 
@@ -149,7 +155,7 @@ type AnalysisDetail = {
   sicarStatus?: string | null;
   datasetGroups?: Array<{
     title: string;
-    items: Array<{ datasetCode: string; hit: boolean }>;
+    items: Array<{ datasetCode: string; hit: boolean; label?: string }>;
   }>;
   docInfo?: {
     type: "CNPJ" | "CPF";
@@ -207,39 +213,51 @@ const badgeOk = computed(() => {
   return true;
 });
 
-const docInfoLine = computed(() => {
+const docLineLabel = computed(() => {
   const info = props.analysis?.docInfo;
   if (!info) return "";
   if (info.type === "CNPJ") {
-    return info.fantasia || info.nome || "";
+    return info.fantasia || info.nome || "Sem nome";
+  }
+  if (info.type === "CPF") {
+    return "CPF";
+  }
+  return "";
+});
+
+const docBadgeText = computed(() => {
+  const info = props.analysis?.docInfo;
+  if (!info) return "";
+  if (info.type === "CNPJ") {
+    const cnpj = formatCnpj(info.cnpj ?? "") || info.cnpj?.trim() || "";
+    const status = info.situacao ? info.situacao.toUpperCase() : "";
+    return ["CNPJ", cnpj, status].filter(Boolean).join(" ");
   }
   if (info.type === "CPF") {
     if (info.isValid === false) return "CPF inválido";
     const cpf = formatCpf(info.cpf ?? "");
-    return cpf ? `CPF: ${cpf}` : "CPF inválido";
+    return cpf || "CPF inválido";
   }
   return "";
 });
 
-const badgeLine = computed(() => {
-  const info = props.analysis?.docInfo;
-  if (!info) return "";
-  if (info.type === "CNPJ") {
-    const cnpj = formatCnpj(info.cnpj ?? "");
-    const status = info.situacao ? info.situacao.toUpperCase() : "";
-    if (cnpj && status) return `CNPJ ${cnpj} - ${status}`;
-    return cnpj ? `CNPJ ${cnpj}` : "";
-  }
-  if (info.type === "CPF") {
-    return docInfoLine.value;
-  }
-  return "";
+const docInfoType = computed(() => props.analysis?.docInfo?.type ?? null);
+
+const sicarBadgeText = computed(() => {
+  if (!props.analysis?.sicarStatus) return "";
+  const carKey = props.analysis?.carKey ?? "-";
+  const status = formatStatusLabel(props.analysis?.sicarStatus).toUpperCase();
+  return ["SICAR", carKey, status].filter(Boolean).join(" ");
 });
+
+const indigenaLegendItems = computed(() =>
+  buildIndigenaLegendItems(props.analysis?.datasetGroups ?? [], props.mapFeatures),
+);
 
 const printLegend = computed(() => {
-  const codes = Array.from(
-    new Set(props.mapFeatures.filter((f) => f.categoryCode !== "SICAR").map((f) => f.datasetCode)),
-  );
+  const codes = buildLegendCodes(props.mapFeatures, {
+    includeIndigena: indigenaLegendItems.value.length === 0,
+  });
   return [
     { code: "SICAR", label: "CAR", color: "#ef4444" },
     ...codes.map((code) => ({
@@ -247,6 +265,7 @@ const printLegend = computed(() => {
       label: formatDatasetLabel(code),
       color: colorForDataset(code),
     })),
+    ...indigenaLegendItems.value,
   ];
 });
 
@@ -270,7 +289,10 @@ const sicarAreaHa = computed(() => {
 
 function formatDate(value?: string | null) {
   if (!value) return "-";
-  return value.slice(0, 10);
+  const raw = value.slice(0, 10);
+  const [y, m, d] = raw.split("-");
+  if (y && m && d) return `${d}/${m}/${y}`;
+  return raw;
 }
 
 function formatMunicipio(municipio?: string | null, uf?: string | null) {
@@ -284,8 +306,9 @@ function formatBiomas(biomas?: string[] | null) {
   return biomas.map((bioma) => fixMojibake(bioma)).join(", ");
 }
 
-function formatDatasetLabelPrint(code: string) {
-  const label = formatDatasetLabel(code);
+function formatDatasetLabelPrint(item: { datasetCode: string; label?: string }) {
+  if (item.label) return item.label;
+  const label = formatDatasetLabel(item.datasetCode);
   return label.replace(/\\bProdes\\b\\s*/i, "").trim();
 }
 
@@ -320,8 +343,10 @@ function formatCpf(value: string) {
 
 function formatCnpj(value: string) {
   const digits = normalizeDigits(value);
-  if (digits.length !== 14) return "";
-  return `${digits.slice(0, 2)}.${digits.slice(2, 5)}.${digits.slice(5, 8)}/${digits.slice(8, 12)}-${digits.slice(12)}`;
+  if (!digits) return "";
+  const padded = digits.length < 14 ? digits.padStart(14, "0") : digits;
+  if (padded.length !== 14) return "";
+  return `${padded.slice(0, 2)}.${padded.slice(2, 5)}.${padded.slice(5, 8)}/${padded.slice(8, 12)}-${padded.slice(12)}`;
 }
 
 function fixMojibake(value: string) {
@@ -448,6 +473,14 @@ watch(
   color: #475569;
 }
 
+.print-sicar-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
 .print-subtitle.muted {
   color: #64748b;
 }
@@ -553,20 +586,20 @@ watch(
 
 .print-groups {
   display: grid;
-  gap: 12px;
+  gap: 10px;
 }
 
 .print-group-title {
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 700;
   color: #64748b;
-  margin-bottom: 6px;
+  margin-bottom: 4px;
 }
 
 .print-grid {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 6px;
+  gap: 4px;
 }
 
 .print-chip {
@@ -574,9 +607,9 @@ watch(
   align-items: center;
   gap: 6px;
   border: 1px solid #e2e8f0;
-  border-radius: 10px;
-  padding: 6px 8px;
-  font-size: 9px;
+  border-radius: 8px;
+  padding: 4px 6px;
+  font-size: 8px;
   break-inside: avoid;
   page-break-inside: avoid;
 }
@@ -585,10 +618,10 @@ watch(
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
   border-radius: 999px;
-  font-size: 9px;
+  font-size: 8px;
   font-weight: 600;
 }
 

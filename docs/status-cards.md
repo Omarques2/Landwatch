@@ -66,8 +66,8 @@ Legenda:
   Aceite: endpoints CRUD com paginacao.
 - [x] Regra de visibilidade (global read, restricted write)
   Aceite: usuario sem permissao nao edita farm.
-- [x] Endpoint lookup por coordenadas (ST_DWithin)
-  Aceite: retorna lista ranqueada por distancia.
+- [x] Endpoint lookup por coordenadas (ponto)
+  Aceite: retorna apenas CARs que intersectam a coordenada.
 - [x] Endpoint bbox para SICAR (zoom >= 13)
   Aceite: retorna geometrias simplificadas por bbox.
 - [x] Validacoes de CAR e CPF/CNPJ (DTO + class-validator)
@@ -92,6 +92,10 @@ Legenda:
   Aceite: retorna header + resultados.
 - [x] Consultas via funcoes landwatch (fn_intersections_* e fn_doc_*)
   Aceite: SQL usa funcoes do schema landwatch.
+- [x] Subdividir Terras Indígenas por fase_ti (API + UI)
+  Aceite: lista fases distintas e marca hit apenas nas fases com intersecção.
+- [x] Subdividir Unidades de conservação por SiglaCateg (API + UI)
+  Aceite: grupo dedicado com de/para; siglas desconhecidas exibem a própria sigla.
 
 ## EPIC-06 - Worker + fila (assinc)
 - [ ] BullMQ setup (redis + queues)
@@ -130,18 +134,18 @@ Legenda:
   Aceite: UI simples permite criar farm, rodar analise e ver resultados.
 - [ ] Dashboard (cards + ultimas analises)
   Aceite: cards com dados reais e estados vazios.
-- [ ] Lista de analises + filtros
+- [~] Lista de analises + filtros
   Aceite: filtros refletem query backend.
-- [ ] Detalhe da analise (mapa + tabela)
+- [x] Detalhe da analise (mapa + tabela)
   Aceite: mapa e tabela renderizam sem erro.
-- [ ] Nova analise (form + validacoes)
+- [x] Nova analise (form + validacoes)
   Aceite: validacoes e POST /analyses funcionam.
-- [ ] Fazendas (lista + modal criar)
+- [x] Fazendas (lista + modal criar)
   Aceite: CRUD basico acessivel por modal.
 - [ ] Detalhe da fazenda
   Aceite: historico de analises por farm.
-- [ ] Tela "Buscar por coordenadas"
-  Aceite: ponto no mapa retorna CARs proximos.
+- [x] Tela "Buscar por coordenadas"
+  Aceite: ponto no mapa retorna CARs que intersectam a coordenada.
 
 ## EPIC-10 - Hardening final do MVP
 - [ ] Rate limit para endpoints criticos (analises/pdf)
@@ -154,5 +158,5 @@ Legenda:
   Aceite: checklist documentado e aprovado.
 - [ ] MV de feicoes ativas (current) para acelerar interseccoes do SICAR (sem DETER)
   Aceite: consultas de interseccao current usam MV e reduzem latencia significativamente.
-- [ ] Downloads + ingest via Blob com limpeza automatica (job unico modular)
+- [x] Downloads + ingest via Blob com limpeza automatica (job unico modular)
   Aceite: job baixa, ingere por categoria e remove blobs antigos com retencao curta (1–2 execucoes).

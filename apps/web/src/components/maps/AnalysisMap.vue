@@ -26,7 +26,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import L from "leaflet";
-import "leaflet.browser.print/dist/leaflet.browser.print.js";
 import { colorForDataset, formatDatasetLabel } from "@/features/analyses/analysis-colors";
 
 type MapFeature = {
@@ -52,7 +51,6 @@ let otherLayer: L.GeoJSON<any> | null = null;
 let selectedKey: string | null = null;
 let selectedDataset: string | null = null;
 let printModeState = false;
-let printControl: any = null;
 
 const legend = computed(() => {
   const codes = Array.from(
@@ -168,6 +166,15 @@ function updateLayers() {
           fillOpacity: sicarSelected ? 0.35 : 0.25,
         };
       },
+      pointToLayer: (_feature, latlng) =>
+        L.circleMarker(latlng, {
+          radius: 0,
+          color: "#dc2626",
+          weight: 0,
+          fillColor: "#ef4444",
+          fillOpacity: 0,
+          opacity: 0,
+        }),
       onEachFeature: (feature, layer) => {
         const code = feature.properties?.datasetCode ?? "SICAR";
         layer.bindTooltip(code, { sticky: true });
@@ -201,6 +208,18 @@ function updateLayers() {
           fillColor: colorForDataset(code),
           fillOpacity: isSelected ? 0.75 : isDatasetActive ? 0.6 : 0.15,
         };
+      },
+      pointToLayer: (feature: any, latlng) => {
+        const code = feature?.properties?.datasetCode ?? "";
+        const color = colorForDataset(code);
+        return L.circleMarker(latlng, {
+          radius: 0,
+          color,
+          weight: 0,
+          fillColor: color,
+          fillOpacity: 0,
+          opacity: 0,
+        });
       },
       onEachFeature: (feature, layer) => {
         const code = feature.properties?.datasetCode ?? "";
@@ -325,12 +344,6 @@ onMounted(async () => {
     attribution: "Google",
   }).addTo(map);
 
-  if (printModeState && (L as any).control?.browserPrint) {
-    printControl = (L as any).control.browserPrint({
-      printModes: ["Auto"],
-    });
-    printControl.addTo(map);
-  }
 
   await nextTick();
   updateLayers();

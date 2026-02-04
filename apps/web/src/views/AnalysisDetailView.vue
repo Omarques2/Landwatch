@@ -22,24 +22,29 @@
           <div class="h-3 w-52 animate-pulse rounded-full bg-muted"></div>
         </div>
         <div v-else class="text-sm text-muted-foreground">
-          {{ analysis?.farmName ?? "Fazenda sem cadastro" }}
-          <span
-            v-if="analysis?.sicarStatus"
-            class="ml-2 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold"
-            :class="
-              sicarStatusOk
-                ? 'bg-emerald-500/15 text-emerald-700'
-                : 'bg-destructive/15 text-destructive'
-            "
-          >
-            <span class="text-[10px]">{{ sicarStatusOk ? "✓" : "!" }}</span>
-            {{ analysis?.carKey ?? "-" }} {{ formatStatusLabel(analysis?.sicarStatus).toUpperCase() }}
-          </span>
+          <span>Estabelecimento {{ analysis?.farmName ?? "Fazenda sem cadastro" }}</span>
+          <template v-if="analysis?.sicarStatus">
+            <span class="mx-1 text-muted-foreground/70">-</span>
+            <span
+              class="ml-2 inline-flex items-center gap-2 rounded-full px-2 py-0.5 text-[11px] font-semibold whitespace-nowrap"
+              :class="
+                sicarStatusOk
+                  ? 'bg-emerald-500/15 text-emerald-700'
+                  : 'bg-destructive/15 text-destructive'
+              "
+            >
+              {{ sicarBadgeText }}
+              <span class="text-[10px]">{{ sicarStatusOk ? "✓" : "!" }}</span>
+            </span>
+          </template>
         </div>
-        <div v-if="!isLoading && badgeLine" class="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+        <div v-if="!isLoading && docBadgeText" class="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
           <template v-if="docInfoType === 'CNPJ'">
-            <span class="whitespace-nowrap">{{ docInfoLine }}</span>
+            <span class="whitespace-nowrap">CNPJ {{ docLineLabel }}</span>
             <span class="text-muted-foreground/70">-</span>
+          </template>
+          <template v-else-if="docInfoType === 'CPF'">
+            <span class="whitespace-nowrap">CPF</span>
           </template>
           <span
             class="inline-flex items-center gap-2 rounded-full px-2 py-0.5 text-[11px] font-semibold whitespace-nowrap"
@@ -49,8 +54,8 @@
                 : 'bg-destructive/15 text-destructive'
             "
           >
+            {{ docBadgeText }}
             <span class="text-[10px]">{{ badgeOk ? "✓" : "!" }}</span>
-            {{ badgeLine }}
           </span>
         </div>
       </div>
@@ -63,10 +68,10 @@
     <section class="print-card print-page-1 rounded-2xl border border-border bg-card p-6 shadow-sm">
       <div class="text-lg font-semibold">Mapa da análise</div>
       <div
-        v-if="analysis?.status && analysis?.status !== 'completed'"
+        v-if="displayStatus && displayStatus !== 'completed'"
         class="mt-2 text-sm text-muted-foreground"
       >
-        Status: {{ statusLabel(analysis?.status) }}
+        Status: {{ statusLabel(displayStatus) }}
       </div>
       <div v-if="showMetaSkeleton" class="mt-4 grid gap-3 text-sm sm:grid-cols-2">
         <div class="h-4 w-36 animate-pulse rounded-full bg-muted"></div>
@@ -115,7 +120,7 @@
               <div class="text-xs text-muted-foreground">Carregando mapa...</div>
             </div>
           </div>
-          <AnalysisMap
+            <AnalysisMap
             v-else-if="mapFeatures.length"
             ref="analysisMapRef"
             :features="mapFeatures"
@@ -135,7 +140,7 @@
             <div class="flex flex-col items-center gap-4 text-center">
               <div class="inline-flex items-center gap-3 text-2xl font-semibold">
                 <span class="inline-flex h-6 w-6 animate-spin rounded-full border-2 border-muted-foreground/40 border-t-muted-foreground"></span>
-                {{ statusLabel(analysis?.status) }}
+                {{ statusLabel(displayStatus) }}
               </div>
               <div class="max-w-xs text-sm text-muted-foreground">
                 Estamos processando sua análise. Assim que terminar, o mapa e os resultados serão exibidos.
@@ -182,7 +187,7 @@
       <div class="text-lg font-semibold">Interseções</div>
       <div v-if="showIntersectionsSkeleton" class="mt-4 grid gap-4">
         <div class="h-4 w-40 animate-pulse rounded-full bg-muted"></div>
-        <div class="intersections-grid grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+        <div class="intersections-grid grid gap-1.5 sm:grid-cols-3 xl:grid-cols-4">
           <div class="h-10 animate-pulse rounded-lg border border-border bg-muted/30"></div>
           <div class="h-10 animate-pulse rounded-lg border border-border bg-muted/30"></div>
           <div class="h-10 animate-pulse rounded-lg border border-border bg-muted/30"></div>
@@ -194,11 +199,11 @@
       <div v-else class="print-breakable mt-4 grid gap-6">
         <div v-for="group in analysis?.datasetGroups ?? []" :key="group.title">
           <div class="text-sm font-semibold text-muted-foreground">{{ group.title }}</div>
-          <div class="intersections-grid mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+          <div class="intersections-grid mt-3 grid gap-1.5 sm:grid-cols-3 xl:grid-cols-4">
             <div
               v-for="item in group.items"
               :key="item.datasetCode"
-              class="print-intersection-item flex items-center gap-3 rounded-lg border border-border px-3 py-2 text-sm"
+              class="print-intersection-item flex items-center gap-2 rounded-lg border border-border px-2.5 py-1.5 text-[11px]"
             >
               <div class="flex items-center gap-3">
                 <span
@@ -207,7 +212,7 @@
                 >
                   {{ item.hit ? "✕" : "✓" }}
                 </span>
-                <span class="font-semibold">{{ formatDatasetLabelForMode(item.datasetCode) }}</span>
+                <span class="font-semibold">{{ formatDatasetLabelForMode(item) }}</span>
               </div>
             </div>
           </div>
@@ -225,6 +230,7 @@ import { Button as UiButton } from "@/components/ui";
 import { http } from "@/api/http";
 import { unwrapData, type ApiEnvelope } from "@/api/envelope";
 import { colorForDataset, formatDatasetLabel } from "@/features/analyses/analysis-colors";
+import { buildIndigenaLegendItems, buildLegendCodes } from "@/features/analyses/analysis-legend";
 import { getAnalysisMapCache, setAnalysisMapCache } from "@/features/analyses/analysis-map-cache";
 import AnalysisMap from "@/components/maps/AnalysisMap.vue";
 import AnalysisPrintLayout from "@/components/analyses/AnalysisPrintLayout.vue";
@@ -250,7 +256,7 @@ type AnalysisDetail = {
   sicarStatus?: string | null;
   datasetGroups?: Array<{
     title: string;
-    items: Array<{ datasetCode: string; hit: boolean }>;
+    items: Array<{ datasetCode: string; hit: boolean; label?: string }>;
   }>;
   docInfo?: {
     type: "CNPJ" | "CPF";
@@ -287,7 +293,7 @@ const isPrintMode = ref(false);
 const originalTitle = ref<string | null>(null);
 
 const showAnalysisOverlay = computed(() => {
-  const status = analysis.value?.status;
+  const status = displayStatus.value;
   if (!status) return false;
   return status !== "completed";
 });
@@ -325,33 +331,45 @@ const showIntersectionsSkeleton = computed(() => {
   return status !== "completed";
 });
 
-const docInfoLine = computed(() => {
+const displayStatus = computed(() => {
+  if (analysis.value?.status) return analysis.value.status;
+  if (isLoading.value) return "pending";
+  return null;
+});
+
+const docLineLabel = computed(() => {
   const info = analysis.value?.docInfo;
   if (!info) return "";
   if (info.type === "CNPJ") {
-    return info.fantasia || info.nome || "";
+    return info.fantasia || info.nome || "Sem nome";
   }
   if (info.type === "CPF") {
-    if (info.isValid === false) return "CPF inválido";
-    const cpf = formatCpf(info.cpf ?? "");
-    return cpf ? `CPF: ${cpf}` : "CPF inválido";
+    return "CPF";
   }
   return "";
 });
 
-const badgeLine = computed(() => {
+const docBadgeText = computed(() => {
   const info = analysis.value?.docInfo;
   if (!info) return "";
   if (info.type === "CNPJ") {
-    const cnpj = formatCnpj(info.cnpj ?? "");
+    const cnpj = formatCnpj(info.cnpj ?? "") || info.cnpj?.trim() || "";
     const status = info.situacao ? info.situacao.toUpperCase() : "";
-    if (cnpj && status) return `CNPJ ${cnpj} - ${status}`;
-    return cnpj ? `CNPJ ${cnpj}` : "";
+    return ["CNPJ", cnpj, status].filter(Boolean).join(" ");
   }
   if (info.type === "CPF") {
-    return docInfoLine.value;
+    if (info.isValid === false) return "CPF inválido";
+    const cpf = formatCpf(info.cpf ?? "");
+    return cpf || "CPF inválido";
   }
   return "";
+});
+
+const sicarBadgeText = computed(() => {
+  if (!analysis.value?.sicarStatus) return "";
+  const carKey = analysis.value?.carKey ?? "-";
+  const status = formatStatusLabel(analysis.value?.sicarStatus).toUpperCase();
+  return ["SICAR", carKey, status].filter(Boolean).join(" ");
 });
 
 const docInfoType = computed(() => analysis.value?.docInfo?.type ?? null);
@@ -386,10 +404,14 @@ const onAfterPrint = () => {
   restoreTitle();
 };
 
+const indigenaLegendItems = computed(() =>
+  buildIndigenaLegendItems(analysis.value?.datasetGroups ?? [], mapFeatures.value),
+);
+
 const printLegend = computed(() => {
-  const codes = Array.from(
-    new Set(mapFeatures.value.filter((f) => f.categoryCode !== "SICAR").map((f) => f.datasetCode)),
-  );
+  const codes = buildLegendCodes(mapFeatures.value, {
+    includeIndigena: indigenaLegendItems.value.length === 0,
+  });
   return [
     { code: "SICAR", label: "CAR", color: "#ef4444" },
     ...codes.map((code) => ({
@@ -397,6 +419,7 @@ const printLegend = computed(() => {
       label: formatDatasetLabel(code),
       color: colorForDataset(code),
     })),
+    ...indigenaLegendItems.value,
   ];
 });
 
@@ -415,7 +438,10 @@ const printMapStyle = computed(() => ({
 
 function formatDate(value?: string | null) {
   if (!value) return "-";
-  return value.slice(0, 10);
+  const raw = value.slice(0, 10);
+  const [y, m, d] = raw.split("-");
+  if (y && m && d) return `${d}/${m}/${y}`;
+  return raw;
 }
 
 function formatMunicipio(municipio?: string | null, uf?: string | null) {
@@ -485,8 +511,10 @@ function formatCpf(value: string) {
 
 function formatCnpj(value: string) {
   const digits = normalizeDigits(value);
-  if (digits.length !== 14) return "";
-  return `${digits.slice(0, 2)}.${digits.slice(2, 5)}.${digits.slice(5, 8)}/${digits.slice(8, 12)}-${digits.slice(12)}`;
+  if (!digits) return "";
+  const padded = digits.length < 14 ? digits.padStart(14, "0") : digits;
+  if (padded.length !== 14) return "";
+  return `${padded.slice(0, 2)}.${padded.slice(2, 5)}.${padded.slice(5, 8)}/${padded.slice(8, 12)}-${padded.slice(12)}`;
 }
 
 function fixMojibake(value: string) {
@@ -505,8 +533,9 @@ function formatDatasetLabelPrint(code: string) {
   return label.replace(/\\bProdes\\b\\s*/i, "").trim();
 }
 
-function formatDatasetLabelForMode(code: string) {
-  return isPrintMode.value ? formatDatasetLabelPrint(code) : formatDatasetLabel(code);
+function formatDatasetLabelForMode(item: { datasetCode: string; label?: string }) {
+  if (item.label) return item.label;
+  return isPrintMode.value ? formatDatasetLabelPrint(item.datasetCode) : formatDatasetLabel(item.datasetCode);
 }
 
 async function loadAnalysis() {

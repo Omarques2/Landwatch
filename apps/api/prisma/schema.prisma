@@ -190,6 +190,7 @@ model AnalysisResult {
   datasetCode        String   @map("dataset_code")
   snapshotDate       DateTime? @map("snapshot_date") @db.Date
   featureId          BigInt?  @map("feature_id")
+  geomId             BigInt?  @map("geom_id")
   isSicar            Boolean  @default(false) @map("is_sicar")
   sicarAreaM2        Decimal? @map("sicar_area_m2")
   featureAreaM2      Decimal? @map("feature_area_m2")

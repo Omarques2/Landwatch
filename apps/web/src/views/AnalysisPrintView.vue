@@ -39,7 +39,7 @@ type AnalysisDetail = {
   sicarStatus?: string | null;
   datasetGroups?: Array<{
     title: string;
-    items: Array<{ datasetCode: string; hit: boolean }>;
+    items: Array<{ datasetCode: string; hit: boolean; label?: string }>;
   }>;
   docInfo?: {
     type: "CNPJ" | "CPF";

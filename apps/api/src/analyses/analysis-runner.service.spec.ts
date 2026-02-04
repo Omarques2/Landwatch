@@ -66,6 +66,7 @@ describe('AnalysisRunnerService', () => {
         dataset_code: 'SICAR',
         snapshot_date: null,
         feature_id: 1n,
+        geom_id: 101n,
         sicar_area_m2: '100',
         feature_area_m2: null,
         overlap_area_m2: null,
@@ -76,6 +77,7 @@ describe('AnalysisRunnerService', () => {
         dataset_code: 'PRODES_AMZ_2024',
         snapshot_date: '2026-01-31',
         feature_id: 2n,
+        geom_id: 202n,
         sicar_area_m2: '100',
         feature_area_m2: '20',
         overlap_area_m2: '5',
@@ -90,8 +92,16 @@ describe('AnalysisRunnerService', () => {
     expect(prisma.analysisResult.createMany).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.arrayContaining([
-          expect.objectContaining({ categoryCode: 'SICAR', isSicar: true }),
-          expect.objectContaining({ categoryCode: 'PRODES', isSicar: false }),
+          expect.objectContaining({
+            categoryCode: 'SICAR',
+            isSicar: true,
+            geomId: 101n,
+          }),
+          expect.objectContaining({
+            categoryCode: 'PRODES',
+            isSicar: false,
+            geomId: 202n,
+          }),
         ]),
       }),
     );

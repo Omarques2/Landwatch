@@ -33,6 +33,11 @@ export class AnalysesController {
     return this.analyses.list({ carKey: query.carKey, page, pageSize });
   }
 
+  @Get('metadata/indigenas/phases')
+  async listIndigenaPhases(@Query('asOf') asOf?: string) {
+    return this.analyses.listIndigenaPhases(asOf);
+  }
+
   @Get(':id')
   async get(@Param('id') id: string) {
     return this.analyses.getById(id);

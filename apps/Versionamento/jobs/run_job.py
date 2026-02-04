@@ -1,5 +1,6 @@
 import os
 import sys
+import argparse
 from pathlib import Path
 from typing import Dict
 
@@ -111,7 +112,31 @@ def load_existing_artifacts(work_dir: Path, category: str, snapshot_date: str):
     return artifacts
 
 
-def run_all(config: JobConfig, snapshot_date: str):
+def _parse_args():
+    parser = argparse.ArgumentParser(description="LandWatch versionamento job runner")
+    parser.add_argument(
+        "--category",
+        action="append",
+        choices=["PRODES", "DETER", "SICAR", "URL"],
+        help="Categoria a executar (pode repetir). Se omitido, executa todas.",
+    )
+    parser.add_argument(
+        "--prodes-workspaces",
+        help="Lista separada por virgula de workspaces PRODES (ex: prodes-mata-atlantica-nb)",
+    )
+    return parser.parse_args()
+
+
+def _filter_prodes_artifacts(artifacts, workspaces):
+    if not workspaces:
+        return artifacts
+    ws_prefixes = [w.strip().replace("-", "_").upper() for w in workspaces if w.strip()]
+    if not ws_prefixes:
+        return artifacts
+    return [a for a in artifacts if any(a.dataset_code.startswith(p) for p in ws_prefixes)]
+
+
+def run_all(config: JobConfig, snapshot_date: str, categories=None, prodes_workspaces=None):
     config.work_dir.mkdir(parents=True, exist_ok=True)
     storage = StorageClient(
         mode=config.storage_mode,
@@ -123,77 +148,90 @@ def run_all(config: JobConfig, snapshot_date: str):
     run_id = now_run_id()
 
     results = {}
-    try:
-        log_info("Download PRODES...")
-        prev_manifest = load_latest_manifest(storage, "PRODES")
-        reuse = prev_manifest and prev_manifest.get("status") == "failed"
-        artifacts = []
-        if reuse:
-            artifacts = load_existing_artifacts(config.work_dir, "PRODES", snapshot_date)
-            if artifacts:
-                log_info("PRODES: reutilizando arquivos baixados (manifest failed).")
-        if not artifacts:
-            artifacts = download_prodes(config.work_dir, snapshot_date)
-        results["PRODES"] = process_category(storage, run_id, "PRODES", artifacts, config)
-    except Exception as exc:
-        log_warn(f"PRODES falhou: {exc}")
-        results["PRODES"] = {"status": "failed"}
+    def should_run(category: str) -> bool:
+        return not categories or category in categories
+    if should_run("PRODES"):
+        try:
+            log_info("Download PRODES...")
+            prev_manifest = load_latest_manifest(storage, "PRODES")
+            reuse = prev_manifest and prev_manifest.get("status") == "failed"
+            artifacts = []
+            if reuse:
+                artifacts = load_existing_artifacts(config.work_dir, "PRODES", snapshot_date)
+                artifacts = _filter_prodes_artifacts(artifacts, prodes_workspaces)
+                if artifacts:
+                    log_info("PRODES: reutilizando arquivos baixados (manifest failed).")
+            if not artifacts:
+                artifacts = download_prodes(config.work_dir, snapshot_date, workspaces=prodes_workspaces)
+            results["PRODES"] = process_category(storage, run_id, "PRODES", artifacts, config)
+        except Exception as exc:
+            log_warn(f"PRODES falhou: {exc}")
+            results["PRODES"] = {"status": "failed"}
 
-    try:
-        log_info("Download DETER...")
-        prev_manifest = load_latest_manifest(storage, "DETER")
-        reuse = prev_manifest and prev_manifest.get("status") == "failed"
-        artifacts = []
-        if reuse:
-            artifacts = load_existing_artifacts(config.work_dir, "DETER", snapshot_date)
-            if artifacts:
-                log_info("DETER: reutilizando arquivos baixados (manifest failed).")
-        if not artifacts:
-            artifacts = download_deter(config.work_dir, snapshot_date)
-        results["DETER"] = process_category(storage, run_id, "DETER", artifacts, config)
-    except Exception as exc:
-        log_warn(f"DETER falhou: {exc}")
-        results["DETER"] = {"status": "failed"}
+    if should_run("DETER"):
+        try:
+            log_info("Download DETER...")
+            prev_manifest = load_latest_manifest(storage, "DETER")
+            reuse = prev_manifest and prev_manifest.get("status") == "failed"
+            artifacts = []
+            if reuse:
+                artifacts = load_existing_artifacts(config.work_dir, "DETER", snapshot_date)
+                if artifacts:
+                    log_info("DETER: reutilizando arquivos baixados (manifest failed).")
+            if not artifacts:
+                artifacts = download_deter(config.work_dir, snapshot_date)
+            results["DETER"] = process_category(storage, run_id, "DETER", artifacts, config)
+        except Exception as exc:
+            log_warn(f"DETER falhou: {exc}")
+            results["DETER"] = {"status": "failed"}
 
-    try:
-        log_info("Download SICAR...")
-        prev_manifest = load_latest_manifest(storage, "SICAR")
-        reuse = prev_manifest and prev_manifest.get("status") == "failed"
-        artifacts = []
-        if reuse:
-            artifacts = load_existing_artifacts(config.work_dir, "SICAR", snapshot_date)
-            if artifacts:
-                log_info("SICAR: reutilizando arquivos baixados (manifest failed).")
-        if not artifacts:
-            artifacts = download_sicar(config.work_dir, snapshot_date)
-        results["SICAR"] = process_category(storage, run_id, "SICAR", artifacts, config)
-    except Exception as exc:
-        log_warn(f"SICAR falhou: {exc}")
-        results["SICAR"] = {"status": "failed"}
+    if should_run("SICAR"):
+        try:
+            log_info("Download SICAR...")
+            prev_manifest = load_latest_manifest(storage, "SICAR")
+            reuse = prev_manifest and prev_manifest.get("status") == "failed"
+            artifacts = []
+            if reuse:
+                artifacts = load_existing_artifacts(config.work_dir, "SICAR", snapshot_date)
+                if artifacts:
+                    log_info("SICAR: reutilizando arquivos baixados (manifest failed).")
+            if not artifacts:
+                artifacts = download_sicar(config.work_dir, snapshot_date)
+            results["SICAR"] = process_category(storage, run_id, "SICAR", artifacts, config)
+        except Exception as exc:
+            log_warn(f"SICAR falhou: {exc}")
+            results["SICAR"] = {"status": "failed"}
 
-    try:
-        log_info("Download URLs...")
-        prev_manifest = load_latest_manifest(storage, "URL")
-        reuse = prev_manifest and prev_manifest.get("status") == "failed"
-        artifacts = []
-        if reuse:
-            artifacts = load_existing_artifacts(config.work_dir, "URL", snapshot_date)
-            if artifacts:
-                log_info("URL: reutilizando arquivos baixados (manifest failed).")
-        if not artifacts:
-            artifacts = download_url(config.work_dir, snapshot_date)
-        results["URL"] = process_category(storage, run_id, "URL", artifacts, config)
-    except Exception as exc:
-        log_warn(f"URL falhou: {exc}")
-        results["URL"] = {"status": "failed"}
+    if should_run("URL"):
+        try:
+            log_info("Download URLs...")
+            prev_manifest = load_latest_manifest(storage, "URL")
+            reuse = prev_manifest and prev_manifest.get("status") == "failed"
+            artifacts = []
+            if reuse:
+                artifacts = load_existing_artifacts(config.work_dir, "URL", snapshot_date)
+                if artifacts:
+                    log_info("URL: reutilizando arquivos baixados (manifest failed).")
+            if not artifacts:
+                artifacts = download_url(config.work_dir, snapshot_date)
+            results["URL"] = process_category(storage, run_id, "URL", artifacts, config)
+        except Exception as exc:
+            log_warn(f"URL falhou: {exc}")
+            results["URL"] = {"status": "failed"}
 
     log_info(f"Resumo: {results}")
 
 
 if __name__ == "__main__":
+    args = _parse_args()
+    categories = args.category or None
+    prodes_workspaces = None
+    if args.prodes_workspaces:
+        prodes_workspaces = [w.strip() for w in args.prodes_workspaces.split(",") if w.strip()]
+
     config = build_config()
     snapshot_date = os.environ.get("LANDWATCH_DEFAULT_SNAPSHOT_DATE") or None
     if not snapshot_date:
         from datetime import date
         snapshot_date = date.today().isoformat()
-    run_all(config, snapshot_date)
+    run_all(config, snapshot_date, categories=categories, prodes_workspaces=prodes_workspaces)

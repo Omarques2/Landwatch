@@ -1,6 +1,6 @@
 export const CAR_LOADING_MESSAGES = [
-  "Localizando imóveis próximos...",
-  "Buscando CARs no raio informado...",
+  "Localizando imóveis na coordenada...",
+  "Buscando CARs na coordenada informada...",
   "Preparando geometrias para o mapa...",
   "Quase lá, finalizando carregamento...",
 ];

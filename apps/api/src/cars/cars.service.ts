@@ -240,6 +240,8 @@ export class CarsService {
     const analysisDate =
       params.analysisDate ?? new Date().toISOString().slice(0, 10);
     const tolerance = params.tolerance ?? 0.0001;
+    const radiusMeters = 10000;
+    const radiusDegrees = radiusMeters / 111000;
 
     const sql = Prisma.sql`
       WITH sicar AS (
@@ -274,6 +276,79 @@ export class CarsService {
     };
 
     const raw = await this.prisma.$queryRaw<NearbyRow[]>(sql);
+    if (!Array.isArray(raw)) {
+      throw new BadRequestException({
+        code: 'INVALID_LANDWATCH_RESPONSE',
+        message: 'Unexpected landwatch response',
+      });
+    }
+
+    return raw.map((row) => ({
+      feature_key: row.feature_key,
+      geom: this.parseGeoJson(row.geom),
+    }));
+  }
+
+  async point(params: {
+    lat: number;
+    lng: number;
+    analysisDate?: string;
+    tolerance?: number;
+  }): Promise<
+    Array<{
+      feature_key: string;
+      geom: unknown;
+    }>
+  > {
+    const schema = this.getSchema();
+    const tables = this.getTables(schema);
+    const categoryCode = this.getCategoryCode();
+    await this.ensureCategoryHasData(schema, categoryCode);
+    const analysisDate =
+      params.analysisDate ?? new Date().toISOString().slice(0, 10);
+    const tolerance = params.tolerance ?? 0.0001;
+    const radiusMeters = 5000;
+    const radiusDegrees = radiusMeters / 111000;
+    const sql = Prisma.sql`
+      WITH params AS (
+        SELECT ST_SetSRID(
+          ST_MakePoint(${params.lng}, ${params.lat}),
+          4674
+        ) AS pt
+      ),
+      sicar AS (
+        SELECT
+          f.feature_key,
+          gs.geom
+        FROM ${tables.geomHist} h
+        JOIN ${tables.feature} f ON f.feature_id = h.feature_id
+        JOIN ${tables.dataset} d ON d.dataset_id = f.dataset_id
+        JOIN ${tables.category} c ON c.category_id = d.category_id
+        JOIN ${tables.geomStore} gs ON gs.geom_id = h.geom_id
+        WHERE c.code = ${categoryCode}
+          AND h.valid_from <= ${analysisDate}::date
+          AND (h.valid_to IS NULL OR h.valid_to > ${analysisDate}::date)
+      )
+      SELECT
+        feature_key,
+        ST_AsGeoJSON(
+          ST_SimplifyPreserveTopology(ST_Transform(geom, 4326), ${tolerance})
+        ) AS geom
+      FROM sicar
+      CROSS JOIN params
+      WHERE geom && ST_Expand(params.pt, ${radiusDegrees})
+        AND (
+          ST_Intersects(geom, params.pt)
+          OR ST_DWithin(geom::geography, params.pt::geography, ${radiusMeters})
+        )
+    `;
+
+    type PointRow = {
+      feature_key: string;
+      geom: string;
+    };
+
+    const raw = await this.prisma.$queryRaw<PointRow[]>(sql);
     if (!Array.isArray(raw)) {
       throw new BadRequestException({
         code: 'INVALID_LANDWATCH_RESPONSE',

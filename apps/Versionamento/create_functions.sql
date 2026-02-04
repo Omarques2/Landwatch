@@ -1,6 +1,11 @@
 -- Funcoes de analise (LandWatch)
 -- Gerado em 2026-02-01
 
+DROP FUNCTION IF EXISTS landwatch.fn_intersections_current_simple(text);
+DROP FUNCTION IF EXISTS landwatch.fn_intersections_asof_simple(text, date);
+DROP FUNCTION IF EXISTS landwatch.fn_intersections_current_area(text);
+DROP FUNCTION IF EXISTS landwatch.fn_intersections_asof_area(text, date);
+
 CREATE OR REPLACE FUNCTION landwatch.fn_sicar_feature_current(p_cod_imovel text)
 RETURNS TABLE (
   dataset_id bigint,
@@ -62,6 +67,7 @@ RETURNS TABLE (
   dataset_code text,
   snapshot_date date,
   feature_id bigint,
+  geom_id bigint,
   geom geometry
 )
 LANGUAGE sql
@@ -71,6 +77,7 @@ AS $$
     SELECT
       f.dataset_id,
       f.feature_id,
+      h.geom_id AS sicar_geom_id,
       g.geom AS sicar_geom
     FROM landwatch.lw_feature f
     JOIN landwatch.lw_dataset d ON d.dataset_id = f.dataset_id
@@ -88,6 +95,7 @@ AS $$
     d.code AS dataset_code,
     NULL::date AS snapshot_date,
     f.feature_id,
+    s.sicar_geom_id AS geom_id,
     s.sicar_geom AS geom
   FROM sicar_feature s
   JOIN landwatch.lw_feature f
@@ -102,6 +110,7 @@ AS $$
     d.code AS dataset_code,
     v.snapshot_date AS snapshot_date,
     f.feature_id,
+    h.geom_id AS geom_id,
     g.geom AS geom
   FROM sicar_feature s
   JOIN landwatch.lw_feature_geom_hist h
@@ -125,6 +134,7 @@ RETURNS TABLE (
   dataset_code text,
   snapshot_date date,
   feature_id bigint,
+  geom_id bigint,
   geom geometry
 )
 LANGUAGE sql
@@ -134,6 +144,7 @@ AS $$
     SELECT
       f.dataset_id,
       f.feature_id,
+      h.geom_id AS sicar_geom_id,
       g.geom AS sicar_geom
     FROM landwatch.lw_feature f
     JOIN landwatch.lw_dataset d ON d.dataset_id = f.dataset_id
@@ -152,6 +163,7 @@ AS $$
     d.code AS dataset_code,
     NULL::date AS snapshot_date,
     f.feature_id,
+    s.sicar_geom_id AS geom_id,
     s.sicar_geom AS geom
   FROM sicar_feature s
   JOIN landwatch.lw_feature f
@@ -166,6 +178,7 @@ AS $$
     d.code AS dataset_code,
     v.snapshot_date AS snapshot_date,
     f.feature_id,
+    h.geom_id AS geom_id,
     g.geom AS geom
   FROM sicar_feature s
   JOIN landwatch.lw_feature_geom_hist h
@@ -190,6 +203,7 @@ RETURNS TABLE (
   dataset_code text,
   snapshot_date date,
   feature_id bigint,
+  geom_id bigint,
   geom geometry,
   sicar_area_m2 numeric,
   feature_area_m2 numeric,
@@ -203,6 +217,7 @@ AS $$
     SELECT
       f.dataset_id,
       f.feature_id,
+      h.geom_id AS sicar_geom_id,
       g.geom AS sicar_geom
     FROM landwatch.lw_feature f
     JOIN landwatch.lw_dataset d ON d.dataset_id = f.dataset_id
@@ -220,6 +235,7 @@ AS $$
     d.code AS dataset_code,
     NULL::date AS snapshot_date,
     f.feature_id,
+    s.sicar_geom_id AS geom_id,
     s.sicar_geom AS geom,
     ST_Area(s.sicar_geom::geography) AS sicar_area_m2,
     NULL::numeric AS feature_area_m2,
@@ -238,6 +254,7 @@ AS $$
     d.code AS dataset_code,
     v.snapshot_date AS snapshot_date,
     f.feature_id,
+    h.geom_id AS geom_id,
     g.geom AS geom,
     ST_Area(s.sicar_geom::geography) AS sicar_area_m2,
     ST_Area(g.geom::geography) AS feature_area_m2,
@@ -269,6 +286,7 @@ RETURNS TABLE (
   dataset_code text,
   snapshot_date date,
   feature_id bigint,
+  geom_id bigint,
   geom geometry,
   sicar_area_m2 numeric,
   feature_area_m2 numeric,
@@ -282,6 +300,7 @@ AS $$
     SELECT
       f.dataset_id,
       f.feature_id,
+      h.geom_id AS sicar_geom_id,
       g.geom AS sicar_geom
     FROM landwatch.lw_feature f
     JOIN landwatch.lw_dataset d ON d.dataset_id = f.dataset_id
@@ -300,6 +319,7 @@ AS $$
     d.code AS dataset_code,
     NULL::date AS snapshot_date,
     f.feature_id,
+    s.sicar_geom_id AS geom_id,
     s.sicar_geom AS geom,
     ST_Area(s.sicar_geom::geography) AS sicar_area_m2,
     NULL::numeric AS feature_area_m2,
@@ -318,6 +338,7 @@ AS $$
     d.code AS dataset_code,
     v.snapshot_date AS snapshot_date,
     f.feature_id,
+    h.geom_id AS geom_id,
     g.geom AS geom,
     ST_Area(s.sicar_geom::geography) AS sicar_area_m2,
     ST_Area(g.geom::geography) AS feature_area_m2,

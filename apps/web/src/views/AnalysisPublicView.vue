@@ -107,7 +107,7 @@
                 >
                   {{ item.hit ? "✕" : "✓" }}
                 </span>
-                <span class="font-semibold">{{ formatDatasetLabel(item.datasetCode) }}</span>
+                <span class="font-semibold">{{ formatDatasetLabelForItem(item) }}</span>
               </div>
             </div>
           </div>
@@ -147,7 +147,7 @@ type AnalysisDetail = {
   sicarStatus?: string | null;
   datasetGroups?: Array<{
     title: string;
-    items: Array<{ datasetCode: string; hit: boolean }>;
+    items: Array<{ datasetCode: string; hit: boolean; label?: string }>;
   }>;
   docInfo?: {
     type: "CNPJ" | "CPF";
@@ -299,6 +299,11 @@ function formatCnpj(value: string) {
   const digits = normalizeDigits(value);
   if (digits.length !== 14) return "";
   return `${digits.slice(0, 2)}.${digits.slice(2, 5)}.${digits.slice(5, 8)}/${digits.slice(8, 12)}-${digits.slice(12)}`;
+}
+
+function formatDatasetLabelForItem(item: { datasetCode: string; label?: string }) {
+  if (item.label) return item.label;
+  return formatDatasetLabel(item.datasetCode);
 }
 
 function fixMojibake(value: string) {

@@ -2,7 +2,7 @@ import os
 import time
 import logging
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 import requests
 import geopandas as gpd
@@ -126,7 +126,11 @@ def save_shapefile(gdf: gpd.GeoDataFrame, out_dir: Path, name: str) -> Path:
     return shp_path
 
 
-def run(work_dir: Path, snapshot_date: str) -> List[DatasetArtifact]:
+def run(
+    work_dir: Path,
+    snapshot_date: str,
+    workspaces: Optional[List[str]] = None,
+) -> List[DatasetArtifact]:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
     page_size = int(os.environ.get("PRODES_PAGE_SIZE", DEFAULT_PAGE_SIZE))
     all_years = os.environ.get("PRODES_ALL_YEARS", "1").strip().lower() not in ("0", "false", "no")
@@ -134,7 +138,15 @@ def run(work_dir: Path, snapshot_date: str) -> List[DatasetArtifact]:
     out_root = work_dir / "PRODES"
     artifacts: List[DatasetArtifact] = []
 
-    for ws, layer in LAYERS:
+    layers = LAYERS
+    if workspaces:
+        wanted = {w.strip() for w in workspaces if w.strip()}
+        layers = [(ws, layer) for ws, layer in LAYERS if ws in wanted]
+        missing = wanted - {ws for ws, _ in LAYERS}
+        if missing:
+            log_warn(f"Workspaces PRODES desconhecidos ignorados: {sorted(missing)}")
+
+    for ws, layer in layers:
         try:
             if all_years:
                 y_min, y_max = get_year_range(ws, layer)

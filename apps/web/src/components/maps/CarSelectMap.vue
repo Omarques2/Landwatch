@@ -18,13 +18,13 @@
         v-if="loading"
         class="absolute inset-0 z-20 grid place-items-center rounded-xl bg-background/70 text-sm font-semibold"
       >
-        {{ loadingMessage || "Carregando CARs..." }}
+        <div class="loading-spinner" aria-label="Carregando"></div>
       </div>
 
       <div
         class="absolute top-3 left-3 rounded-xl border border-border bg-background/90 p-3 text-xs shadow z-30"
       >
-        <div class="text-xs font-semibold">CARs na área</div>
+        <div class="text-xs font-semibold">CARs na coordenada</div>
         <div class="mt-1 text-muted-foreground">
           {{ statusMessage }}
         </div>
@@ -55,11 +55,9 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import L from "leaflet";
 import { http } from "@/api/http";
 import { unwrapData, type ApiEnvelope } from "@/api/envelope";
-import { getLoadingMessage } from "@/features/cars/loading-messages";
 
 type CarFeature = {
   feature_key: string;
-  dataset_id: number;
   geom: any;
 };
 
@@ -67,7 +65,6 @@ const props = defineProps<{
   center: { lat: number; lng: number };
   selectedCarKey: string;
   searchToken: number;
-  radiusMeters?: number;
 }>();
 
 const emit = defineEmits<{
@@ -80,7 +77,6 @@ const hasSearch = ref(false);
 const loading = ref(false);
 const lastCount = ref(0);
 const errorMessage = ref("");
-const loadingMessage = ref("");
 const contextMenu = ref({
   open: false,
   x: 0,
@@ -91,11 +87,10 @@ const contextMenu = ref({
 
 let map: L.Map | null = null;
 let geoLayer: L.GeoJSON<any> | null = null;
-let loadingTimer: number | null = null;
-let loadingIndex = 0;
+let searchMarker: L.CircleMarker | null = null;
 
 const statusMessage = computed(() => {
-  if (loading.value) return loadingMessage.value || "Buscando CARs...";
+  if (loading.value) return "Buscando CARs...";
   if (errorMessage.value) return errorMessage.value;
   if (lastCount.value === 0) return "Nenhum CAR encontrado.";
   return `${lastCount.value} CARs carregados.`;
@@ -179,12 +174,27 @@ function renderCars(rows: CarFeature[]) {
   }
 }
 
+function updateSearchMarker(lat: number, lng: number) {
+  if (!map) return;
+  const point: L.LatLngExpression = [lat, lng];
+  if (!searchMarker) {
+    searchMarker = L.circleMarker(point, {
+      radius: 6,
+      color: "#1d4ed8",
+      weight: 2,
+      fillColor: "#60a5fa",
+      fillOpacity: 0.9,
+    }).addTo(map);
+  } else {
+    searchMarker.setLatLng(point);
+  }
+}
+
 async function fetchCars(lat: number, lng: number) {
-  const res = await http.get<ApiEnvelope<CarFeature[]>>("/v1/cars/nearby", {
+  const res = await http.get<ApiEnvelope<CarFeature[]>>("/v1/cars/point", {
     params: {
       lat,
       lng,
-      radiusMeters: props.radiusMeters ?? 10000,
       tolerance: 0.0001,
     },
   });
@@ -200,9 +210,9 @@ async function runSearch(lat: number, lng: number) {
       map?.invalidateSize();
     }, 50);
   }
+  updateSearchMarker(lat, lng);
   loading.value = true;
   errorMessage.value = "";
-  startLoadingMessages();
 
   try {
     const rows = await fetchCars(lat, lng);
@@ -216,7 +226,6 @@ async function runSearch(lat: number, lng: number) {
     errorMessage.value = apiMessage || "Falha ao buscar CARs.";
   } finally {
     loading.value = false;
-    stopLoadingMessages();
   }
 }
 
@@ -227,27 +236,6 @@ async function searchFromContext() {
   emit("center-change", { lat, lng });
   hasSearch.value = true;
   await runSearch(lat, lng);
-}
-
-function startLoadingMessages() {
-  if (loadingTimer) window.clearInterval(loadingTimer);
-  loadingIndex = 0;
-  const initial = getLoadingMessage(loadingIndex);
-  loadingMessage.value = initial.message;
-  loadingIndex = initial.nextIndex;
-  loadingTimer = window.setInterval(() => {
-    const next = getLoadingMessage(loadingIndex);
-    loadingMessage.value = next.message;
-    loadingIndex = next.nextIndex;
-  }, 2500);
-}
-
-function stopLoadingMessages() {
-  if (loadingTimer) {
-    window.clearInterval(loadingTimer);
-    loadingTimer = null;
-  }
-  loadingMessage.value = "";
 }
 
 watch(
@@ -290,8 +278,8 @@ onBeforeUnmount(() => {
     map.off("contextmenu");
     map.remove();
   }
-  stopLoadingMessages();
   map = null;
+  searchMarker = null;
 });
 </script>
 
@@ -310,5 +298,22 @@ onBeforeUnmount(() => {
 }
 :global(.leaflet-interactive:focus) {
   outline: none;
+}
+.loading-spinner {
+  width: 32px;
+  height: 32px;
+  border-radius: 9999px;
+  border: 3px solid rgba(15, 23, 42, 0.2);
+  border-top-color: #0f172a;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 </style>

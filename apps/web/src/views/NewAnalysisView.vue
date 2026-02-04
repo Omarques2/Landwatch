@@ -44,22 +44,12 @@
           <UiInput v-model="center.lng" placeholder="-50.0000" />
         </div>
       </div>
-      <div class="mt-3 grid gap-3 md:grid-cols-[200px_1fr] md:items-end">
-        <div>
-          <UiLabel for="radius-select">Raio</UiLabel>
-          <UiSelect id="radius-select" v-model="selectedRadius">
-            <option v-for="opt in radiusOptions" :key="opt.value" :value="String(opt.value)">
-              {{ opt.label }}
-            </option>
-          </UiSelect>
-        </div>
-        <div class="flex flex-wrap items-center gap-2">
-          <UiButton size="sm" :disabled="!canSearch" @click="searchCars">
-            Buscar CARs ({{ Number(selectedRadius) / 1000 }}km)
-          </UiButton>
-          <div class="text-xs text-muted-foreground">
-            A busca ocorre somente ao clicar.
-          </div>
+      <div class="mt-3 flex flex-wrap items-center gap-2">
+        <UiButton size="sm" :disabled="!canSearch" @click="searchCars">
+          Buscar CARs
+        </UiButton>
+        <div class="text-xs text-muted-foreground">
+          Busca apenas na coordenada informada.
         </div>
       </div>
       <div v-if="searchMessage" class="mt-2 text-xs text-muted-foreground">
@@ -70,7 +60,6 @@
           v-model:selected-car-key="analysisForm.carKey"
           :center="centerValue"
           :search-token="searchToken"
-          :radius-meters="Number(selectedRadius)"
           @center-change="updateCenter"
         />
       </div>
@@ -81,11 +70,10 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { Button as UiButton, Input as UiInput, Label as UiLabel, Select as UiSelect } from "@/components/ui";
+import { Button as UiButton, Input as UiInput, Label as UiLabel } from "@/components/ui";
 import { http } from "@/api/http";
 import { unwrapData, type ApiEnvelope } from "@/api/envelope";
 import CarSelectMap from "@/components/maps/CarSelectMap.vue";
-import { buildRadiusOptions } from "@/features/cars/radius-options";
 
 type Farm = {
   id: string;
@@ -104,8 +92,6 @@ const centerValue = computed(() => ({
 }));
 const searchToken = ref(0);
 const searchMessage = ref("");
-const radiusOptions = buildRadiusOptions();
-const selectedRadius = ref("10000");
 const canSearch = computed(() => {
   const lat = Number(center.lat);
   const lng = Number(center.lng);

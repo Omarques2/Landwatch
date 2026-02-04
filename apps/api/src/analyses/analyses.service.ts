@@ -298,6 +298,17 @@ export class AnalysesService {
       ? await this.fetchDocMatches(schema, analysis.cpfCnpj, analysisDate)
       : [];
 
+    const indigenaDatasetCodes = datasets
+      .filter((dataset) =>
+        this.isIndigenaDataset(dataset.category_code, dataset.dataset_code),
+      )
+      .map((dataset) => dataset.dataset_code);
+    const ucsDatasetCodes = datasets
+      .filter((dataset) =>
+        this.isUcsDataset(dataset.category_code, dataset.dataset_code),
+      )
+      .map((dataset) => dataset.dataset_code);
+
     const spatialHits = new Set(
       results
         .filter(
@@ -308,10 +319,43 @@ export class AnalysesService {
         .map((row) => row.datasetCode),
     );
     const docHits = new Set(docMatches.map((row) => row.dataset_code));
+    const indigenaPhases = await this.fetchIndigenaPhases(
+      schema,
+      analysisDate,
+      indigenaDatasetCodes.length ? indigenaDatasetCodes : undefined,
+    );
+    const targets = results.map((row) => ({
+      categoryCode: row.categoryCode,
+      datasetCode: row.datasetCode,
+      featureId: row.featureId ? row.featureId.toString() : null,
+    }));
+    const indigenaHits = await this.fetchIndigenaPhaseHits(
+      schema,
+      analysisDate,
+      targets,
+      indigenaDatasetCodes.length ? indigenaDatasetCodes : undefined,
+    );
+    const ucsCategories = await this.fetchUcsCategories(
+      schema,
+      analysisDate,
+      ucsDatasetCodes.length ? ucsDatasetCodes : undefined,
+    );
+    const ucsHits = await this.fetchUcsCategoryHits(
+      schema,
+      analysisDate,
+      targets,
+      ucsDatasetCodes.length ? ucsDatasetCodes : undefined,
+    );
     const datasetGroups = this.buildDatasetGroups(
       datasets,
       spatialHits,
       docHits,
+      {
+        indigenaPhases,
+        indigenaHits,
+        ucsCategories,
+        ucsHits,
+      },
     );
     const docInfo = analysis.cpfCnpj
       ? await this.buildDocInfo(analysis.cpfCnpj)
@@ -331,6 +375,7 @@ export class AnalysesService {
       results: results.map((row) => ({
         ...row,
         featureId: row.featureId !== null ? row.featureId.toString() : null,
+        geomId: row.geomId !== null ? row.geomId.toString() : null,
         sicarAreaM2: toSafeNumber(row.sicarAreaM2),
         featureAreaM2: toSafeNumber(row.featureAreaM2),
         overlapAreaM2: toSafeNumber(row.overlapAreaM2),
@@ -342,7 +387,7 @@ export class AnalysesService {
   async getMapById(id: string, tolerance?: number) {
     const analysis = await this.prisma.analysis.findUnique({
       where: { id },
-      select: { carKey: true, analysisDate: true },
+      select: { id: true, analysisDate: true },
     });
     if (!analysis) {
       throw new BadRequestException({
@@ -352,51 +397,80 @@ export class AnalysesService {
     }
 
     const schema = this.getSchema();
+    const analysisDate = analysis.analysisDate
+      ? analysis.analysisDate.toISOString().slice(0, 10)
+      : undefined;
     const safeTolerance =
       typeof tolerance === 'number' && Number.isFinite(tolerance)
         ? Math.min(Math.max(tolerance, 0), 0.01)
         : 0.0001;
 
-    const analysisDate = analysis.analysisDate
-      ? analysis.analysisDate.toISOString().slice(0, 10)
-      : undefined;
-
-    const fnIntersections = analysisDate
-      ? Prisma.raw(`"${schema}"."fn_intersections_asof_simple"`)
-      : Prisma.raw(`"${schema}"."fn_intersections_current_simple"`);
-
-    const sql = analysisDate
-      ? Prisma.sql`
-          SELECT
-            category_code,
-            dataset_code,
-            snapshot_date,
-            feature_id,
-            ST_AsGeoJSON(ST_SimplifyPreserveTopology(geom, ${safeTolerance})) AS geom
-          FROM ${fnIntersections}(${analysis.carKey}, ${analysisDate}::date)
-          WHERE category_code NOT IN ('BIOMAS', 'DETER')
-        `
-      : Prisma.sql`
-          SELECT
-            category_code,
-            dataset_code,
-            snapshot_date,
-            feature_id,
-            ST_AsGeoJSON(ST_SimplifyPreserveTopology(geom, ${safeTolerance})) AS geom
-          FROM ${fnIntersections}(${analysis.carKey})
-          WHERE category_code NOT IN ('BIOMAS', 'DETER')
-        `;
+    const sql = Prisma.sql`
+      SELECT
+        r.category_code,
+        r.dataset_code,
+        r.snapshot_date,
+        r.feature_id,
+        r.geom_id,
+        ST_AsGeoJSON(
+          ST_SimplifyPreserveTopology(g.geom, ${safeTolerance})
+        ) AS geom
+      FROM ${Prisma.raw('"app"."analysis_result"')} r
+      JOIN ${Prisma.raw(`"${schema}"."lw_geom_store"`)} g
+        ON g.geom_id = r.geom_id
+      WHERE r.analysis_id = ${id}
+        AND r.geom_id IS NOT NULL
+        AND r.category_code NOT IN ('BIOMAS', 'DETER')
+    `;
 
     type MapRow = {
       category_code: string;
       dataset_code: string;
       snapshot_date: string | Date | null;
       feature_id: string | number | bigint | null;
+      geom_id: string | number | bigint | null;
       geom: string | null;
     };
 
-    const raw = await this.prisma.$queryRaw<MapRow[]>(sql);
-    const rows = Array.isArray(raw) ? raw : [];
+    let rows: MapRow[] = [];
+    try {
+      const raw = await this.prisma.$queryRaw<MapRow[]>(sql);
+      rows = Array.isArray(raw) ? raw : [];
+    } catch {
+      rows = [];
+    }
+
+    if (rows.length === 0) {
+      const dateFilter = analysisDate
+        ? Prisma.sql`AND h.valid_from <= ${analysisDate}::date
+            AND (h.valid_to IS NULL OR h.valid_to > ${analysisDate}::date)`
+        : Prisma.sql`AND h.valid_to IS NULL`;
+      const fallbackSql = Prisma.sql`
+        SELECT
+          r.category_code,
+          r.dataset_code,
+          r.snapshot_date,
+          r.feature_id,
+          NULL::bigint AS geom_id,
+          ST_AsGeoJSON(
+            ST_SimplifyPreserveTopology(g.geom, ${safeTolerance})
+          ) AS geom
+        FROM ${Prisma.raw('"app"."analysis_result"')} r
+        JOIN ${Prisma.raw(`"${schema}"."lw_dataset"`)} d
+          ON d.code = r.dataset_code
+        JOIN ${Prisma.raw(`"${schema}"."lw_feature_geom_hist"`)} h
+          ON h.dataset_id = d.dataset_id
+         AND h.feature_id = r.feature_id
+        JOIN ${Prisma.raw(`"${schema}"."lw_geom_store"`)} g
+          ON g.geom_id = h.geom_id
+        WHERE r.analysis_id = ${id}
+          AND r.feature_id IS NOT NULL
+          AND r.category_code NOT IN ('BIOMAS', 'DETER')
+          ${dateFilter}
+      `;
+      const rawFallback = await this.prisma.$queryRaw<MapRow[]>(fallbackSql);
+      rows = Array.isArray(rawFallback) ? rawFallback : [];
+    }
 
     return rows
       .filter(
@@ -610,24 +684,66 @@ export class AnalysesService {
     datasets: DatasetRow[],
     spatialHits: Set<string>,
     docHits: Set<string>,
+    options: {
+      indigenaPhases: string[];
+      indigenaHits: Set<string>;
+      ucsCategories: string[];
+      ucsHits: Set<string>;
+    },
   ) {
     const prodesByBiome = new Map<
       string,
-      Array<{ datasetCode: string; hit: boolean }>
+      Array<{ datasetCode: string; hit: boolean; label?: string }>
     >();
-    const environmental: Array<{ datasetCode: string; hit: boolean }> = [];
+    const social: Array<{ datasetCode: string; hit: boolean; label?: string }> =
+      [];
+    const quilombolas: Array<{
+      datasetCode: string;
+      hit: boolean;
+      label?: string;
+    }> = [];
+    const embargosIbama: Array<{
+      datasetCode: string;
+      hit: boolean;
+      label?: string;
+    }> = [];
+    const embargosIcmbio: Array<{
+      datasetCode: string;
+      hit: boolean;
+      label?: string;
+    }> = [];
+    const otherEnvironmental: Array<{
+      datasetCode: string;
+      hit: boolean;
+      label?: string;
+    }> = [];
     let ldiHit = false;
     let hasLdiDataset = false;
+    const socialCategories = new Set([
+      'CADASTRO_EMPREGADORES',
+      'LISTA_EMBARGOS_IBAMA',
+    ]);
+    const environmentalCategories = new Set([
+      'INDIGENAS',
+      'QUILOMBOLAS',
+      'UCS_SNIRH',
+      'UCS',
+      'EMBARGOS_IBAMA',
+      'EMBARGOS_ICMBIO',
+    ]);
 
     for (const dataset of datasets) {
       const category = dataset.category_code?.toUpperCase() ?? '';
+      const code = dataset.dataset_code?.toUpperCase() ?? '';
       if (['SICAR', 'BIOMAS', 'DETER'].includes(category)) continue;
+      if (this.isIndigenaDataset(category, code)) continue;
+      if (this.isUcsDataset(category, code)) continue;
       const hit = dataset.is_spatial
         ? spatialHits.has(dataset.dataset_code)
         : docHits.has(dataset.dataset_code);
       const item = { datasetCode: dataset.dataset_code, hit };
 
-      if (category.startsWith('LDI') || dataset.dataset_code.includes('LDI')) {
+      if (category.startsWith('LDI') || code.includes('LDI')) {
         hasLdiDataset = true;
         ldiHit = ldiHit || hit;
         continue;
@@ -638,8 +754,30 @@ export class AnalysesService {
         const bucket = prodesByBiome.get(biome) ?? [];
         bucket.push(item);
         prodesByBiome.set(biome, bucket);
+      } else if (socialCategories.has(category) || socialCategories.has(code)) {
+        social.push(item);
+      } else if (
+        environmentalCategories.has(category) ||
+        environmentalCategories.has(code) ||
+        code.includes('UCS')
+      ) {
+        if (category === 'QUILOMBOLAS' || code.includes('QUILOMB')) {
+          quilombolas.push(item);
+        } else if (
+          category === 'EMBARGOS_IBAMA' ||
+          code.includes('EMBARGOS_IBAMA')
+        ) {
+          embargosIbama.push(item);
+        } else if (
+          category === 'EMBARGOS_ICMBIO' ||
+          code.includes('EMBARGOS_ICMBIO')
+        ) {
+          embargosIcmbio.push(item);
+        } else {
+          otherEnvironmental.push(item);
+        }
       } else {
-        environmental.push(item);
+        otherEnvironmental.push(item);
       }
     }
 
@@ -656,14 +794,57 @@ export class AnalysesService {
 
     const groups: Array<{
       title: string;
-      items: Array<{ datasetCode: string; hit: boolean }>;
+      items: Array<{ datasetCode: string; hit: boolean; label?: string }>;
     }> = [];
 
-    environmental.sort((a, b) => a.datasetCode.localeCompare(b.datasetCode));
+    const indigenousItems = this.buildIndigenaItems(
+      options.indigenaPhases,
+      options.indigenaHits,
+    );
+    const ucsItems = this.buildUcsItems(options.ucsCategories, options.ucsHits);
+
+    const socialOrdered: Array<{
+      datasetCode: string;
+      hit: boolean;
+      label?: string;
+    }> = [];
+    const socialByCode = new Map(
+      social.map((item) => [item.datasetCode.toUpperCase(), item]),
+    );
+    const cadastro = socialByCode.get('CADASTRO_EMPREGADORES');
+    if (cadastro) socialOrdered.push(cadastro);
+    const listaIbama = socialByCode.get('LISTA_EMBARGOS_IBAMA');
+    if (listaIbama) socialOrdered.push(listaIbama);
     if (hasLdiDataset) {
-      environmental.unshift({ datasetCode: 'LDI_SEMAS', hit: ldiHit });
+      socialOrdered.push({ datasetCode: 'LDI_SEMAS', hit: ldiHit });
     }
-    groups.push({ title: 'Análise Ambiental', items: environmental });
+    for (const item of social) {
+      if (!socialOrdered.includes(item)) socialOrdered.push(item);
+    }
+    if (socialOrdered.length) {
+      groups.push({ title: 'Análise Social', items: socialOrdered });
+    }
+
+    quilombolas.sort((a, b) => a.datasetCode.localeCompare(b.datasetCode));
+    embargosIbama.sort((a, b) => a.datasetCode.localeCompare(b.datasetCode));
+    embargosIcmbio.sort((a, b) => a.datasetCode.localeCompare(b.datasetCode));
+    otherEnvironmental.sort((a, b) =>
+      a.datasetCode.localeCompare(b.datasetCode),
+    );
+
+    const environmental = [
+      ...indigenousItems,
+      ...quilombolas,
+      ...embargosIbama,
+      ...embargosIcmbio,
+      ...otherEnvironmental,
+    ];
+    if (environmental.length) {
+      groups.push({ title: 'Análise Ambiental', items: environmental });
+    }
+    if (ucsItems.length) {
+      groups.push({ title: 'Unidades de conservação', items: ucsItems });
+    }
 
     for (const biome of prodesOrder) {
       const items = prodesByBiome.get(biome);
@@ -687,6 +868,260 @@ export class AnalysesService {
       return 'Amazônia Legal';
     if (upper.includes('AMZ') || upper.includes('AMAZ')) return 'Amazônia';
     return 'Outros';
+  }
+
+  private isIndigenaDataset(
+    categoryCode?: string | null,
+    datasetCode?: string | null,
+  ) {
+    const category = (categoryCode ?? '').toUpperCase();
+    const code = (datasetCode ?? '').toUpperCase();
+    if (category === 'TI') return true;
+    if (code.startsWith('TI_') || code.startsWith('TI-')) return true;
+    if (category.includes('TERRA') && category.includes('INDIG')) return true;
+    if (code.includes('TERRA') && code.includes('INDIG')) return true;
+    if (category.includes('INDIGEN')) return true;
+    if (code.includes('INDIGEN')) return true;
+    return false;
+  }
+
+  private isUcsDataset(
+    categoryCode?: string | null,
+    datasetCode?: string | null,
+  ) {
+    const category = (categoryCode ?? '').toUpperCase();
+    const code = (datasetCode ?? '').toUpperCase();
+    if (category.includes('UCS') || category.includes('CONSERVAC')) return true;
+    if (code.includes('UCS') || code.includes('CONSERVAC')) return true;
+    return false;
+  }
+
+  async listIndigenaPhases(asOf?: string) {
+    const analysisDate = this.normalizeDate(asOf);
+    const schema = this.getSchema();
+    return this.fetchIndigenaPhases(schema, analysisDate);
+  }
+
+  private buildIndigenaItems(
+    phases: string[],
+    hits: Set<string>,
+  ): Array<{ datasetCode: string; hit: boolean; label: string }> {
+    const cleaned = phases
+      .map((phase) => (phase ?? '').trim())
+      .filter((phase) => phase.length > 0);
+    const unique = Array.from(new Set(cleaned));
+    const effective = unique.length ? unique : Array.from(hits);
+    const items = effective.map((phase) => ({
+      datasetCode: `INDIGENAS_${phase}`,
+      hit: hits.has(phase),
+      label: `Terra Indigena ${phase}`,
+    }));
+    items.sort((a, b) => (a.label ?? '').localeCompare(b.label ?? ''));
+    return items;
+  }
+
+  private buildUcsItems(
+    categories: string[],
+    hits: Set<string>,
+  ): Array<{ datasetCode: string; hit: boolean; label: string }> {
+    const labels: Record<string, string> = {
+      APA: 'Área de Proteção Ambiental',
+      ARIE: 'Área de Relevante Interesse Ecológico',
+      ESEC: 'Estação Ecológica',
+      FLONA: 'Floresta Nacional',
+      MONA: 'Monumento Natural',
+      PARNA: 'Parque Nacional',
+      REBIO: 'Reserva Biológica',
+      RDS: 'Reserva de Desenvolvimento Sustentável',
+      RESEX: 'Reserva Extrativista',
+      RPPN: 'Reserva Particular do Patrimônio Natural',
+      REVIS: 'Refúgio de Vida Silvestre',
+    };
+    const cleaned = categories
+      .map((sigla) => (sigla ?? '').trim().toUpperCase())
+      .filter((sigla) => sigla.length > 0);
+    const unique = Array.from(new Set(cleaned));
+    const effective = unique.length ? unique : Array.from(hits);
+    const items = effective.map((sigla) => ({
+      datasetCode: `UCS_${sigla}`,
+      hit: hits.has(sigla),
+      label: labels[sigla] ?? sigla,
+    }));
+    items.sort((a, b) => (a.label ?? '').localeCompare(b.label ?? ''));
+    return items;
+  }
+
+  private async fetchIndigenaPhases(
+    schema: string,
+    analysisDate: string,
+    datasetCodes?: string[],
+  ) {
+    return this.fetchDistinctAttrValues(schema, analysisDate, {
+      categoryCode: 'INDIGENAS',
+      datasetCodes,
+      keys: [
+        'fase_ti',
+        'FASE_TI',
+        'faseTi',
+        'FASETI',
+        'fase_it',
+        'FASE_IT',
+        'faseIt',
+        'FASEIT',
+      ],
+    });
+  }
+
+  private async fetchIndigenaPhaseHits(
+    schema: string,
+    analysisDate: string,
+    results: Array<{
+      categoryCode?: string | null;
+      datasetCode: string;
+      featureId?: string | null;
+    }>,
+    datasetCodes?: string[],
+  ) {
+    const datasetSet = new Set(
+      (datasetCodes ?? []).map((code) => code.toUpperCase()),
+    );
+    const targets = results.filter((row) => {
+      if (datasetSet.size > 0) {
+        return datasetSet.has(row.datasetCode.toUpperCase());
+      }
+      return this.isIndigenaDataset(row.categoryCode, row.datasetCode);
+    });
+    return this.fetchAttrValuesForFeatures(schema, analysisDate, targets, {
+      keys: [
+        'fase_ti',
+        'FASE_TI',
+        'faseTi',
+        'FASETI',
+        'fase_it',
+        'FASE_IT',
+        'faseIt',
+        'FASEIT',
+      ],
+    });
+  }
+
+  private async fetchUcsCategories(
+    schema: string,
+    analysisDate: string,
+    datasetCodes?: string[],
+  ) {
+    return this.fetchDistinctAttrValues(schema, analysisDate, {
+      categoryCode: 'UCS_SNIRH',
+      datasetCodes,
+      keys: ['SiglaCateg', 'SIGLACATEG', 'siglacateg', 'sigla_categ'],
+    });
+  }
+
+  private async fetchUcsCategoryHits(
+    schema: string,
+    analysisDate: string,
+    results: Array<{
+      categoryCode?: string | null;
+      datasetCode: string;
+      featureId?: string | null;
+    }>,
+    datasetCodes?: string[],
+  ) {
+    const datasetSet = new Set(
+      (datasetCodes ?? []).map((code) => code.toUpperCase()),
+    );
+    const targets = results.filter((row) => {
+      if (datasetSet.size > 0) {
+        return datasetSet.has(row.datasetCode.toUpperCase());
+      }
+      return this.isUcsDataset(row.categoryCode, row.datasetCode);
+    });
+    return this.fetchAttrValuesForFeatures(schema, analysisDate, targets, {
+      keys: ['SiglaCateg', 'SIGLACATEG', 'siglacateg', 'sigla_categ'],
+    });
+  }
+
+  private async fetchDistinctAttrValues(
+    schema: string,
+    analysisDate: string,
+    options: { categoryCode: string; datasetCodes?: string[]; keys: string[] },
+  ) {
+    const keys = options.keys;
+    if (!keys.length) return [] as string[];
+    const keySql = Prisma.join(
+      keys.map((key) => Prisma.sql`NULLIF(p.pack_json->>${key}, '')`),
+      ',',
+    );
+    const datasetCodes =
+      options.datasetCodes && options.datasetCodes.length > 0
+        ? Array.from(new Set(options.datasetCodes))
+        : null;
+    const rows = await this.prisma.$queryRaw<Array<{ value: string | null }>>(
+      Prisma.sql`
+        SELECT DISTINCT COALESCE(${keySql}) AS value
+        FROM ${Prisma.raw(`"${schema}"."lw_feature_attr_pack_hist"`)} h
+        JOIN ${Prisma.raw(`"${schema}"."lw_attr_pack"`)} p ON p.pack_id = h.pack_id
+        JOIN ${Prisma.raw(`"${schema}"."lw_dataset"`)} d ON d.dataset_id = h.dataset_id
+        JOIN ${Prisma.raw(`"${schema}"."lw_category"`)} c ON c.category_id = d.category_id
+        WHERE ${
+          datasetCodes
+            ? Prisma.sql`(c.code = ${options.categoryCode} OR d.code IN (${Prisma.join(datasetCodes)}))`
+            : Prisma.sql`c.code = ${options.categoryCode}`
+        }
+          AND h.valid_from <= ${analysisDate}::date
+          AND (h.valid_to IS NULL OR h.valid_to > ${analysisDate}::date)
+          AND COALESCE(${keySql}) IS NOT NULL
+      `,
+    );
+    const values = (rows ?? [])
+      .map((row) => (row.value ?? '').trim())
+      .filter((value) => value.length > 0);
+    return Array.from(new Set(values)).sort();
+  }
+
+  private async fetchAttrValuesForFeatures(
+    schema: string,
+    analysisDate: string,
+    targets: Array<{ datasetCode: string; featureId?: string | null }>,
+    options: { keys: string[] },
+  ) {
+    const keys = options.keys;
+    if (!keys.length || targets.length === 0) return new Set<string>();
+    const datasetCodes = Array.from(
+      new Set(targets.map((row) => row.datasetCode)),
+    );
+    const featureIds = Array.from(
+      new Set(
+        targets
+          .map((row) => row.featureId)
+          .filter((value): value is string => Boolean(value))
+          .map((value) => value.trim()),
+      ),
+    ).filter((value) => value.length > 0);
+    if (!datasetCodes.length || !featureIds.length) {
+      return new Set<string>();
+    }
+    const keySql = Prisma.join(
+      keys.map((key) => Prisma.sql`NULLIF(p.pack_json->>${key}, '')`),
+      ',',
+    );
+    const rows = await this.prisma.$queryRaw<Array<{ value: string | null }>>(
+      Prisma.sql`
+        SELECT DISTINCT COALESCE(${keySql}) AS value
+        FROM ${Prisma.raw(`"${schema}"."lw_feature_attr_pack_hist"`)} h
+        JOIN ${Prisma.raw(`"${schema}"."lw_attr_pack"`)} p ON p.pack_id = h.pack_id
+        JOIN ${Prisma.raw(`"${schema}"."lw_dataset"`)} d ON d.dataset_id = h.dataset_id
+        WHERE d.code IN (${Prisma.join(datasetCodes)})
+          AND h.feature_id IN (${Prisma.join(featureIds)})
+          AND h.valid_from <= ${analysisDate}::date
+          AND (h.valid_to IS NULL OR h.valid_to > ${analysisDate}::date)
+          AND COALESCE(${keySql}) IS NOT NULL
+      `,
+    );
+    const values = (rows ?? [])
+      .map((row) => (row.value ?? '').trim())
+      .filter((value) => value.length > 0);
+    return new Set(values);
   }
 
   private async buildDocInfo(cpfCnpj: string): Promise<DocInfo> {

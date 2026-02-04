@@ -10,6 +10,7 @@ type IntersectionRow = {
   dataset_code: string;
   snapshot_date: string | Date | null;
   feature_id: string | number | bigint | null;
+  geom_id: string | number | bigint | null;
   sicar_area_m2: string | null;
   feature_area_m2: string | null;
   overlap_area_m2: string | null;
@@ -109,6 +110,7 @@ export class AnalysisRunnerService implements OnModuleInit, OnModuleDestroy {
         datasetCode: row.dataset_code,
         snapshotDate: row.snapshot_date ? new Date(row.snapshot_date) : null,
         featureId: this.normalizeFeatureId(row.feature_id),
+        geomId: this.normalizeFeatureId(row.geom_id),
         isSicar: row.category_code === 'SICAR',
         sicarAreaM2: row.sicar_area_m2 ?? null,
         featureAreaM2: row.feature_area_m2 ?? null,
