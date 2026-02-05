@@ -30,6 +30,11 @@ const router = createRouter({
           meta: { title: "Nova análise" },
         },
         {
+          path: "analyses/search",
+          component: NewAnalysisView,
+          meta: { title: "Buscar CAR" },
+        },
+        {
           path: "analyses/:id",
           component: AnalysisDetailView,
           meta: { title: "Detalhe da análise" },

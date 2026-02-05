@@ -1,6 +1,6 @@
 <template>
-  <div class="mx-auto grid max-w-6xl gap-6 px-6 py-6 lg:grid-cols-[1fr_1.4fr]">
-    <section class="rounded-2xl border border-border bg-card p-6 shadow-sm">
+  <div class="mx-auto flex max-w-6xl flex-col gap-6 px-6 py-6">
+    <section v-if="viewMode === 'analysis'" class="rounded-2xl border border-border bg-card p-6 shadow-sm">
       <div class="text-lg font-semibold">Nova análise</div>
       <div class="mt-4 grid gap-3">
         <UiLabel for="analysis-name">Nome da fazenda</UiLabel>
@@ -47,12 +47,24 @@
         />
         <div v-if="dateError" class="text-xs text-red-500">{{ dateError }}</div>
 
-        <UiButton class="mt-2" @click="submitAnalysis">Gerar análise</UiButton>
+        <UiButton
+          class="mt-2 inline-flex items-center gap-2"
+          :disabled="isSubmitting"
+          @click="submitAnalysis"
+        >
+          <span v-if="isSubmitting" class="inline-flex items-center gap-2">
+            <span
+              class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"
+            ></span>
+            Gerando...
+          </span>
+          <span v-else>Gerar análise</span>
+        </UiButton>
         <div v-if="message" class="text-xs text-muted-foreground">{{ message }}</div>
       </div>
     </section>
 
-    <section class="rounded-2xl border border-border bg-card p-6 shadow-sm">
+    <section v-else class="rounded-2xl border border-border bg-card p-6 shadow-sm">
       <div class="text-lg font-semibold">Selecionar CAR no mapa</div>
       <div class="mt-3 grid gap-3 md:grid-cols-2">
         <div>
@@ -75,7 +87,7 @@
       <div v-if="searchMessage" class="mt-2 text-xs text-muted-foreground">
         {{ searchMessage }}
       </div>
-      <div class="mt-4 h-[420px]">
+      <div class="mt-4 h-[clamp(280px,calc(100vh-420px),600px)]">
         <CarSelectMap
           v-model:selected-car-key="analysisForm.carKey"
           :center="centerValue"
@@ -83,14 +95,53 @@
           @center-change="updateCenter"
         />
       </div>
+      <div class="mt-4 flex flex-wrap items-center justify-between gap-2">
+        <div class="text-xs text-muted-foreground">
+          Selecione um CAR no mapa para continuar.
+        </div>
+        <UiButton
+          v-if="analysisForm.carKey"
+          size="sm"
+          variant="outline"
+          @click="goToAnalysisTab"
+        >
+          Gerar análise
+        </UiButton>
+      </div>
     </section>
+
+    <UiDialog :open="confirmMissingOpen" @close="confirmMissingOpen = false">
+      <UiDialogHeader>
+        <UiDialogTitle>Continuar sem dados?</UiDialogTitle>
+        <UiDialogDescription>
+          Você não preencheu Nome da fazenda e CPF/CNPJ. Deseja continuar mesmo assim?
+        </UiDialogDescription>
+      </UiDialogHeader>
+      <UiDialogFooter class="flex items-center justify-end gap-2 p-4">
+        <UiButton variant="outline" :disabled="isSubmitting" @click="confirmMissingOpen = false">
+          Voltar
+        </UiButton>
+        <UiButton :disabled="isSubmitting" @click="confirmMissingAndSubmit">
+          Continuar
+        </UiButton>
+      </UiDialogFooter>
+    </UiDialog>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { Button as UiButton, Input as UiInput, Label as UiLabel } from "@/components/ui";
+import {
+  Button as UiButton,
+  Dialog as UiDialog,
+  DialogDescription as UiDialogDescription,
+  DialogFooter as UiDialogFooter,
+  DialogHeader as UiDialogHeader,
+  DialogTitle as UiDialogTitle,
+  Input as UiInput,
+  Label as UiLabel,
+} from "@/components/ui";
 import { http } from "@/api/http";
 import { unwrapData, type ApiEnvelope } from "@/api/envelope";
 import CarSelectMap from "@/components/maps/CarSelectMap.vue";
@@ -104,6 +155,9 @@ type Farm = {
 
 const router = useRouter();
 const route = useRoute();
+
+const isSubmitting = ref(false);
+const confirmMissingOpen = ref(false);
 
 const center = reactive({ lat: "-15.5", lng: "-55.5" });
 const parsedCenter = ref({ lat: -15.5, lng: -55.5 });
@@ -122,6 +176,15 @@ const analysisForm = reactive({
 });
 const message = ref("");
 
+const viewMode = computed<"analysis" | "search">(() => {
+  return route.path.startsWith("/analyses/search") ? "search" : "analysis";
+});
+
+const missingOptionalInfo = computed(() => {
+  if (analysisForm.farmId) return false;
+  return !analysisForm.farmName.trim() && !analysisForm.cpfCnpj.trim();
+});
+
 async function loadFarm(id: string) {
   const res = await http.get<ApiEnvelope<Farm>>(`/v1/farms/${id}`);
   const farm = unwrapData(res.data);
@@ -133,6 +196,7 @@ async function loadFarm(id: string) {
 
 async function submitAnalysis() {
   message.value = "";
+  if (isSubmitting.value) return;
   if (!analysisForm.carKey.trim()) {
     message.value = "Selecione um CAR para continuar.";
     return;
@@ -141,6 +205,17 @@ async function submitAnalysis() {
     message.value = "Data inválida.";
     return;
   }
+  if (missingOptionalInfo.value) {
+    confirmMissingOpen.value = true;
+    return;
+  }
+  await performSubmit();
+}
+
+async function performSubmit() {
+  if (isSubmitting.value) return;
+  isSubmitting.value = true;
+  message.value = "Criando análise...";
   const normalizedDate = normalizeAnalysisDate(analysisForm.analysisDate);
   const payload = {
     carKey: analysisForm.carKey.trim(),
@@ -163,7 +238,21 @@ async function submitAnalysis() {
       err?.response?.data?.message ??
       "Falha ao criar análise.";
     message.value = apiMessage;
+  } finally {
+    isSubmitting.value = false;
   }
+}
+
+async function confirmMissingAndSubmit() {
+  confirmMissingOpen.value = false;
+  await performSubmit();
+}
+
+async function goToAnalysisTab() {
+  await router.push({
+    path: "/analyses/new",
+    query: analysisForm.carKey ? { carKey: analysisForm.carKey } : undefined,
+  });
 }
 
 function searchCars() {
@@ -320,7 +409,20 @@ onMounted(() => {
   if (farmId) {
     void loadFarm(farmId);
   }
+  const carKey = route.query.carKey as string | undefined;
+  if (carKey) {
+    analysisForm.carKey = maskCarKey(carKey);
+  }
 });
+
+watch(
+  () => route.query.carKey,
+  (value) => {
+    if (typeof value === "string" && value.trim()) {
+      analysisForm.carKey = maskCarKey(value);
+    }
+  },
+);
 
 watch(
   () => analysisForm.carKey,
@@ -346,5 +448,4 @@ watch(
   },
   { immediate: true },
 );
-
 </script>

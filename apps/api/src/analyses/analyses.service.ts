@@ -503,21 +503,36 @@ export class AnalysesService {
     return null;
   }
 
-  private async queryRawWithRetry<T>(query: Prisma.Sql, retries = 1): Promise<T> {
+  private async queryRawWithRetry<T>(
+    query: Prisma.Sql,
+    retries = 1,
+  ): Promise<T> {
     try {
       return await this.prisma.$queryRaw<T>(query);
-    } catch (error: any) {
-      const code =
-        error?.code ??
-        error?.cause?.code ??
-        error?.cause?.originalCode ??
-        error?.cause?.cause?.originalCode;
+    } catch (error: unknown) {
+      const code = this.extractErrorCode(error);
       if (code === '57P01' && retries > 0) {
         await this.prisma.$connect();
         return this.queryRawWithRetry<T>(query, retries - 1);
       }
       throw error;
     }
+  }
+
+  private extractErrorCode(error: unknown): string | undefined {
+    let current: unknown = error;
+    for (let depth = 0; depth < 3; depth += 1) {
+      if (!current || typeof current !== 'object') return undefined;
+      const record = current as Record<string, unknown>;
+      const code = typeof record.code === 'string' ? record.code : undefined;
+      const originalCode =
+        typeof record.originalCode === 'string'
+          ? record.originalCode
+          : undefined;
+      if (code || originalCode) return code ?? originalCode;
+      current = record.cause;
+    }
+    return undefined;
   }
 
   private async fetchSicarMeta(

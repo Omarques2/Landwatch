@@ -140,6 +140,8 @@ Legenda:
   Aceite: mapa e tabela renderizam sem erro.
 - [x] Nova analise (form + validacoes)
   Aceite: validacoes e POST /analyses funcionam.
+- [x] Abas no sidebar (Nova analise / Buscar CAR) + confirmacao de campos opcionais
+  Aceite: CAR selecionado no mapa preenche form; se nome/CPF-CNPJ vazios, confirma antes de criar.
 - [x] Mascaras de entrada (CAR/CPF-CNPJ/Data)
   Aceite: inputs formatam automaticamente enquanto digita (Nova Analise e Nova Fazenda).
 - [x] Fazendas (lista + modal criar)

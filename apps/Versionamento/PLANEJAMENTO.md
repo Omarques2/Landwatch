@@ -157,6 +157,7 @@ Atualizado em: 2026-02-05
 - Busca por coordenadas aceita DD/DMM/DMS com hemisferio (N/S/E/W/O).
 - Botao "Baixar GeoJSON" no Detalhe da analise (CAR + intersecoes).
 - Busca por coordenadas com cores variadas por CAR e ordem por area (menores por cima).
+- Abas no sidebar para Nova analise/Buscar CAR, com confirmacao de campos opcionais e loading no envio.
 
 ## 11) Seeds e execução local
 
