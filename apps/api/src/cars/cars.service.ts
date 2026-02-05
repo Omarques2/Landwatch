@@ -43,8 +43,15 @@ export class CarsService {
       dataset: Prisma.raw(`"${schema}"."lw_dataset"`),
       feature: Prisma.raw(`"${schema}"."lw_feature"`),
       geomHist: Prisma.raw(`"${schema}"."lw_feature_geom_hist"`),
+      geomActive: Prisma.raw(`"${schema}"."mv_feature_geom_active"`),
       geomStore: Prisma.raw(`"${schema}"."lw_geom_store"`),
     };
+  }
+
+  private isCurrentSnapshot(analysisDate?: string): boolean {
+    if (!analysisDate) return true;
+    const today = new Date().toISOString().slice(0, 10);
+    return analysisDate === today;
   }
 
   private async ensureCategoryHasData(schema: string, categoryCode: string) {
@@ -95,21 +102,32 @@ export class CarsService {
     const limit = Math.min(params.limit ?? 10, this.maxResults());
     const analysisDate =
       params.analysisDate ?? new Date().toISOString().slice(0, 10);
+    const useActive = this.isCurrentSnapshot(params.analysisDate);
+    const geomSource = useActive ? tables.geomActive : tables.geomHist;
+    const geomJoin = useActive
+      ? Prisma.sql``
+      : Prisma.sql`JOIN ${tables.geomStore} gs ON gs.geom_id = h.geom_id`;
+    const geomSelect = useActive ? Prisma.sql`h.geom` : Prisma.sql`gs.geom`;
+    const dateFilter = useActive
+      ? Prisma.sql``
+      : Prisma.sql`AND h.valid_from <= ${analysisDate}::date
+          AND (h.valid_to IS NULL OR h.valid_to > ${analysisDate}::date)`;
 
     const sql = Prisma.sql`
       WITH sicar AS (
         SELECT
           f.feature_key,
           f.dataset_id,
-          gs.geom
-        FROM ${tables.geomHist} h
-        JOIN ${tables.feature} f ON f.feature_id = h.feature_id
+          ${geomSelect} AS geom
+        FROM ${geomSource} h
+        JOIN ${tables.feature} f
+          ON f.feature_id = h.feature_id
+         AND f.dataset_id = h.dataset_id
         JOIN ${tables.dataset} d ON d.dataset_id = f.dataset_id
         JOIN ${tables.category} c ON c.category_id = d.category_id
-        JOIN ${tables.geomStore} gs ON gs.geom_id = h.geom_id
+        ${geomJoin}
         WHERE c.code = ${categoryCode}
-          AND h.valid_from <= ${analysisDate}::date
-          AND (h.valid_to IS NULL OR h.valid_to > ${analysisDate}::date)
+          ${dateFilter}
       )
       SELECT
         feature_key,
@@ -167,6 +185,16 @@ export class CarsService {
     const limit = Math.min(params.limit ?? 200, this.maxResults() * 20);
     const analysisDate =
       params.analysisDate ?? new Date().toISOString().slice(0, 10);
+    const useActive = this.isCurrentSnapshot(params.analysisDate);
+    const geomSource = useActive ? tables.geomActive : tables.geomHist;
+    const geomJoin = useActive
+      ? Prisma.sql``
+      : Prisma.sql`JOIN ${tables.geomStore} gs ON gs.geom_id = h.geom_id`;
+    const geomSelect = useActive ? Prisma.sql`h.geom` : Prisma.sql`gs.geom`;
+    const dateFilter = useActive
+      ? Prisma.sql``
+      : Prisma.sql`AND h.valid_from <= ${analysisDate}::date
+          AND (h.valid_to IS NULL OR h.valid_to > ${analysisDate}::date)`;
     const tolerance = params.tolerance ?? 0.0001;
 
     const sql = Prisma.sql`
@@ -174,15 +202,16 @@ export class CarsService {
         SELECT
           f.feature_key,
           f.dataset_id,
-          gs.geom
-        FROM ${tables.geomHist} h
-        JOIN ${tables.feature} f ON f.feature_id = h.feature_id
+          ${geomSelect} AS geom
+        FROM ${geomSource} h
+        JOIN ${tables.feature} f
+          ON f.feature_id = h.feature_id
+         AND f.dataset_id = h.dataset_id
         JOIN ${tables.dataset} d ON d.dataset_id = f.dataset_id
         JOIN ${tables.category} c ON c.category_id = d.category_id
-        JOIN ${tables.geomStore} gs ON gs.geom_id = h.geom_id
+        ${geomJoin}
         WHERE c.code = ${categoryCode}
-          AND h.valid_from <= ${analysisDate}::date
-          AND (h.valid_to IS NULL OR h.valid_to > ${analysisDate}::date)
+          ${dateFilter}
       )
       SELECT
         feature_key,
@@ -239,23 +268,31 @@ export class CarsService {
     );
     const analysisDate =
       params.analysisDate ?? new Date().toISOString().slice(0, 10);
+    const useActive = this.isCurrentSnapshot(params.analysisDate);
+    const geomSource = useActive ? tables.geomActive : tables.geomHist;
+    const geomJoin = useActive
+      ? Prisma.sql``
+      : Prisma.sql`JOIN ${tables.geomStore} gs ON gs.geom_id = h.geom_id`;
+    const geomSelect = useActive ? Prisma.sql`h.geom` : Prisma.sql`gs.geom`;
+    const dateFilter = useActive
+      ? Prisma.sql``
+      : Prisma.sql`AND h.valid_from <= ${analysisDate}::date
+          AND (h.valid_to IS NULL OR h.valid_to > ${analysisDate}::date)`;
     const tolerance = params.tolerance ?? 0.0001;
-    const radiusMeters = 10000;
-    const radiusDegrees = radiusMeters / 111000;
-
     const sql = Prisma.sql`
       WITH sicar AS (
         SELECT
           f.feature_key,
-          gs.geom
-        FROM ${tables.geomHist} h
-        JOIN ${tables.feature} f ON f.feature_id = h.feature_id
+          ${geomSelect} AS geom
+        FROM ${geomSource} h
+        JOIN ${tables.feature} f
+          ON f.feature_id = h.feature_id
+         AND f.dataset_id = h.dataset_id
         JOIN ${tables.dataset} d ON d.dataset_id = f.dataset_id
         JOIN ${tables.category} c ON c.category_id = d.category_id
-        JOIN ${tables.geomStore} gs ON gs.geom_id = h.geom_id
+        ${geomJoin}
         WHERE c.code = ${categoryCode}
-          AND h.valid_from <= ${analysisDate}::date
-          AND (h.valid_to IS NULL OR h.valid_to > ${analysisDate}::date)
+          ${dateFilter}
       )
       SELECT
         feature_key,
@@ -306,6 +343,16 @@ export class CarsService {
     await this.ensureCategoryHasData(schema, categoryCode);
     const analysisDate =
       params.analysisDate ?? new Date().toISOString().slice(0, 10);
+    const useActive = this.isCurrentSnapshot(params.analysisDate);
+    const geomSource = useActive ? tables.geomActive : tables.geomHist;
+    const geomJoin = useActive
+      ? Prisma.sql``
+      : Prisma.sql`JOIN ${tables.geomStore} gs ON gs.geom_id = h.geom_id`;
+    const geomSelect = useActive ? Prisma.sql`h.geom` : Prisma.sql`gs.geom`;
+    const dateFilter = useActive
+      ? Prisma.sql``
+      : Prisma.sql`AND h.valid_from <= ${analysisDate}::date
+          AND (h.valid_to IS NULL OR h.valid_to > ${analysisDate}::date)`;
     const tolerance = params.tolerance ?? 0.0001;
     const radiusMeters = 5000;
     const radiusDegrees = radiusMeters / 111000;
@@ -319,15 +366,16 @@ export class CarsService {
       sicar AS (
         SELECT
           f.feature_key,
-          gs.geom
-        FROM ${tables.geomHist} h
-        JOIN ${tables.feature} f ON f.feature_id = h.feature_id
+          ${geomSelect} AS geom
+        FROM ${geomSource} h
+        JOIN ${tables.feature} f
+          ON f.feature_id = h.feature_id
+         AND f.dataset_id = h.dataset_id
         JOIN ${tables.dataset} d ON d.dataset_id = f.dataset_id
         JOIN ${tables.category} c ON c.category_id = d.category_id
-        JOIN ${tables.geomStore} gs ON gs.geom_id = h.geom_id
+        ${geomJoin}
         WHERE c.code = ${categoryCode}
-          AND h.valid_from <= ${analysisDate}::date
-          AND (h.valid_to IS NULL OR h.valid_to > ${analysisDate}::date)
+          ${dateFilter}
       )
       SELECT
         feature_key,

@@ -434,7 +434,7 @@ export class AnalysesService {
 
     let rows: MapRow[] = [];
     try {
-      const raw = await this.prisma.$queryRaw<MapRow[]>(sql);
+      const raw = await this.queryRawWithRetry<MapRow[]>(sql);
       rows = Array.isArray(raw) ? raw : [];
     } catch {
       rows = [];
@@ -468,8 +468,12 @@ export class AnalysesService {
           AND r.category_code NOT IN ('BIOMAS', 'DETER')
           ${dateFilter}
       `;
-      const rawFallback = await this.prisma.$queryRaw<MapRow[]>(fallbackSql);
-      rows = Array.isArray(rawFallback) ? rawFallback : [];
+      try {
+        const rawFallback = await this.queryRawWithRetry<MapRow[]>(fallbackSql);
+        rows = Array.isArray(rawFallback) ? rawFallback : [];
+      } catch {
+        rows = [];
+      }
     }
 
     return rows
@@ -497,6 +501,23 @@ export class AnalysesService {
     if (typeof value === 'number') return BigInt(value);
     if (typeof value === 'string' && value.length > 0) return BigInt(value);
     return null;
+  }
+
+  private async queryRawWithRetry<T>(query: Prisma.Sql, retries = 1): Promise<T> {
+    try {
+      return await this.prisma.$queryRaw<T>(query);
+    } catch (error: any) {
+      const code =
+        error?.code ??
+        error?.cause?.code ??
+        error?.cause?.originalCode ??
+        error?.cause?.cause?.originalCode;
+      if (code === '57P01' && retries > 0) {
+        await this.prisma.$connect();
+        return this.queryRawWithRetry<T>(query, retries - 1);
+      }
+      throw error;
+    }
   }
 
   private async fetchSicarMeta(

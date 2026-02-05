@@ -47,12 +47,15 @@ def build_config() -> JobConfig:
     )
 
 
-def upload_artifacts(storage: StorageClient, run_id: str, artifacts):
+def upload_artifacts(storage: StorageClient, run_id: str, artifacts, work_dir: Path):
     for art in artifacts:
-        base = f"raw/{art.category}/{run_id}/{art.dataset_code}"
         for file_path in art.files:
-            rel = f"{base}/{file_path.name}"
-            storage.upload_file(file_path, rel)
+            try:
+                rel = file_path.relative_to(work_dir)
+            except ValueError:
+                rel = Path(art.category) / file_path.name
+            storage_path = f"raw/{run_id}/{rel.as_posix()}"
+            storage.upload_file(file_path, storage_path)
 
 
 def process_category(storage: StorageClient, run_id: str, category: str, artifacts, config: JobConfig) -> Dict[str, str]:
@@ -68,7 +71,7 @@ def process_category(storage: StorageClient, run_id: str, category: str, artifac
             changed.append(art)
 
     if config.save_raw:
-        upload_artifacts(storage, run_id, artifacts)
+        upload_artifacts(storage, run_id, artifacts, config.work_dir)
 
     status = "skipped"
     if changed:
@@ -124,19 +127,31 @@ def _parse_args():
         "--prodes-workspaces",
         help="Lista separada por virgula de workspaces PRODES (ex: prodes-mata-atlantica-nb)",
     )
+    parser.add_argument(
+        "--prodes-years",
+        help="Lista separada por virgula de anos PRODES (ex: 2020,2021)",
+    )
     return parser.parse_args()
 
 
-def _filter_prodes_artifacts(artifacts, workspaces):
+def _filter_prodes_artifacts(artifacts, workspaces, years):
     if not workspaces:
-        return artifacts
-    ws_prefixes = [w.strip().replace("-", "_").upper() for w in workspaces if w.strip()]
-    if not ws_prefixes:
-        return artifacts
-    return [a for a in artifacts if any(a.dataset_code.startswith(p) for p in ws_prefixes)]
+        filtered = artifacts
+    else:
+        ws_prefixes = [w.strip().replace("-", "_").upper() for w in workspaces if w.strip()]
+        if not ws_prefixes:
+            filtered = artifacts
+        else:
+            filtered = [a for a in artifacts if any(a.dataset_code.startswith(p) for p in ws_prefixes)]
+    if not years:
+        return filtered
+    year_suffixes = {str(y).strip() for y in years if str(y).strip()}
+    if not year_suffixes:
+        return filtered
+    return [a for a in filtered if any(a.dataset_code.endswith(suf) for suf in year_suffixes)]
 
 
-def run_all(config: JobConfig, snapshot_date: str, categories=None, prodes_workspaces=None):
+def run_all(config: JobConfig, snapshot_date: str, categories=None, prodes_workspaces=None, prodes_years=None):
     config.work_dir.mkdir(parents=True, exist_ok=True)
     storage = StorageClient(
         mode=config.storage_mode,
@@ -158,11 +173,16 @@ def run_all(config: JobConfig, snapshot_date: str, categories=None, prodes_works
             artifacts = []
             if reuse:
                 artifacts = load_existing_artifacts(config.work_dir, "PRODES", snapshot_date)
-                artifacts = _filter_prodes_artifacts(artifacts, prodes_workspaces)
+                artifacts = _filter_prodes_artifacts(artifacts, prodes_workspaces, prodes_years)
                 if artifacts:
                     log_info("PRODES: reutilizando arquivos baixados (manifest failed).")
             if not artifacts:
-                artifacts = download_prodes(config.work_dir, snapshot_date, workspaces=prodes_workspaces)
+                artifacts = download_prodes(
+                    config.work_dir,
+                    snapshot_date,
+                    workspaces=prodes_workspaces,
+                    years=prodes_years,
+                )
             results["PRODES"] = process_category(storage, run_id, "PRODES", artifacts, config)
         except Exception as exc:
             log_warn(f"PRODES falhou: {exc}")
@@ -228,10 +248,19 @@ if __name__ == "__main__":
     prodes_workspaces = None
     if args.prodes_workspaces:
         prodes_workspaces = [w.strip() for w in args.prodes_workspaces.split(",") if w.strip()]
+    prodes_years = None
+    if args.prodes_years:
+        prodes_years = [int(y.strip()) for y in args.prodes_years.split(",") if y.strip()]
 
     config = build_config()
     snapshot_date = os.environ.get("LANDWATCH_DEFAULT_SNAPSHOT_DATE") or None
     if not snapshot_date:
         from datetime import date
         snapshot_date = date.today().isoformat()
-    run_all(config, snapshot_date, categories=categories, prodes_workspaces=prodes_workspaces)
+    run_all(
+        config,
+        snapshot_date,
+        categories=categories,
+        prodes_workspaces=prodes_workspaces,
+        prodes_years=prodes_years,
+    )

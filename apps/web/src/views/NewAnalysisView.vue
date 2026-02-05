@@ -17,15 +17,35 @@
         <UiLabel for="analysis-car">CAR (cod_imovel)</UiLabel>
         <UiInput
           id="analysis-car"
-          v-model="analysisForm.carKey"
+          :model-value="analysisForm.carKey"
           placeholder="Selecione no mapa ou digite"
+          inputmode="text"
+          autocapitalize="characters"
+          maxlength="43"
+          @update:model-value="onCarInput"
         />
 
         <UiLabel for="analysis-doc">CPF/CNPJ (opcional)</UiLabel>
-        <UiInput id="analysis-doc" v-model="analysisForm.cpfCnpj" placeholder="CPF/CNPJ" />
+        <UiInput
+          id="analysis-doc"
+          :model-value="analysisForm.cpfCnpj"
+          placeholder="CPF/CNPJ"
+          inputmode="numeric"
+          maxlength="18"
+          @update:model-value="onDocInput"
+        />
 
         <UiLabel for="analysis-date">Data de referência (opcional)</UiLabel>
-        <UiInput id="analysis-date" v-model="analysisForm.analysisDate" placeholder="YYYY-MM-DD" />
+        <UiInput
+          id="analysis-date"
+          :model-value="analysisForm.analysisDate"
+          placeholder="DD/MM/AAAA"
+          inputmode="numeric"
+          maxlength="10"
+          :class="dateError ? 'border-red-500 focus-visible:ring-red-500/40' : ''"
+          @update:model-value="onDateInput"
+        />
+        <div v-if="dateError" class="text-xs text-red-500">{{ dateError }}</div>
 
         <UiButton class="mt-2" @click="submitAnalysis">Gerar análise</UiButton>
         <div v-if="message" class="text-xs text-muted-foreground">{{ message }}</div>
@@ -37,11 +57,11 @@
       <div class="mt-3 grid gap-3 md:grid-cols-2">
         <div>
           <UiLabel>Latitude</UiLabel>
-          <UiInput v-model="center.lat" placeholder="-10.0000" />
+          <UiInput v-model="center.lat" placeholder="-10.0000 ou 10° 00' 00&quot; S" />
         </div>
         <div>
           <UiLabel>Longitude</UiLabel>
-          <UiInput v-model="center.lng" placeholder="-50.0000" />
+          <UiInput v-model="center.lng" placeholder="-50.0000 ou 50° 00' 00&quot; W" />
         </div>
       </div>
       <div class="mt-3 flex flex-wrap items-center gap-2">
@@ -86,16 +106,12 @@ const router = useRouter();
 const route = useRoute();
 
 const center = reactive({ lat: "-15.5", lng: "-55.5" });
-const centerValue = computed(() => ({
-  lat: Number(center.lat) || -15.5,
-  lng: Number(center.lng) || -55.5,
-}));
+const parsedCenter = ref({ lat: -15.5, lng: -55.5 });
+const centerValue = computed(() => parsedCenter.value);
 const searchToken = ref(0);
 const searchMessage = ref("");
 const canSearch = computed(() => {
-  const lat = Number(center.lat);
-  const lng = Number(center.lng);
-  return Number.isFinite(lat) && Number.isFinite(lng);
+  return parseCoordinate(center.lat, "lat") !== null && parseCoordinate(center.lng, "lng") !== null;
 });
 const analysisForm = reactive({
   farmId: "",
@@ -121,10 +137,15 @@ async function submitAnalysis() {
     message.value = "Selecione um CAR para continuar.";
     return;
   }
+  if (dateError.value) {
+    message.value = "Data inválida.";
+    return;
+  }
+  const normalizedDate = normalizeAnalysisDate(analysisForm.analysisDate);
   const payload = {
     carKey: analysisForm.carKey.trim(),
     cpfCnpj: analysisForm.cpfCnpj?.trim() || undefined,
-    analysisDate: analysisForm.analysisDate?.trim() || undefined,
+    analysisDate: normalizedDate,
     farmId: analysisForm.farmId || undefined,
     farmName: analysisForm.farmId ? undefined : analysisForm.farmName?.trim() || undefined,
   };
@@ -146,13 +167,146 @@ async function submitAnalysis() {
 }
 
 function searchCars() {
-  if (!canSearch.value) {
-    searchMessage.value = "Informe latitude e longitude válidas.";
+  const parsedLat = parseCoordinate(center.lat, "lat");
+  const parsedLng = parseCoordinate(center.lng, "lng");
+  if (!parsedLat || !parsedLng) {
+    searchMessage.value =
+      "Coordenadas inválidas. Use DD, DMM ou DMS (ex: 23° 26' 44.3\" S).";
     return;
   }
+  center.lat = parsedLat.toFixed(6);
+  center.lng = parsedLng.toFixed(6);
+  parsedCenter.value = { lat: parsedLat, lng: parsedLng };
   searchMessage.value = "";
   searchToken.value += 1;
 }
+
+function onCarInput(value: string) {
+  analysisForm.carKey = maskCarKey(value ?? "");
+}
+
+function onDocInput(value: string) {
+  const digits = (value ?? "").replace(/\D/g, "").slice(0, 14);
+  analysisForm.cpfCnpj = maskCpfCnpj(digits);
+}
+
+function onDateInput(value: string) {
+  analysisForm.analysisDate = maskDate(value ?? "");
+}
+
+function normalizeAnalysisDate(value: string) {
+  const trimmed = value?.trim();
+  if (!trimmed) return undefined;
+  if (/^\d{2}\/\d{2}\/\d{4}$/.test(trimmed)) {
+    const [dd, mm, yyyy] = trimmed.split("/");
+    return `${yyyy}-${mm}-${dd}`;
+  }
+  return trimmed;
+}
+
+function maskDate(value: string) {
+  const digits = value.replace(/\D/g, "").slice(0, 8);
+  let masked = digits;
+  if (digits.length > 2) {
+    masked = `${digits.slice(0, 2)}/${digits.slice(2)}`;
+  }
+  if (digits.length > 4) {
+    masked = `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`;
+  }
+  return masked;
+}
+
+function maskCarKey(value: string) {
+  const cleaned = value
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "")
+    .slice(0, 41);
+  const uf = cleaned.slice(0, 2);
+  const mid = cleaned.slice(2, 9);
+  const tail = cleaned.slice(9);
+  let out = uf;
+  if (mid) out += `-${mid}`;
+  if (tail) out += `-${tail}`;
+  return out;
+}
+
+function maskCpfCnpj(digits: string) {
+  if (digits.length <= 11) {
+    const p1 = digits.slice(0, 3);
+    const p2 = digits.slice(3, 6);
+    const p3 = digits.slice(6, 9);
+    const p4 = digits.slice(9, 11);
+    let out = p1;
+    if (p2) out += `.${p2}`;
+    if (p3) out += `.${p3}`;
+    if (p4) out += `-${p4}`;
+    return out;
+  }
+  const p1 = digits.slice(0, 2);
+  const p2 = digits.slice(2, 5);
+  const p3 = digits.slice(5, 8);
+  const p4 = digits.slice(8, 12);
+  const p5 = digits.slice(12, 14);
+  let out = p1;
+  if (p2) out += `.${p2}`;
+  if (p3) out += `.${p3}`;
+  if (p4) out += `/${p4}`;
+  if (p5) out += `-${p5}`;
+  return out;
+}
+
+function parseCoordinate(raw: string, kind: "lat" | "lng") {
+  const value = raw?.trim();
+  if (!value) return null;
+  let normalized = value.toUpperCase().replace(/,/g, ".");
+  const hemiMatches = normalized.match(/[NSEWO]/g);
+  const hemi = hemiMatches ? hemiMatches[hemiMatches.length - 1] : null;
+  normalized = normalized.replace(/[NSEWO]/g, " ");
+  const nums = normalized.match(/-?\d+(?:\.\d+)?/g) ?? [];
+  if (nums.length === 0) return null;
+  let sign = nums[0].startsWith("-") ? -1 : 1;
+  if (hemi) {
+    sign = hemi === "S" || hemi === "W" || hemi === "O" ? -1 : 1;
+  }
+  const deg = Math.abs(Number(nums[0]));
+  const minutes = nums.length >= 2 ? Number(nums[1]) : 0;
+  const seconds = nums.length >= 3 ? Number(nums[2]) : 0;
+  if (Number.isNaN(deg) || Number.isNaN(minutes) || Number.isNaN(seconds)) {
+    return null;
+  }
+  if (nums.length >= 2 && (minutes < 0 || minutes >= 60)) return null;
+  if (nums.length >= 3 && (seconds < 0 || seconds >= 60)) return null;
+  let decimal = deg;
+  if (nums.length === 2) {
+    decimal = deg + minutes / 60;
+  } else if (nums.length >= 3) {
+    decimal = deg + minutes / 60 + seconds / 3600;
+  }
+  decimal *= sign;
+  const limit = kind === "lat" ? 90 : 180;
+  if (decimal < -limit || decimal > limit) return null;
+  return decimal;
+}
+
+function isValidDate(value: string) {
+  if (!/^\d{2}\/\d{2}\/\d{4}$/.test(value)) return false;
+  const [dd, mm, yyyy] = value.split("/").map((v) => Number(v));
+  if (!dd || !mm || !yyyy) return false;
+  if (mm < 1 || mm > 12) return false;
+  if (dd < 1 || dd > 31) return false;
+  const date = new Date(yyyy, mm - 1, dd);
+  return (
+    date.getFullYear() === yyyy &&
+    date.getMonth() === mm - 1 &&
+    date.getDate() === dd
+  );
+}
+
+const dateError = computed(() => {
+  const value = analysisForm.analysisDate?.trim();
+  if (!value) return "";
+  return isValidDate(value) ? "" : "Data inválida";
+});
 
 function updateCenter(payload: { lat: number; lng: number }) {
   center.lat = payload.lat.toFixed(6);
@@ -170,8 +324,25 @@ watch(
   () => analysisForm.carKey,
   (value) => {
     if (!value) return;
+    const masked = maskCarKey(value);
+    if (masked !== value) {
+      analysisForm.carKey = masked;
+      return;
+    }
     message.value = "";
   },
+);
+
+watch(
+  () => [center.lat, center.lng],
+  ([lat, lng]) => {
+    const parsedLat = parseCoordinate(lat, "lat");
+    const parsedLng = parseCoordinate(lng, "lng");
+    if (parsedLat !== null && parsedLng !== null) {
+      parsedCenter.value = { lat: parsedLat, lng: parsedLng };
+    }
+  },
+  { immediate: true },
 );
 
 </script>

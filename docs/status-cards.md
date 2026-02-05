@@ -140,12 +140,20 @@ Legenda:
   Aceite: mapa e tabela renderizam sem erro.
 - [x] Nova analise (form + validacoes)
   Aceite: validacoes e POST /analyses funcionam.
+- [x] Mascaras de entrada (CAR/CPF-CNPJ/Data)
+  Aceite: inputs formatam automaticamente enquanto digita (Nova Analise e Nova Fazenda).
 - [x] Fazendas (lista + modal criar)
   Aceite: CRUD basico acessivel por modal.
 - [ ] Detalhe da fazenda
   Aceite: historico de analises por farm.
 - [x] Tela "Buscar por coordenadas"
   Aceite: ponto no mapa retorna CARs que intersectam a coordenada.
+- [x] Suporte a DD/DMM/DMS na busca por coordenadas
+  Aceite: campos aceitam formatos com hemisferio (N/S/E/W/O) e convertem para decimal.
+- [x] Mapa de CARs com cores variadas e ordenacao por area
+  Aceite: CARs aparecem com cores diferentes e os menores ficam por cima para clique.
+- [x] Baixar GeoJSON no Detalhe da analise
+  Aceite: exporta CAR + intersecoes em um GeoJSON.
 
 ## EPIC-10 - Hardening final do MVP
 - [ ] Rate limit para endpoints criticos (analises/pdf)
@@ -156,7 +164,7 @@ Legenda:
   Aceite: suite e2e roda em staging.
 - [ ] Checklist de deploy (staging -> prod)
   Aceite: checklist documentado e aprovado.
-- [ ] MV de feicoes ativas (current) para acelerar interseccoes do SICAR (sem DETER)
+- [x] MV de feicoes ativas (current) para acelerar interseccoes do SICAR (sem DETER)
   Aceite: consultas de interseccao current usam MV e reduzem latencia significativamente.
 - [x] Downloads + ingest via Blob com limpeza automatica (job unico modular)
   Aceite: job baixa, ingere por categoria e remove blobs antigos com retencao curta (1–2 execucoes).

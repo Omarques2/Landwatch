@@ -107,6 +107,29 @@ CREATE INDEX IF NOT EXISTS idx_lw_feature_geom_hist_active
     WHERE valid_to IS NULL;
 
 -- =========================================================
+-- 3.1) MV de feicoes ativas (acelera consultas correntes)
+-- =========================================================
+CREATE MATERIALIZED VIEW IF NOT EXISTS landwatch.mv_feature_geom_active AS
+SELECT
+    h.dataset_id,
+    h.feature_id,
+    h.geom_id,
+    h.version_id,
+    g.geom
+FROM landwatch.lw_feature_geom_hist h
+JOIN landwatch.lw_geom_store g ON g.geom_id = h.geom_id
+WHERE h.valid_to IS NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_mv_feature_geom_active_pk
+    ON landwatch.mv_feature_geom_active(dataset_id, feature_id);
+
+CREATE INDEX IF NOT EXISTS idx_mv_feature_geom_active_geom
+    ON landwatch.mv_feature_geom_active USING GIST (geom);
+
+CREATE INDEX IF NOT EXISTS idx_mv_feature_geom_active_geom_id
+    ON landwatch.mv_feature_geom_active(geom_id);
+
+-- =========================================================
 -- 4) Atributos (JSONB dedupe)
 -- =========================================================
 CREATE TABLE IF NOT EXISTS landwatch.lw_attr_pack (

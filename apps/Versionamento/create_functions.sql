@@ -1,10 +1,30 @@
 -- Funcoes de analise (LandWatch)
--- Gerado em 2026-02-01
 
 DROP FUNCTION IF EXISTS landwatch.fn_intersections_current_simple(text);
 DROP FUNCTION IF EXISTS landwatch.fn_intersections_asof_simple(text, date);
 DROP FUNCTION IF EXISTS landwatch.fn_intersections_current_area(text);
 DROP FUNCTION IF EXISTS landwatch.fn_intersections_asof_area(text, date);
+
+-- MV de feicoes ativas (necessaria para funcoes "current")
+CREATE MATERIALIZED VIEW IF NOT EXISTS landwatch.mv_feature_geom_active AS
+SELECT
+  h.dataset_id,
+  h.feature_id,
+  h.geom_id,
+  h.version_id,
+  g.geom
+FROM landwatch.lw_feature_geom_hist h
+JOIN landwatch.lw_geom_store g ON g.geom_id = h.geom_id
+WHERE h.valid_to IS NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_mv_feature_geom_active_pk
+  ON landwatch.mv_feature_geom_active(dataset_id, feature_id);
+
+CREATE INDEX IF NOT EXISTS idx_mv_feature_geom_active_geom
+  ON landwatch.mv_feature_geom_active USING GIST (geom);
+
+CREATE INDEX IF NOT EXISTS idx_mv_feature_geom_active_geom_id
+  ON landwatch.mv_feature_geom_active(geom_id);
 
 CREATE OR REPLACE FUNCTION landwatch.fn_sicar_feature_current(p_cod_imovel text)
 RETURNS TABLE (
@@ -20,15 +40,13 @@ AS $$
     f.dataset_id,
     f.feature_id,
     f.feature_key,
-    g.geom
+    a.geom
   FROM landwatch.lw_feature f
   JOIN landwatch.lw_dataset d ON d.dataset_id = f.dataset_id
   JOIN landwatch.lw_category c ON c.category_id = d.category_id
-  JOIN landwatch.lw_feature_geom_hist h
-    ON h.dataset_id = f.dataset_id
-   AND h.feature_id = f.feature_id
-   AND h.valid_to IS NULL
-  JOIN landwatch.lw_geom_store g ON g.geom_id = h.geom_id
+  JOIN landwatch.mv_feature_geom_active a
+    ON a.dataset_id = f.dataset_id
+   AND a.feature_id = f.feature_id
   WHERE c.code = 'SICAR'
     AND f.feature_key = p_cod_imovel;
 $$;
@@ -77,16 +95,14 @@ AS $$
     SELECT
       f.dataset_id,
       f.feature_id,
-      h.geom_id AS sicar_geom_id,
-      g.geom AS sicar_geom
+      a.geom_id AS sicar_geom_id,
+      a.geom AS sicar_geom
     FROM landwatch.lw_feature f
     JOIN landwatch.lw_dataset d ON d.dataset_id = f.dataset_id
     JOIN landwatch.lw_category c ON c.category_id = d.category_id
-    JOIN landwatch.lw_feature_geom_hist h
-      ON h.dataset_id = f.dataset_id
-     AND h.feature_id = f.feature_id
-     AND h.valid_to IS NULL
-    JOIN landwatch.lw_geom_store g ON g.geom_id = h.geom_id
+    JOIN landwatch.mv_feature_geom_active a
+      ON a.dataset_id = f.dataset_id
+     AND a.feature_id = f.feature_id
     WHERE c.code = 'SICAR'
       AND f.feature_key = p_cod_imovel
   )
@@ -110,21 +126,19 @@ AS $$
     d.code AS dataset_code,
     v.snapshot_date AS snapshot_date,
     f.feature_id,
-    h.geom_id AS geom_id,
-    g.geom AS geom
+    a.geom_id AS geom_id,
+    a.geom AS geom
   FROM sicar_feature s
-  JOIN landwatch.lw_feature_geom_hist h
-    ON h.valid_to IS NULL
-  JOIN landwatch.lw_geom_store g ON g.geom_id = h.geom_id
+  JOIN landwatch.mv_feature_geom_active a ON TRUE
   JOIN landwatch.lw_feature f
-    ON f.dataset_id = h.dataset_id
-   AND f.feature_id = h.feature_id
+    ON f.dataset_id = a.dataset_id
+   AND f.feature_id = a.feature_id
   JOIN landwatch.lw_dataset d ON d.dataset_id = f.dataset_id
   JOIN landwatch.lw_category c ON c.category_id = d.category_id
-  JOIN landwatch.lw_dataset_version v ON v.version_id = h.version_id
+  JOIN landwatch.lw_dataset_version v ON v.version_id = a.version_id
   WHERE c.code NOT IN ('SICAR', 'DETER')
-    AND g.geom && s.sicar_geom
-    AND ST_Intersects(s.sicar_geom, g.geom)
+    AND a.geom && s.sicar_geom
+    AND ST_Intersects(s.sicar_geom, a.geom)
   ORDER BY dataset_code, feature_id;
 $$;
 
@@ -217,16 +231,14 @@ AS $$
     SELECT
       f.dataset_id,
       f.feature_id,
-      h.geom_id AS sicar_geom_id,
-      g.geom AS sicar_geom
+      a.geom_id AS sicar_geom_id,
+      a.geom AS sicar_geom
     FROM landwatch.lw_feature f
     JOIN landwatch.lw_dataset d ON d.dataset_id = f.dataset_id
     JOIN landwatch.lw_category c ON c.category_id = d.category_id
-    JOIN landwatch.lw_feature_geom_hist h
-      ON h.dataset_id = f.dataset_id
-     AND h.feature_id = f.feature_id
-     AND h.valid_to IS NULL
-    JOIN landwatch.lw_geom_store g ON g.geom_id = h.geom_id
+    JOIN landwatch.mv_feature_geom_active a
+      ON a.dataset_id = f.dataset_id
+     AND a.feature_id = f.feature_id
     WHERE c.code = 'SICAR'
       AND f.feature_key = p_cod_imovel
   )
@@ -254,29 +266,27 @@ AS $$
     d.code AS dataset_code,
     v.snapshot_date AS snapshot_date,
     f.feature_id,
-    h.geom_id AS geom_id,
-    g.geom AS geom,
+    a.geom_id AS geom_id,
+    a.geom AS geom,
     ST_Area(s.sicar_geom::geography) AS sicar_area_m2,
-    ST_Area(g.geom::geography) AS feature_area_m2,
-    ST_Area(ST_Intersection(s.sicar_geom, g.geom)::geography) AS overlap_area_m2,
+    ST_Area(a.geom::geography) AS feature_area_m2,
+    ST_Area(ST_Intersection(s.sicar_geom, a.geom)::geography) AS overlap_area_m2,
     CASE
       WHEN ST_Area(s.sicar_geom::geography) = 0 THEN 0
-      ELSE ST_Area(ST_Intersection(s.sicar_geom, g.geom)::geography)
+      ELSE ST_Area(ST_Intersection(s.sicar_geom, a.geom)::geography)
            / ST_Area(s.sicar_geom::geography) * 100
     END AS overlap_pct_of_sicar
   FROM sicar_feature s
-  JOIN landwatch.lw_feature_geom_hist h
-    ON h.valid_to IS NULL
-  JOIN landwatch.lw_geom_store g ON g.geom_id = h.geom_id
+  JOIN landwatch.mv_feature_geom_active a ON TRUE
   JOIN landwatch.lw_feature f
-    ON f.dataset_id = h.dataset_id
-   AND f.feature_id = h.feature_id
+    ON f.dataset_id = a.dataset_id
+   AND f.feature_id = a.feature_id
   JOIN landwatch.lw_dataset d ON d.dataset_id = f.dataset_id
   JOIN landwatch.lw_category c ON c.category_id = d.category_id
-  JOIN landwatch.lw_dataset_version v ON v.version_id = h.version_id
+  JOIN landwatch.lw_dataset_version v ON v.version_id = a.version_id
   WHERE c.code NOT IN ('SICAR', 'DETER')
-    AND g.geom && s.sicar_geom
-    AND ST_Intersects(s.sicar_geom, g.geom)
+    AND a.geom && s.sicar_geom
+    AND ST_Intersects(s.sicar_geom, a.geom)
   ORDER BY dataset_code, feature_id;
 $$;
 

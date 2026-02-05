@@ -130,6 +130,7 @@ def run(
     work_dir: Path,
     snapshot_date: str,
     workspaces: Optional[List[str]] = None,
+    years: Optional[List[int]] = None,
 ) -> List[DatasetArtifact]:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
     page_size = int(os.environ.get("PRODES_PAGE_SIZE", DEFAULT_PAGE_SIZE))
@@ -148,14 +149,16 @@ def run(
 
     for ws, layer in layers:
         try:
-            if all_years:
+            if years:
+                years_to_fetch = years
+            elif all_years:
                 y_min, y_max = get_year_range(ws, layer)
                 start = max(y_min, MIN_YEAR_BY_WS.get(ws, y_min))
-                years = range(start, y_max + 1)
+                years_to_fetch = list(range(start, y_max + 1))
             else:
-                years = [get_year_range(ws, layer)[1]]
+                years_to_fetch = [get_year_range(ws, layer)[1]]
 
-            for year in years:
+            for year in years_to_fetch:
                 log_info(f"Processando {ws}:{layer} ano={year}")
                 gdf = fetch_layer(ws, layer, year, page_size)
                 if gdf.empty:

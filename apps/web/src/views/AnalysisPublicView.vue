@@ -5,35 +5,51 @@
         <img :src="printLogo" alt="SigFarm" class="public-logo" />
         <div class="public-title">Sigfarm LandWatch - Análise Socioambiental</div>
       </div>
-      <div class="public-subtitle">
-        <span>{{ analysis?.farmName ?? "Fazenda sem cadastro" }}</span>
-        <span class="public-divider">·</span>
-        <span>{{ analysis?.carKey ?? "-" }}</span>
-        <span
-          v-if="analysis?.sicarStatus"
-          class="public-badge"
-          :class="sicarStatusOk ? 'public-badge-ok' : 'public-badge-warn'"
-        >
-          <span class="public-badge-icon">{{ sicarStatusOk ? "✓" : "!" }}</span>
-          {{ formatStatusLabel(analysis?.sicarStatus).toUpperCase() }}
-        </span>
-      </div>
-      <div v-if="docInfoLine" class="public-subtitle muted">
-        <span>{{ docInfoLine }}</span>
-        <span
-          v-if="badgeLine"
-          class="public-badge"
-          :class="badgeOk ? 'public-badge-ok' : 'public-badge-warn'"
-        >
-          <span class="public-badge-icon">{{ badgeOk ? "✓" : "!" }}</span>
-          {{ badgeLine }}
-        </span>
-      </div>
+      <template v-if="isLoading">
+        <div class="mt-3 flex flex-col items-center gap-2">
+          <div class="skeleton-line h-3 w-64 rounded-full"></div>
+          <div class="skeleton-line h-3 w-48 rounded-full"></div>
+        </div>
+      </template>
+      <template v-else>
+        <div class="public-subtitle">
+          <span>{{ analysis?.farmName ?? "Fazenda sem cadastro" }}</span>
+          <span class="public-divider">·</span>
+          <span>{{ analysis?.carKey ?? "-" }}</span>
+          <span
+            v-if="analysis?.sicarStatus"
+            class="public-badge"
+            :class="sicarStatusOk ? 'public-badge-ok' : 'public-badge-warn'"
+          >
+            <span class="public-badge-icon">{{ sicarStatusOk ? "✓" : "!" }}</span>
+            {{ formatStatusLabel(analysis?.sicarStatus).toUpperCase() }}
+          </span>
+        </div>
+        <div v-if="docInfoLine" class="public-subtitle muted">
+          <span>{{ docInfoLine }}</span>
+          <span
+            v-if="badgeLine"
+            class="public-badge"
+            :class="badgeOk ? 'public-badge-ok' : 'public-badge-warn'"
+          >
+            <span class="public-badge-icon">{{ badgeOk ? "✓" : "!" }}</span>
+            {{ badgeLine }}
+          </span>
+        </div>
+      </template>
     </header>
 
     <section class="public-card">
       <div class="text-lg font-semibold">Mapa da análise</div>
-      <div class="mt-4 grid gap-3 text-sm sm:grid-cols-2">
+      <div v-if="isLoading" class="mt-4 grid gap-3 text-sm sm:grid-cols-2">
+        <div class="skeleton-line h-4 w-36 rounded-full"></div>
+        <div class="skeleton-line h-4 w-44 rounded-full"></div>
+        <div class="skeleton-line h-4 w-32 rounded-full"></div>
+        <div class="skeleton-line h-4 w-28 rounded-full"></div>
+        <div class="skeleton-line h-4 w-40 rounded-full"></div>
+        <div class="skeleton-line h-4 w-24 rounded-full"></div>
+      </div>
+      <div v-else class="mt-4 grid gap-3 text-sm sm:grid-cols-2">
         <div><span class="font-semibold">Data:</span> {{ formatDate(analysis?.analysisDate) }}</div>
         <div>
           <span class="font-semibold">Município:</span>
@@ -53,10 +69,10 @@
       <div class="mt-4">
         <div class="analysis-map-frame relative h-[560px]">
           <div
-            v-if="mapLoading"
+            v-if="mapLoading || isLoading"
             class="grid h-full place-items-center rounded-xl border border-dashed border-border bg-muted/20"
           >
-            <div class="text-xs text-muted-foreground">Carregando mapa...</div>
+            <div class="loading-spinner" aria-label="Carregando"></div>
           </div>
           <AnalysisMap v-else-if="mapFeatures.length" :features="mapFeatures" :show-legend="false" />
           <div
@@ -87,7 +103,14 @@
 
     <section class="public-card">
       <div class="text-lg font-semibold">Interseções</div>
-      <div v-if="isLoading" class="mt-4 text-sm text-muted-foreground">Carregando interseções…</div>
+      <div v-if="isLoading" class="mt-4 grid gap-3">
+        <div class="skeleton-line h-4 w-40 rounded-full"></div>
+        <div class="intersections-grid grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+          <div class="h-10 rounded-lg border border-border bg-muted/30 animate-pulse"></div>
+          <div class="h-10 rounded-lg border border-border bg-muted/30 animate-pulse"></div>
+          <div class="h-10 rounded-lg border border-border bg-muted/30 animate-pulse"></div>
+        </div>
+      </div>
       <div v-else-if="(analysis?.datasetGroups?.length ?? 0) === 0" class="mt-3 text-sm text-muted-foreground">
         Sem interseções relevantes.
       </div>
@@ -431,5 +454,38 @@ onMounted(async () => {
   border: 1px solid #e2e8f0;
   border-radius: 16px;
   padding: 16px;
+}
+
+.skeleton-line {
+  background: rgba(148, 163, 184, 0.2);
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+.loading-spinner {
+  width: 32px;
+  height: 32px;
+  border-radius: 9999px;
+  border: 3px solid rgba(15, 23, 42, 0.2);
+  border-top-color: #0f172a;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 1;
+  }
 }
 </style>

@@ -1,5 +1,5 @@
 import axios from "axios";
-import { acquireApiToken } from "../auth/auth";
+import { acquireApiToken, logout } from "../auth/auth";
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:3001";
 
@@ -20,3 +20,20 @@ http.interceptors.request.use(async (config) => {
   (config.headers as any).Authorization = `Bearer ${token}`;
   return config;
 });
+
+http.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    const status = error?.response?.status;
+    if (status === 401 || status === 403) {
+      try {
+        await logout();
+      } catch {
+        if (typeof window !== "undefined") {
+          window.location.assign("/login");
+        }
+      }
+    }
+    return Promise.reject(error);
+  },
+);

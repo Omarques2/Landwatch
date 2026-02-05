@@ -18,10 +18,25 @@
           <UiInput id="farm-name" v-model="farmForm.name" placeholder="Nome da fazenda" />
 
           <UiLabel for="farm-car">CAR (cod_imovel)</UiLabel>
-          <UiInput id="farm-car" v-model="farmForm.carKey" placeholder="CAR (cod_imovel)" />
+          <UiInput
+            id="farm-car"
+            :model-value="farmForm.carKey"
+            placeholder="CAR (cod_imovel)"
+            inputmode="text"
+            autocapitalize="characters"
+            maxlength="43"
+            @update:model-value="onFarmCarInput"
+          />
 
           <UiLabel for="farm-doc">CPF/CNPJ (opcional)</UiLabel>
-          <UiInput id="farm-doc" v-model="farmForm.cpfCnpj" placeholder="CPF/CNPJ" />
+          <UiInput
+            id="farm-doc"
+            :model-value="farmForm.cpfCnpj"
+            placeholder="CPF/CNPJ"
+            inputmode="numeric"
+            maxlength="18"
+            @update:model-value="onFarmDocInput"
+          />
 
           <UiButton class="mt-2" @click="createFarm">Salvar fazenda</UiButton>
           <div v-if="farmMessage" class="text-xs text-muted-foreground">{{ farmMessage }}</div>
@@ -65,11 +80,22 @@
                 </div>
                 <div>
                   <UiLabel>CAR</UiLabel>
-                  <UiInput v-model="editForm.carKey" />
+                  <UiInput
+                    :model-value="editForm.carKey"
+                    inputmode="text"
+                    autocapitalize="characters"
+                    maxlength="43"
+                    @update:model-value="onEditCarInput"
+                  />
                 </div>
                 <div>
                   <UiLabel>CPF/CNPJ</UiLabel>
-                  <UiInput v-model="editForm.cpfCnpj" />
+                  <UiInput
+                    :model-value="editForm.cpfCnpj"
+                    inputmode="numeric"
+                    maxlength="18"
+                    @update:model-value="onEditDocInput"
+                  />
                 </div>
               </div>
               <div class="flex gap-2">
@@ -106,6 +132,62 @@ const farmMessage = ref("");
 const editingId = ref<string | null>(null);
 const editForm = reactive({ name: "", carKey: "", cpfCnpj: "" });
 const editMessage = ref("");
+
+function maskCarKey(value: string) {
+  const cleaned = value
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "")
+    .slice(0, 41);
+  const uf = cleaned.slice(0, 2);
+  const mid = cleaned.slice(2, 9);
+  const tail = cleaned.slice(9);
+  let out = uf;
+  if (mid) out += `-${mid}`;
+  if (tail) out += `-${tail}`;
+  return out;
+}
+
+function maskCpfCnpj(value: string) {
+  const digits = value.replace(/\D/g, "").slice(0, 14);
+  if (digits.length <= 11) {
+    const p1 = digits.slice(0, 3);
+    const p2 = digits.slice(3, 6);
+    const p3 = digits.slice(6, 9);
+    const p4 = digits.slice(9, 11);
+    let out = p1;
+    if (p2) out += `.${p2}`;
+    if (p3) out += `.${p3}`;
+    if (p4) out += `-${p4}`;
+    return out;
+  }
+  const p1 = digits.slice(0, 2);
+  const p2 = digits.slice(2, 5);
+  const p3 = digits.slice(5, 8);
+  const p4 = digits.slice(8, 12);
+  const p5 = digits.slice(12, 14);
+  let out = p1;
+  if (p2) out += `.${p2}`;
+  if (p3) out += `.${p3}`;
+  if (p4) out += `/${p4}`;
+  if (p5) out += `-${p5}`;
+  return out;
+}
+
+function onFarmCarInput(value: string) {
+  farmForm.carKey = maskCarKey(value ?? "");
+}
+
+function onFarmDocInput(value: string) {
+  farmForm.cpfCnpj = maskCpfCnpj(value ?? "");
+}
+
+function onEditCarInput(value: string) {
+  editForm.carKey = maskCarKey(value ?? "");
+}
+
+function onEditDocInput(value: string) {
+  editForm.cpfCnpj = maskCpfCnpj(value ?? "");
+}
 
 async function loadFarms() {
   const res = await http.get<ApiEnvelope<Farm[]>>("/v1/farms");

@@ -61,6 +61,14 @@
       </div>
       <div class="flex gap-2">
         <UiButton variant="outline" size="sm" @click="loadAnalysis">Atualizar</UiButton>
+        <UiButton
+          variant="outline"
+          size="sm"
+          :disabled="!canDownloadGeoJson"
+          @click="downloadGeoJson"
+        >
+          Baixar GeoJSON
+        </UiButton>
         <UiButton size="sm" @click="printPdf">Baixar PDF</UiButton>
       </div>
     </header>
@@ -387,6 +395,8 @@ const analysisPublicUrl = computed(() => {
   return `${window.location.origin}/analyses/${route.params.id}/public`;
 });
 
+const canDownloadGeoJson = computed(() => analysis.value?.status === "completed");
+
 const onBeforePrint = () => {
   if (isPrintMode.value) {
     printLayoutRef.value?.prepareForPrint();
@@ -571,6 +581,68 @@ async function loadMap(id: string) {
   } finally {
     mapLoading.value = false;
   }
+}
+
+function buildExportFileBase() {
+  const farm = (analysis.value?.farmName || "Analise")
+    .replace(/[^\w\s-]/g, "")
+    .trim()
+    .replace(/\s+/g, "-");
+  const date = analysis.value?.analysisDate?.slice(0, 10) ?? "";
+  const id = analysis.value?.id ?? "";
+  const suffix = [farm, date, id].filter(Boolean).join("-");
+  return suffix ? `Sigfarm-LandWatch-${suffix}` : "Sigfarm-LandWatch";
+}
+
+function buildGeoJsonCollection() {
+  const features = mapFeatures.value
+    .filter((item) => item.geom)
+    .map((item, idx) => ({
+      type: "Feature",
+      geometry: item.geom,
+      properties: {
+        categoryCode: item.categoryCode,
+        datasetCode: item.datasetCode,
+        featureId: item.featureId ?? null,
+        isSicar: item.categoryCode === "SICAR",
+        __key: item.featureId ? `${item.datasetCode}-${item.featureId}` : `${item.datasetCode}-${idx}`,
+      },
+    }));
+
+  return {
+    type: "FeatureCollection",
+    features,
+    properties: {
+      analysisId: analysis.value?.id ?? null,
+      carKey: analysis.value?.carKey ?? null,
+      analysisDate: analysis.value?.analysisDate ?? null,
+    },
+  };
+}
+
+async function downloadGeoJson() {
+  if (!analysis.value) {
+    await loadAnalysis();
+  }
+  if (!analysis.value) return;
+  if (analysis.value.status !== "completed") return;
+  if (!mapFeatures.value.length && !mapLoading.value) {
+    await loadMap(analysis.value.id);
+  }
+  if (!mapFeatures.value.length) return;
+
+  const payload = buildGeoJsonCollection();
+  const blob = new Blob([JSON.stringify(payload)], {
+    type: "application/geo+json;charset=utf-8",
+  });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `${buildExportFileBase()}.geojson`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
 }
 
 async function printPdf() {

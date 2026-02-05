@@ -89,12 +89,80 @@ let map: L.Map | null = null;
 let geoLayer: L.GeoJSON<any> | null = null;
 let searchMarker: L.CircleMarker | null = null;
 
+const carPalette = [
+  "#ef4444",
+  "#f59e0b",
+  "#10b981",
+  "#3b82f6",
+  "#8b5cf6",
+  "#ec4899",
+  "#14b8a6",
+  "#f97316",
+  "#84cc16",
+  "#0ea5e9",
+  "#a855f7",
+  "#f43f5e",
+];
+
 const statusMessage = computed(() => {
   if (loading.value) return "Buscando CARs...";
   if (errorMessage.value) return errorMessage.value;
   if (lastCount.value === 0) return "Nenhum CAR encontrado.";
   return `${lastCount.value} CARs carregados.`;
 });
+
+function hashKey(value: string) {
+  let hash = 0;
+  for (let i = 0; i < value.length; i += 1) {
+    hash = (hash * 31 + value.charCodeAt(i)) | 0;
+  }
+  return Math.abs(hash);
+}
+
+function colorForCar(key: string) {
+  const idx = hashKey(key) % carPalette.length;
+  return carPalette[idx];
+}
+
+function ringArea(ring: number[][]) {
+  if (!ring || ring.length < 3) return 0;
+  let sum = 0;
+  for (let i = 0; i < ring.length; i += 1) {
+    const pt1 = ring[i];
+    const pt2 = ring[(i + 1) % ring.length];
+    if (!pt1 || !pt2 || pt1.length < 2 || pt2.length < 2) continue;
+    const x1 = pt1[0];
+    const y1 = pt1[1];
+    const x2 = pt2[0];
+    const y2 = pt2[1];
+    if (
+      x1 === undefined ||
+      y1 === undefined ||
+      x2 === undefined ||
+      y2 === undefined
+    ) {
+      continue;
+    }
+    sum += x1 * y2 - x2 * y1;
+  }
+  return Math.abs(sum) / 2;
+}
+
+function estimateArea(geom: any) {
+  if (!geom || !geom.type) return 0;
+  if (geom.type === "Polygon") {
+    return geom.coordinates?.reduce((acc: number, ring: number[][]) => acc + ringArea(ring), 0) ?? 0;
+  }
+  if (geom.type === "MultiPolygon") {
+    return (
+      geom.coordinates?.reduce(
+        (acc: number, poly: number[][][]) => acc + poly.reduce((sum, ring) => sum + ringArea(ring), 0),
+        0,
+      ) ?? 0
+    );
+  }
+  return 0;
+}
 
 function ensureMap() {
   if (map || !mapEl.value) return;
@@ -137,11 +205,19 @@ function renderCars(rows: CarFeature[]) {
     geoLayer = null;
   }
 
-  const features = rows.map((row) => ({
+  const orderedRows = rows
+    .map((row) => ({
+      row,
+      area: estimateArea(row.geom),
+    }))
+    .sort((a, b) => b.area - a.area);
+
+  const features = orderedRows.map(({ row }, idx) => ({
     type: "Feature",
     geometry: row.geom,
     properties: {
       feature_key: row.feature_key,
+      color: colorForCar(row.feature_key || String(idx)),
     },
   }));
 
@@ -149,11 +225,12 @@ function renderCars(rows: CarFeature[]) {
     style: (feature: any) => {
       const key = feature?.properties?.feature_key ?? "";
       const selected = key === props.selectedCarKey;
+      const fillColor = feature?.properties?.color ?? "#94a3b8";
       return {
         color: selected ? "#dc2626" : "#0f172a",
-        weight: selected ? 2 : 1,
-        fillColor: selected ? "#fca5a5" : "#94a3b8",
-        fillOpacity: selected ? 0.35 : 0.15,
+        weight: selected ? 2.5 : 1,
+        fillColor,
+        fillOpacity: selected ? 0.45 : 0.25,
       };
     },
     onEachFeature: (feature, layer) => {
@@ -172,6 +249,8 @@ function renderCars(rows: CarFeature[]) {
       map?.invalidateSize();
     }, 50);
   }
+
+  bringSelectedToFront();
 }
 
 function updateSearchMarker(lat: number, lng: number) {
@@ -188,6 +267,16 @@ function updateSearchMarker(lat: number, lng: number) {
   } else {
     searchMarker.setLatLng(point);
   }
+}
+
+function bringSelectedToFront() {
+  if (!geoLayer || !props.selectedCarKey) return;
+  geoLayer.eachLayer((layer: any) => {
+    const key = layer?.feature?.properties?.feature_key ?? "";
+    if (key === props.selectedCarKey) {
+      layer.bringToFront();
+    }
+  });
 }
 
 async function fetchCars(lat: number, lng: number) {
@@ -254,14 +343,16 @@ watch(
       geoLayer.setStyle((feature: any) => {
         const key = feature?.properties?.feature_key ?? "";
         const selected = key === props.selectedCarKey;
+        const fillColor = feature?.properties?.color ?? "#94a3b8";
         return {
           color: selected ? "#dc2626" : "#0f172a",
-          weight: selected ? 2 : 1,
-          fillColor: selected ? "#fca5a5" : "#94a3b8",
-          fillOpacity: selected ? 0.35 : 0.15,
+          weight: selected ? 2.5 : 1,
+          fillColor,
+          fillOpacity: selected ? 0.45 : 0.25,
         };
       });
     }
+    bringSelectedToFront();
   },
 );
 

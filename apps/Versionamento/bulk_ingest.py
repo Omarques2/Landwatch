@@ -90,18 +90,32 @@ OGR2OGR_STALL_SECONDS = int(
 OGR2OGR_MAX_RESTARTS = int(
     os.environ.get("LANDWATCH_OGR2OGR_MAX_RESTARTS", "2").strip() or "2"
 )
+LOG_LEVEL = os.environ.get("LANDWATCH_LOG_LEVEL", "INFO").strip().upper()
+_LEVELS = {"DEBUG": 10, "INFO": 20, "WARN": 30, "ERROR": 40}
+
+
+def _should_log(level: str) -> bool:
+    return _LEVELS.get(level, 20) >= 0 and _LEVELS.get(LOG_LEVEL, 20) <= _LEVELS.get(level, 20)
+
+
+def log_debug(msg: str):
+    if _should_log("DEBUG"):
+        print(f"[DEBUG] {msg}")
 
 
 def log_info(msg: str):
-    print(f"[INFO] {msg}")
+    if _should_log("INFO"):
+        print(f"[INFO] {msg}")
 
 
 def log_warn(msg: str):
-    print(f"[WARN] {msg}")
+    if _should_log("WARN"):
+        print(f"[WARN] {msg}")
 
 
 def log_error(msg: str):
-    print(f"[ERROR] {msg}")
+    if _should_log("ERROR"):
+        print(f"[ERROR] {msg}")
 
 def _format_bytes(num: int) -> str:
     units = ["B", "KB", "MB", "GB", "TB"]
@@ -579,19 +593,19 @@ def create_stg_raw_shp(conn, shp_path: Path, file_size_bytes: int):
         ogr_env["GDAL_DATA"] = GDAL_DATA
     if PROJ_LIB:
         ogr_env["PROJ_LIB"] = PROJ_LIB
-    log_info(f"OGR encoding (shp)= {OGR2OGR_ENCODING}")
+    log_debug(f"OGR encoding (shp)= {OGR2OGR_ENCODING}")
     group_size = choose_ogr_group_size(file_size_bytes)
     if group_size > 0:
-        log_info(f"OGR group size (-gt)= {group_size}")
-    log_info(f"OGR use_copy= {OGR2OGR_USE_COPY}")
-    log_info(f"OGR disable_spatial_index= {OGR2OGR_DISABLE_SPATIAL_INDEX}")
-    log_info(f"OGR enable_metadata= {OGR2OGR_ENABLE_METADATA}")
-    log_info(f"OGR skip_invalid= {OGR2OGR_SKIP_INVALID}")
-    log_info(f"OGR makevalid= {OGR2OGR_MAKEVALID}")
-    log_info(f"OGR nlt= {OGR2OGR_NLT}")
-    log_info("OGR precision= NO")
+        log_debug(f"OGR group size (-gt)= {group_size}")
+    log_debug(f"OGR use_copy= {OGR2OGR_USE_COPY}")
+    log_debug(f"OGR disable_spatial_index= {OGR2OGR_DISABLE_SPATIAL_INDEX}")
+    log_debug(f"OGR enable_metadata= {OGR2OGR_ENABLE_METADATA}")
+    log_debug(f"OGR skip_invalid= {OGR2OGR_SKIP_INVALID}")
+    log_debug(f"OGR makevalid= {OGR2OGR_MAKEVALID}")
+    log_debug(f"OGR nlt= {OGR2OGR_NLT}")
+    log_debug("OGR precision= NO")
     if OGR2OGR_TIMEOUT_SECONDS:
-        log_info(f"OGR timeout= {OGR2OGR_TIMEOUT_SECONDS}s")
+        log_debug(f"OGR timeout= {OGR2OGR_TIMEOUT_SECONDS}s")
     max_restarts = max(0, OGR2OGR_MAX_RESTARTS)
     attempt = 0
     current_group_size = group_size
@@ -600,7 +614,7 @@ def create_stg_raw_shp(conn, shp_path: Path, file_size_bytes: int):
     while True:
         ogr_cmd = _build_ogr_cmd(shp_path, current_group_size, use_makevalid)
         log_info("Executando ogr2ogr para staging SHP...")
-        log_info(f"ogr2ogr cmd: {' '.join([_mask_pg_conn_str(p) for p in ogr_cmd])}")
+        log_debug(f"ogr2ogr cmd: {' '.join([_mask_pg_conn_str(p) for p in ogr_cmd])}")
         try:
             _run_ogr2ogr_streaming(
                 ogr_cmd,
@@ -658,6 +672,9 @@ def _run_ogr2ogr_streaming(
         nonlocal skipped_count
         nonlocal warning_total
         last_output = time.time()
+        if "ERROR" in msg or "Error" in msg or "FATAL" in msg:
+            log_error(msg)
+            return
         if "Warning 1:" in msg:
             warning_total += 1
             m = re.search(r"Warning 1:\\s*(.*)", msg)
@@ -673,7 +690,7 @@ def _run_ogr2ogr_streaming(
             return
         if _is_benign_ogr_warning(msg):
             return
-        log_info(msg)
+        log_debug(msg)
 
     proc = subprocess.Popen(
         ogr_cmd,
@@ -696,7 +713,7 @@ def _run_ogr2ogr_streaming(
         if ret is not None:
             break
         if OGR2OGR_PROGRESS_HEARTBEAT_SECONDS > 0 and now - last_output >= OGR2OGR_PROGRESS_HEARTBEAT_SECONDS:
-            log_info(
+            log_debug(
                 f"ogr2ogr em execução há {int(now - start)}s sem novas mensagens."
             )
             last_output = now
@@ -947,12 +964,13 @@ def process_csv(conn, dataset_id: int, dataset_code: str, csv_path: Path, snapsh
                 (doc_col, date_col, geom_col, dataset_id),
             )
 
-    log_info(f"CSV delimiter='{delimiter}' encoding='{encoding}'")
-    log_info(f"CSV doc_col='{doc_col}' date_col='{date_col}' geom_col='{geom_col}'")
+    log_debug(f"CSV delimiter='{delimiter}' encoding='{encoding}'")
+    log_debug(f"CSV doc_col='{doc_col}' date_col='{date_col}' geom_col='{geom_col}'")
 
     create_stg_raw_csv(conn, csv_path, delimiter, encoding)
     create_stg_payload_from_raw_csv(conn, geom_col)
 
+    sql_start = time.time()
     run_ingest_sql(
         conn,
         dataset_id=dataset_id,
@@ -963,6 +981,7 @@ def process_csv(conn, dataset_id: int, dataset_code: str, csv_path: Path, snapsh
         is_spatial=bool(geom_col),
         srid=int(cfg["srid"]),
     )
+    log_info(f"Ingestao SQL (CSV) finalizada em {int(time.time() - sql_start)}s.")
 
 
 def process_shp(conn, dataset_id: int, dataset_code: str, shp_path: Path, snapshot_date: str, version_id: int):
@@ -980,6 +999,7 @@ def process_shp(conn, dataset_id: int, dataset_code: str, shp_path: Path, snapsh
         log_warn("natural_id_col não definido para dataset; feature_key será hash completo.")
     create_stg_payload_from_raw_shp(conn, natural_id_col)
 
+    sql_start = time.time()
     run_ingest_sql(
         conn,
         dataset_id=dataset_id,
@@ -990,6 +1010,7 @@ def process_shp(conn, dataset_id: int, dataset_code: str, shp_path: Path, snapsh
         is_spatial=True,
         srid=srid,
     )
+    log_info(f"Ingestao SQL (SHP) finalizada em {int(time.time() - sql_start)}s.")
 
 
 # ============================================================
@@ -1013,6 +1034,7 @@ def _split_csv(value: Optional[str]) -> List[str]:
 
 def main():
     args = _parse_args()
+    job_start = time.time()
     snapshot_date_override = args.snapshot_date or None
     root = Path(args.root or ROOT_DIR)
     if not root.exists():
@@ -1042,6 +1064,7 @@ def main():
     log_info(f"FILES={len(file_paths)}")
 
     for file_path in file_paths:
+        dataset_start = time.time()
         if args.category:
             category_code = _split_csv(args.category)[0].upper()
         else:
@@ -1106,6 +1129,7 @@ def main():
                 finish_dataset_version(conn, version_id, "COMPLETED", None)
                 conn.commit()
                 log_info("OK: Ingestão concluída.")
+                log_info(f"Tempo total do dataset: {int(time.time() - dataset_start)}s.")
 
         except Exception as e:
             log_error(f"Falha na ingestão de {file_path}: {e}")
@@ -1126,7 +1150,7 @@ def main():
     except Exception as e:
         log_warn(f"Falha ao atualizar MV landwatch.mv_feature_geom_active: {e}")
 
-    log_info("bulk_ingest finalizado.")
+    log_info(f"bulk_ingest finalizado em {int(time.time() - job_start)}s.")
 
 
 if __name__ == "__main__":

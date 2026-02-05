@@ -1,6 +1,6 @@
 # Planejamento: LandWatch Versionamento (armazenamento mínimo + ingestão diária)
 
-Atualizado em: 2026-02-04
+Atualizado em: 2026-02-05
 
 ## 1) Objetivo e premissas
 - Prioridade máxima: reduzir armazenamento no Postgres.
@@ -147,12 +147,16 @@ Atualizado em: 2026-02-04
 2) SQL de ingestão set-based (staging -> diff -> hist).
 3) Refatoração do `bulk_ingest.py` (orquestrador).
 4) Pipeline CI/CD (Container Apps Job + GitHub Actions).
-5) MV de feições ativas (current) para acelerar interseccoes do SICAR (sem DETER).
 
 ## 10.1) Entregas recentes (OK)
 - Job unico modular (downloads + ingest seletivo + limpeza).
 - Subdividir Terras Indígenas por `fase_ti` e UCS por `SiglaCateg` na API/UI.
 - Persistir `geom_id` nos resultados da análise e usar no `/analyses/:id/map` com fallback por `feature_id`.
+- MV `landwatch.mv_feature_geom_active` criada e usada nas funcoes `fn_*_current` e endpoints (refresh apos ingest).
+- Mascaras de entrada (CAR/CPF-CNPJ/Data) aplicadas em Nova Analise e Nova Fazenda (criacao/edicao).
+- Busca por coordenadas aceita DD/DMM/DMS com hemisferio (N/S/E/W/O).
+- Botao "Baixar GeoJSON" no Detalhe da analise (CAR + intersecoes).
+- Busca por coordenadas com cores variadas por CAR e ordem por area (menores por cima).
 
 ## 11) Seeds e execução local
 
