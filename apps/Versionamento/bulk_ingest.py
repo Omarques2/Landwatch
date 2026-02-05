@@ -7,6 +7,7 @@ import re
 import subprocess
 import sys
 import time
+import random
 from hashlib import sha1
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -91,6 +92,10 @@ OGR2OGR_MAX_RESTARTS = int(
     os.environ.get("LANDWATCH_OGR2OGR_MAX_RESTARTS", "2").strip() or "2"
 )
 LOG_LEVEL = os.environ.get("LANDWATCH_LOG_LEVEL", "INFO").strip().upper()
+DB_MAX_RETRIES = int(os.environ.get("LANDWATCH_DB_MAX_RETRIES", "3").strip() or "3")
+DB_RETRY_BASE_SECONDS = float(os.environ.get("LANDWATCH_DB_RETRY_BASE_SECONDS", "3").strip() or "3")
+DB_RETRY_MAX_SECONDS = float(os.environ.get("LANDWATCH_DB_RETRY_MAX_SECONDS", "60").strip() or "60")
+DB_RETRY_JITTER = float(os.environ.get("LANDWATCH_DB_RETRY_JITTER", "0.3").strip() or "0.3")
 _LEVELS = {"DEBUG": 10, "INFO": 20, "WARN": 30, "ERROR": 40}
 
 
@@ -116,6 +121,36 @@ def log_warn(msg: str):
 def log_error(msg: str):
     if _should_log("ERROR"):
         print(f"[ERROR] {msg}")
+
+
+def _retry_delay(attempt: int) -> float:
+    if attempt <= 0:
+        attempt = 1
+    base = DB_RETRY_BASE_SECONDS * (2 ** (attempt - 1))
+    delay = min(base, DB_RETRY_MAX_SECONDS)
+    jitter = delay * DB_RETRY_JITTER
+    if jitter <= 0:
+        return delay
+    return max(0.0, delay + random.uniform(-jitter, jitter))
+
+
+def _is_transient_db_error(exc: Exception) -> bool:
+    if isinstance(exc, (psycopg2.OperationalError, psycopg2.InterfaceError)):
+        return True
+    msg = str(exc).lower()
+    transient_markers = [
+        "connection timed out",
+        "could not connect",
+        "server closed the connection",
+        "connection already closed",
+        "terminating connection",
+        "software caused connection abort",
+        "ssl syscall error",
+        "connection reset by peer",
+        "could not receive data",
+        "timeout expired",
+    ]
+    return any(marker in msg for marker in transient_markers)
 
 def _format_bytes(num: int) -> str:
     units = ["B", "KB", "MB", "GB", "TB"]
@@ -1081,55 +1116,70 @@ def main():
 
         version_id = None
         try:
-            with get_conn() as conn:
-                conn.autocommit = False
-                dataset_id = get_or_create_dataset(
-                    conn,
-                    dataset_code=dataset_code,
-                    category_code=category_code,
-                    is_spatial=(file_path.suffix.lower() == ".shp"),
-                )
+            attempt = 0
+            while True:
+                try:
+                    attempt += 1
+                    with get_conn() as conn:
+                        conn.autocommit = False
+                        dataset_id = get_or_create_dataset(
+                            conn,
+                            dataset_code=dataset_code,
+                            category_code=category_code,
+                            is_spatial=(file_path.suffix.lower() == ".shp"),
+                        )
 
-                src_fp = None
-                if ENABLE_FINGERPRINT_SKIP:
-                    try:
-                        src_fp = compute_source_fingerprint(file_path)
-                        last_fp = get_last_good_fingerprint(conn, dataset_id)
-                        log_info(f"Fingerprint: {src_fp} | last: {last_fp}")
-                        if last_fp and src_fp == last_fp:
-                            version_id = start_dataset_version(
-                                conn,
-                                dataset_id,
-                                dataset_code,
-                                snapshot_date,
-                                str(file_path),
-                                src_fp,
-                            )
-                            finish_dataset_version(conn, version_id, "SKIPPED_NO_CHANGES", None)
-                            conn.commit()
-                            log_info("SKIP: Sem mudanças detectadas.")
-                            continue
-                    except Exception as e:
-                        log_warn(f"Fingerprint falhou (seguindo sem skip): {e}")
+                        src_fp = None
+                        if ENABLE_FINGERPRINT_SKIP:
+                            try:
+                                src_fp = compute_source_fingerprint(file_path)
+                                last_fp = get_last_good_fingerprint(conn, dataset_id)
+                                log_info(f"Fingerprint: {src_fp} | last: {last_fp}")
+                                if last_fp and src_fp == last_fp:
+                                    version_id = start_dataset_version(
+                                        conn,
+                                        dataset_id,
+                                        dataset_code,
+                                        snapshot_date,
+                                        str(file_path),
+                                        src_fp,
+                                    )
+                                    finish_dataset_version(conn, version_id, "SKIPPED_NO_CHANGES", None)
+                                    conn.commit()
+                                    log_info("SKIP: Sem mudanças detectadas.")
+                                    break
+                            except Exception as e:
+                                log_warn(f"Fingerprint falhou (seguindo sem skip): {e}")
 
-                version_id = start_dataset_version(
-                    conn,
-                    dataset_id,
-                    dataset_code,
-                    snapshot_date,
-                    str(file_path),
-                    src_fp,
-                )
+                        version_id = start_dataset_version(
+                            conn,
+                            dataset_id,
+                            dataset_code,
+                            snapshot_date,
+                            str(file_path),
+                            src_fp,
+                        )
 
-                if file_path.suffix.lower() == ".csv":
-                    process_csv(conn, dataset_id, dataset_code, file_path, snapshot_date, version_id)
-                else:
-                    process_shp(conn, dataset_id, dataset_code, file_path, snapshot_date, version_id)
+                        if file_path.suffix.lower() == ".csv":
+                            process_csv(conn, dataset_id, dataset_code, file_path, snapshot_date, version_id)
+                        else:
+                            process_shp(conn, dataset_id, dataset_code, file_path, snapshot_date, version_id)
 
-                finish_dataset_version(conn, version_id, "COMPLETED", None)
-                conn.commit()
-                log_info("OK: Ingestão concluída.")
-                log_info(f"Tempo total do dataset: {int(time.time() - dataset_start)}s.")
+                        finish_dataset_version(conn, version_id, "COMPLETED", None)
+                        conn.commit()
+                        log_info("OK: Ingestão concluída.")
+                        log_info(f"Tempo total do dataset: {int(time.time() - dataset_start)}s.")
+                    break
+                except Exception as e:
+                    if _is_transient_db_error(e) and attempt <= DB_MAX_RETRIES:
+                        delay = _retry_delay(attempt)
+                        log_warn(
+                            f"Falha de conexão no DB ({e}). Tentando novamente em {delay:.1f}s "
+                            f"(tentativa {attempt}/{DB_MAX_RETRIES})."
+                        )
+                        time.sleep(delay)
+                        continue
+                    raise
 
         except Exception as e:
             log_error(f"Falha na ingestão de {file_path}: {e}")
@@ -1143,10 +1193,25 @@ def main():
 
     # Atualiza MV de feicoes ativas ao final da ingestao
     try:
-        with get_conn() as conn:
-            conn.autocommit = True
-            exec_sql(conn, "REFRESH MATERIALIZED VIEW landwatch.mv_feature_geom_active")
-            log_info("MV atualizada: landwatch.mv_feature_geom_active")
+        attempt = 0
+        while True:
+            try:
+                attempt += 1
+                with get_conn() as conn:
+                    conn.autocommit = True
+                    exec_sql(conn, "REFRESH MATERIALIZED VIEW landwatch.mv_feature_geom_active")
+                    log_info("MV atualizada: landwatch.mv_feature_geom_active")
+                break
+            except Exception as e:
+                if _is_transient_db_error(e) and attempt <= DB_MAX_RETRIES:
+                    delay = _retry_delay(attempt)
+                    log_warn(
+                        f"Falha ao atualizar MV (DB). Tentando novamente em {delay:.1f}s "
+                        f"(tentativa {attempt}/{DB_MAX_RETRIES})."
+                    )
+                    time.sleep(delay)
+                    continue
+                raise
     except Exception as e:
         log_warn(f"Falha ao atualizar MV landwatch.mv_feature_geom_active: {e}")
 

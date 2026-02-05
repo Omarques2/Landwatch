@@ -255,7 +255,7 @@ function maskCpfCnpj(digits: string) {
   return out;
 }
 
-function parseCoordinate(raw: string, kind: "lat" | "lng") {
+function parseCoordinate(raw: string | null | undefined, kind: "lat" | "lng") {
   const value = raw?.trim();
   if (!value) return null;
   let normalized = value.toUpperCase().replace(/,/g, ".");
@@ -264,11 +264,13 @@ function parseCoordinate(raw: string, kind: "lat" | "lng") {
   normalized = normalized.replace(/[NSEWO]/g, " ");
   const nums = normalized.match(/-?\d+(?:\.\d+)?/g) ?? [];
   if (nums.length === 0) return null;
-  let sign = nums[0].startsWith("-") ? -1 : 1;
+  const first = nums[0];
+  if (!first) return null;
+  let sign = first.startsWith("-") ? -1 : 1;
   if (hemi) {
     sign = hemi === "S" || hemi === "W" || hemi === "O" ? -1 : 1;
   }
-  const deg = Math.abs(Number(nums[0]));
+  const deg = Math.abs(Number(first));
   const minutes = nums.length >= 2 ? Number(nums[1]) : 0;
   const seconds = nums.length >= 3 ? Number(nums[2]) : 0;
   if (Number.isNaN(deg) || Number.isNaN(minutes) || Number.isNaN(seconds)) {
