@@ -1058,6 +1058,16 @@ def _parse_args():
     parser.add_argument("--dataset", help="Dataset code(s) separados por vírgula")
     parser.add_argument("--files", help="Lista de arquivos separados por vírgula")
     parser.add_argument("--snapshot-date", help="Snapshot date (YYYY-MM-DD)")
+    parser.add_argument(
+        "--skip-mv-refresh",
+        action="store_true",
+        help="Nao atualiza materialized views ao final da execucao",
+    )
+    parser.add_argument(
+        "--refresh-mvs-only",
+        action="store_true",
+        help="Apenas atualiza materialized views e sai",
+    )
     return parser.parse_args()
 
 
@@ -1067,9 +1077,46 @@ def _split_csv(value: Optional[str]) -> List[str]:
     return [v.strip() for v in value.split(",") if v.strip()]
 
 
+def _refresh_mvs():
+    mv_views = [
+        "landwatch.mv_feature_geom_active",
+        "landwatch.mv_feature_active_attrs_light",
+        "landwatch.mv_sicar_meta_active",
+        "landwatch.mv_indigena_phase_active",
+        "landwatch.mv_ucs_sigla_active",
+    ]
+    for view in mv_views:
+        try:
+            attempt = 0
+            while True:
+                try:
+                    attempt += 1
+                    with get_conn() as conn:
+                        conn.autocommit = True
+                        exec_sql(conn, f"REFRESH MATERIALIZED VIEW {view}")
+                        log_info(f"MV atualizada: {view}")
+                    break
+                except Exception as e:
+                    if _is_transient_db_error(e) and attempt <= DB_MAX_RETRIES:
+                        delay = _retry_delay(attempt)
+                        log_warn(
+                            f"Falha ao atualizar MV (DB). Tentando novamente em {delay:.1f}s "
+                            f"(tentativa {attempt}/{DB_MAX_RETRIES})."
+                        )
+                        time.sleep(delay)
+                        continue
+                    raise
+        except Exception as e:
+            log_warn(f"Falha ao atualizar MV {view}: {e}")
+
+
 def main():
     args = _parse_args()
     job_start = time.time()
+    if args.refresh_mvs_only:
+        _refresh_mvs()
+        log_info("bulk_ingest finalizado (refresh MVs only).")
+        return
     snapshot_date_override = args.snapshot_date or None
     root = Path(args.root or ROOT_DIR)
     if not root.exists():
@@ -1191,29 +1238,10 @@ def main():
             except Exception as e2:
                 log_error(f"Falha ao registrar FAILED: {e2}")
 
-    # Atualiza MV de feicoes ativas ao final da ingestao
-    try:
-        attempt = 0
-        while True:
-            try:
-                attempt += 1
-                with get_conn() as conn:
-                    conn.autocommit = True
-                    exec_sql(conn, "REFRESH MATERIALIZED VIEW landwatch.mv_feature_geom_active")
-                    log_info("MV atualizada: landwatch.mv_feature_geom_active")
-                break
-            except Exception as e:
-                if _is_transient_db_error(e) and attempt <= DB_MAX_RETRIES:
-                    delay = _retry_delay(attempt)
-                    log_warn(
-                        f"Falha ao atualizar MV (DB). Tentando novamente em {delay:.1f}s "
-                        f"(tentativa {attempt}/{DB_MAX_RETRIES})."
-                    )
-                    time.sleep(delay)
-                    continue
-                raise
-    except Exception as e:
-        log_warn(f"Falha ao atualizar MV landwatch.mv_feature_geom_active: {e}")
+    if args.skip_mv_refresh:
+        log_info("MV refresh ignorado (flag --skip-mv-refresh).")
+    else:
+        _refresh_mvs()
 
     log_info(f"bulk_ingest finalizado em {int(time.time() - job_start)}s.")
 

@@ -65,8 +65,7 @@
     </section>
 
     <section v-else class="rounded-2xl border border-border bg-card p-6 shadow-sm">
-      <div class="text-lg font-semibold">Selecionar CAR no mapa</div>
-      <div class="mt-3 grid gap-3 md:grid-cols-2">
+      <div class="grid gap-3 md:grid-cols-2">
         <div>
           <UiLabel>Latitude</UiLabel>
           <UiInput v-model="center.lat" placeholder="-10.0000 ou 10° 00' 00&quot; S" />
@@ -80,33 +79,26 @@
         <UiButton size="sm" :disabled="!canSearch" @click="searchCars">
           Buscar CARs
         </UiButton>
-        <div class="text-xs text-muted-foreground">
-          Busca apenas na coordenada informada.
-        </div>
+        <UiButton
+          size="sm"
+          class="shadow-sm"
+          :class="!analysisForm.carKey ? 'opacity-50' : ''"
+          :disabled="!analysisForm.carKey"
+          @click="goToAnalysisTab"
+        >
+          Gerar análise
+        </UiButton>
       </div>
       <div v-if="searchMessage" class="mt-2 text-xs text-muted-foreground">
         {{ searchMessage }}
       </div>
-      <div class="mt-4 h-[clamp(280px,calc(100vh-420px),600px)]">
+      <div class="mt-3 h-[clamp(320px,calc(100vh-360px),720px)]">
         <CarSelectMap
           v-model:selected-car-key="analysisForm.carKey"
           :center="centerValue"
           :search-token="searchToken"
           @center-change="updateCenter"
         />
-      </div>
-      <div class="mt-4 flex flex-wrap items-center justify-between gap-2">
-        <div class="text-xs text-muted-foreground">
-          Selecione um CAR no mapa para continuar.
-        </div>
-        <UiButton
-          v-if="analysisForm.carKey"
-          size="sm"
-          variant="outline"
-          @click="goToAnalysisTab"
-        >
-          Gerar análise
-        </UiButton>
       </div>
     </section>
 

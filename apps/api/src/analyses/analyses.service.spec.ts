@@ -302,11 +302,11 @@ describe('AnalysesService', () => {
       .spyOn(service as any, 'fetchDistinctAttrValues')
       .mockResolvedValue([]);
 
-    await (service as any).fetchIndigenaPhases('landwatch', '2026-02-01');
+    await (service as any).fetchIndigenaPhases('landwatch', '2026-01-31');
 
     expect(spy).toHaveBeenCalledWith(
       'landwatch',
-      '2026-02-01',
+      '2026-01-31',
       expect.objectContaining({
         keys: expect.arrayContaining(['fase_ti']),
       }),

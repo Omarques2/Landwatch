@@ -109,6 +109,11 @@ export class AnalysesService {
     return date.toISOString().slice(0, 10);
   }
 
+  private isCurrentAnalysisDate(analysisDate: string): boolean {
+    const today = this.nowProvider().toISOString().slice(0, 10);
+    return analysisDate === today;
+  }
+
   private async ensureCarExists(carKey: string, analysisDate?: string) {
     const schema = this.getSchema();
     const fn = analysisDate
@@ -562,21 +567,42 @@ export class AnalysesService {
       return { municipio: null, uf: null, status: null };
     }
 
-    const rows = await this.prisma.$queryRaw<
-      Array<{ pack_json: Prisma.JsonValue }>
-    >(Prisma.sql`
-      SELECT p.pack_json
-      FROM ${Prisma.raw(`"${schema}"."lw_feature_attr_pack_hist"`)} h
-      JOIN ${Prisma.raw(`"${schema}"."lw_attr_pack"`)} p ON p.pack_id = h.pack_id
-      WHERE h.dataset_id = ${datasetId}
-        AND h.feature_id = ${featureId}
-        AND h.valid_from <= ${analysisDate}::date
-        AND (h.valid_to IS NULL OR h.valid_to > ${analysisDate}::date)
-      ORDER BY h.valid_from DESC
-      LIMIT 1
-    `);
+    let pack: Prisma.JsonValue | null = null;
 
-    const pack = rows[0]?.pack_json;
+    if (this.isCurrentAnalysisDate(analysisDate)) {
+      try {
+        const rows = await this.prisma.$queryRaw<
+          Array<{ pack_json: Prisma.JsonValue }>
+        >(Prisma.sql`
+          SELECT pack_json
+          FROM ${Prisma.raw(`"${schema}"."mv_sicar_meta_active"`)}
+          WHERE dataset_id = ${datasetId}
+            AND feature_id = ${featureId}
+          LIMIT 1
+        `);
+        pack = rows[0]?.pack_json ?? null;
+      } catch {
+        pack = null;
+      }
+    }
+
+    if (!pack) {
+      const rows = await this.prisma.$queryRaw<
+        Array<{ pack_json: Prisma.JsonValue }>
+      >(Prisma.sql`
+        SELECT p.pack_json
+        FROM ${Prisma.raw(`"${schema}"."lw_feature_attr_pack_hist"`)} h
+        JOIN ${Prisma.raw(`"${schema}"."lw_attr_pack"`)} p ON p.pack_id = h.pack_id
+        WHERE h.dataset_id = ${datasetId}
+          AND h.feature_id = ${featureId}
+          AND h.valid_from <= ${analysisDate}::date
+          AND (h.valid_to IS NULL OR h.valid_to > ${analysisDate}::date)
+        ORDER BY h.valid_from DESC
+        LIMIT 1
+      `);
+      pack = rows[0]?.pack_json ?? null;
+    }
+
     if (!pack || typeof pack !== 'object') {
       return { municipio: null, uf: null, status: null };
     }
@@ -992,6 +1018,28 @@ export class AnalysesService {
     analysisDate: string,
     datasetCodes?: string[],
   ) {
+    if (this.isCurrentAnalysisDate(analysisDate)) {
+      try {
+        const rows = await this.prisma.$queryRaw<
+          Array<{ value: string | null }>
+        >(Prisma.sql`
+            SELECT DISTINCT fase_ti AS value
+            FROM ${Prisma.raw(`"${schema}"."mv_indigena_phase_active"`)}
+            WHERE fase_ti IS NOT NULL
+              ${
+                datasetCodes && datasetCodes.length > 0
+                  ? Prisma.sql`AND dataset_code IN (${Prisma.join(datasetCodes)})`
+                  : Prisma.sql``
+              }
+          `);
+        const values = (rows ?? [])
+          .map((row) => (row.value ?? '').trim())
+          .filter((value) => value.length > 0);
+        return Array.from(new Set(values)).sort();
+      } catch {
+        // fallback to hist path
+      }
+    }
     return this.fetchDistinctAttrValues(schema, analysisDate, {
       categoryCode: 'INDIGENAS',
       datasetCodes,
@@ -1027,6 +1075,36 @@ export class AnalysesService {
       }
       return this.isIndigenaDataset(row.categoryCode, row.datasetCode);
     });
+    if (this.isCurrentAnalysisDate(analysisDate)) {
+      try {
+        const featureIds = Array.from(
+          new Set(
+            targets
+              .map((row) => row.featureId)
+              .filter((value): value is string => Boolean(value))
+              .map((value) => value.trim()),
+          ),
+        ).filter((value) => value.length > 0);
+        if (!featureIds.length) return new Set<string>();
+        const rows = await this.prisma.$queryRaw<
+          Array<{ value: string | null }>
+        >(Prisma.sql`
+            SELECT DISTINCT fase_ti AS value
+            FROM ${Prisma.raw(`"${schema}"."mv_indigena_phase_active"`)}
+            WHERE dataset_code IN (${Prisma.join(
+              targets.map((row) => row.datasetCode),
+            )})
+              AND feature_id IN (${Prisma.join(featureIds)})
+              AND fase_ti IS NOT NULL
+          `);
+        const values = (rows ?? [])
+          .map((row) => (row.value ?? '').trim())
+          .filter((value) => value.length > 0);
+        return new Set(values);
+      } catch {
+        // fallback to hist path
+      }
+    }
     return this.fetchAttrValuesForFeatures(schema, analysisDate, targets, {
       keys: [
         'fase_ti',
@@ -1046,6 +1124,28 @@ export class AnalysesService {
     analysisDate: string,
     datasetCodes?: string[],
   ) {
+    if (this.isCurrentAnalysisDate(analysisDate)) {
+      try {
+        const rows = await this.prisma.$queryRaw<
+          Array<{ value: string | null }>
+        >(Prisma.sql`
+            SELECT DISTINCT sigla_categ AS value
+            FROM ${Prisma.raw(`"${schema}"."mv_ucs_sigla_active"`)}
+            WHERE sigla_categ IS NOT NULL
+              ${
+                datasetCodes && datasetCodes.length > 0
+                  ? Prisma.sql`AND dataset_code IN (${Prisma.join(datasetCodes)})`
+                  : Prisma.sql``
+              }
+          `);
+        const values = (rows ?? [])
+          .map((row) => (row.value ?? '').trim())
+          .filter((value) => value.length > 0);
+        return Array.from(new Set(values)).sort();
+      } catch {
+        // fallback to hist path
+      }
+    }
     return this.fetchDistinctAttrValues(schema, analysisDate, {
       categoryCode: 'UCS_SNIRH',
       datasetCodes,
@@ -1072,6 +1172,36 @@ export class AnalysesService {
       }
       return this.isUcsDataset(row.categoryCode, row.datasetCode);
     });
+    if (this.isCurrentAnalysisDate(analysisDate)) {
+      try {
+        const featureIds = Array.from(
+          new Set(
+            targets
+              .map((row) => row.featureId)
+              .filter((value): value is string => Boolean(value))
+              .map((value) => value.trim()),
+          ),
+        ).filter((value) => value.length > 0);
+        if (!featureIds.length) return new Set<string>();
+        const rows = await this.prisma.$queryRaw<
+          Array<{ value: string | null }>
+        >(Prisma.sql`
+            SELECT DISTINCT sigla_categ AS value
+            FROM ${Prisma.raw(`"${schema}"."mv_ucs_sigla_active"`)}
+            WHERE dataset_code IN (${Prisma.join(
+              targets.map((row) => row.datasetCode),
+            )})
+              AND feature_id IN (${Prisma.join(featureIds)})
+              AND sigla_categ IS NOT NULL
+          `);
+        const values = (rows ?? [])
+          .map((row) => (row.value ?? '').trim())
+          .filter((value) => value.length > 0);
+        return new Set(values);
+      } catch {
+        // fallback to hist path
+      }
+    }
     return this.fetchAttrValuesForFeatures(schema, analysisDate, targets, {
       keys: ['SiglaCateg', 'SIGLACATEG', 'siglacateg', 'sigla_categ'],
     });

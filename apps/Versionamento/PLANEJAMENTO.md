@@ -158,6 +158,8 @@ Atualizado em: 2026-02-05
 - Botao "Baixar GeoJSON" no Detalhe da analise (CAR + intersecoes).
 - Busca por coordenadas com cores variadas por CAR e ordem por area (menores por cima).
 - Abas no sidebar para Nova analise/Buscar CAR, com confirmacao de campos opcionais e loading no envio.
+- SICAR (Docker): corrigido template do script interno (KeyError 'code') e log de erro detalhado.
+- MVs quentes para analises current (attrs light, sicar meta, fase_ti, sigla_categ) e uso nos endpoints com fallback historico.
 
 ## 11) Seeds e execução local
 

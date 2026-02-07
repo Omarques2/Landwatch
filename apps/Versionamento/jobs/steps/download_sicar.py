@@ -3,6 +3,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 import zipfile
 from datetime import datetime
 from pathlib import Path
@@ -38,10 +39,10 @@ for code, state_enum in states.items():
                 folder=out_folder,
                 debug=True
             )
-            print(f"[OK] {code}")
+            print(f"[OK] {{code}}")
             break
         except Exception as e:
-            print(f"[ERRO] {code} tent {attempt}: {e}")
+            print(f"[ERRO] {{code}} tent {{attempt}}: {{e}}")
             if attempt < MAX_RETRIES:
                 time.sleep(RETRY_DELAY)
 '''
@@ -101,6 +102,14 @@ def _ensure_tesseract() -> None:
         raise RuntimeError("Tesseract nao encontrado no PATH. Instale tesseract-ocr ou use imagem Docker do job.") from exc
 
 
+def _truncate_log(text: str, limit: int = 4000) -> str:
+    if not text:
+        return ""
+    if len(text) <= limit:
+        return text
+    return text[:limit] + "\n... (truncado)"
+
+
 def _run_docker(output_root: Path, states: list[str], polygon: str, outer_retries: int, image: str) -> None:
     state_map = ", ".join([f'"{s}": State.{s}' for s in states])
     inner = DOCKER_INNER_SCRIPT.format(states="{" + state_map + "}", polygon=polygon, outer_retries=outer_retries)
@@ -114,11 +123,38 @@ def _run_docker(output_root: Path, states: list[str], polygon: str, outer_retrie
     ]
     log_info(f"Executando container SICAR: {' '.join(cmd)}")
     with script_path.open("rb") as f:
-        subprocess.run(cmd, stdin=f, check=True)
+        res = subprocess.run(
+            cmd,
+            stdin=f,
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+    if res.returncode != 0:
+        stdout = _truncate_log(res.stdout or "")
+        stderr = _truncate_log(res.stderr or "")
+        if stdout:
+            log_warn(f"[SICAR Docker stdout]\n{stdout}")
+        if stderr:
+            log_warn(f"[SICAR Docker stderr]\n{stderr}")
+        raise RuntimeError(f"SICAR Docker falhou (exit={res.returncode}). Veja stdout/stderr acima.")
+    if res.stderr:
+        log_warn(f"[SICAR Docker stderr]\n{_truncate_log(res.stderr)}")
     try:
         script_path.unlink()
     except Exception:
         pass
+
+
+def _has_partial_sicar_outputs(output_root: Path) -> bool:
+    if list(output_root.glob("CAR_*.shp")):
+        return True
+    for state_dir in output_root.iterdir():
+        if state_dir.is_dir() and list(state_dir.glob("*.zip")):
+            return True
+    return False
 
 
 def _extract_and_flatten(output_root: Path) -> None:
@@ -213,7 +249,25 @@ def run(work_dir: Path, snapshot_date: str) -> List[DatasetArtifact]:
             ]
         log_info(f"SICAR (Docker) UFs: {', '.join(states_to_download)}")
         _docker_pull(image)
-        _run_docker(output_root, states_to_download, polygon_name, outer_retries, image)
+        docker_attempts = int(os.environ.get("SICAR_DOCKER_RETRIES", "2"))
+        docker_retry_seconds = int(os.environ.get("SICAR_DOCKER_RETRY_SECONDS", "20"))
+        last_error = None
+        for attempt in range(1, docker_attempts + 1):
+            try:
+                _run_docker(output_root, states_to_download, polygon_name, outer_retries, image)
+                last_error = None
+                break
+            except Exception as exc:
+                last_error = exc
+                log_warn(f"SICAR Docker falhou na tentativa {attempt}/{docker_attempts}: {exc}")
+                if attempt < docker_attempts:
+                    time.sleep(docker_retry_seconds)
+
+        if last_error:
+            if _has_partial_sicar_outputs(output_root):
+                log_warn("SICAR Docker falhou, mas foram encontrados arquivos baixados localmente. Continuando com o que houver.")
+            else:
+                raise last_error
         _extract_and_flatten(output_root)
         release_dates = {}
         run_utc = datetime.utcnow().isoformat()

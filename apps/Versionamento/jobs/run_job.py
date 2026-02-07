@@ -3,6 +3,7 @@ import sys
 import argparse
 from pathlib import Path
 from typing import Dict
+import traceback
 
 try:
     from dotenv import load_dotenv
@@ -185,7 +186,8 @@ def run_all(config: JobConfig, snapshot_date: str, categories=None, prodes_works
                 )
             results["PRODES"] = process_category(storage, run_id, "PRODES", artifacts, config)
         except Exception as exc:
-            log_warn(f"PRODES falhou: {exc}")
+            log_warn(f"PRODES falhou ({type(exc).__name__}): {exc}")
+            log_warn(traceback.format_exc())
             results["PRODES"] = {"status": "failed"}
 
     if should_run("DETER"):
@@ -202,7 +204,8 @@ def run_all(config: JobConfig, snapshot_date: str, categories=None, prodes_works
                 artifacts = download_deter(config.work_dir, snapshot_date)
             results["DETER"] = process_category(storage, run_id, "DETER", artifacts, config)
         except Exception as exc:
-            log_warn(f"DETER falhou: {exc}")
+            log_warn(f"DETER falhou ({type(exc).__name__}): {exc}")
+            log_warn(traceback.format_exc())
             results["DETER"] = {"status": "failed"}
 
     if should_run("SICAR"):
@@ -219,7 +222,8 @@ def run_all(config: JobConfig, snapshot_date: str, categories=None, prodes_works
                 artifacts = download_sicar(config.work_dir, snapshot_date)
             results["SICAR"] = process_category(storage, run_id, "SICAR", artifacts, config)
         except Exception as exc:
-            log_warn(f"SICAR falhou: {exc}")
+            log_warn(f"SICAR falhou ({type(exc).__name__}): {exc}")
+            log_warn(traceback.format_exc())
             results["SICAR"] = {"status": "failed"}
 
     if should_run("URL"):
@@ -236,7 +240,8 @@ def run_all(config: JobConfig, snapshot_date: str, categories=None, prodes_works
                 artifacts = download_url(config.work_dir, snapshot_date)
             results["URL"] = process_category(storage, run_id, "URL", artifacts, config)
         except Exception as exc:
-            log_warn(f"URL falhou: {exc}")
+            log_warn(f"URL falhou ({type(exc).__name__}): {exc}")
+            log_warn(traceback.format_exc())
             results["URL"] = {"status": "failed"}
 
     log_info(f"Resumo: {results}")

@@ -1,4 +1,4 @@
-import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { Injectable, OnModuleDestroy, OnModuleInit, Logger } from '@nestjs/common';
 import { Inject, Optional } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -26,9 +26,11 @@ function assertIdentifier(value: string, name: string): string {
 
 @Injectable()
 export class AnalysisRunnerService implements OnModuleInit, OnModuleDestroy {
+  private readonly logger = new Logger(AnalysisRunnerService.name);
   private readonly nowProvider: () => Date;
   private readonly queue = new Set<string>();
   private processing = false;
+  private polling = false;
   private pollTimer: NodeJS.Timeout | null = null;
 
   constructor(
@@ -152,13 +154,22 @@ export class AnalysisRunnerService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async pollPending() {
-    const pending = await this.prisma.analysis.findMany({
-      where: { status: 'pending' },
-      select: { id: true },
-      take: 20,
-    });
-    pending.forEach((row) => this.queue.add(row.id));
-    void this.processQueue();
+    if (this.polling) return;
+    this.polling = true;
+    try {
+      const pending = await this.prisma.analysis.findMany({
+        where: { status: 'pending' },
+        select: { id: true },
+        take: 20,
+      });
+      pending.forEach((row) => this.queue.add(row.id));
+      void this.processQueue();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.warn(`pollPending failed: ${message}`);
+    } finally {
+      this.polling = false;
+    }
   }
 
   private async processQueue() {

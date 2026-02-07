@@ -26,6 +26,140 @@ CREATE INDEX IF NOT EXISTS idx_mv_feature_geom_active_geom
 CREATE INDEX IF NOT EXISTS idx_mv_feature_geom_active_geom_id
   ON landwatch.mv_feature_geom_active(geom_id);
 
+-- MV leve com chaves/ids ativos
+CREATE MATERIALIZED VIEW IF NOT EXISTS landwatch.mv_feature_active_attrs_light AS
+SELECT
+  f.dataset_id,
+  d.code AS dataset_code,
+  f.feature_id,
+  f.feature_key,
+  a.geom_id
+FROM landwatch.lw_feature f
+JOIN landwatch.lw_dataset d ON d.dataset_id = f.dataset_id
+JOIN landwatch.mv_feature_geom_active a
+  ON a.dataset_id = f.dataset_id
+ AND a.feature_id = f.feature_id;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_mv_feature_active_attrs_light_pk
+  ON landwatch.mv_feature_active_attrs_light(dataset_id, feature_id);
+
+CREATE INDEX IF NOT EXISTS idx_mv_feature_active_attrs_light_dataset
+  ON landwatch.mv_feature_active_attrs_light(dataset_code);
+
+CREATE INDEX IF NOT EXISTS idx_mv_feature_active_attrs_light_geom_id
+  ON landwatch.mv_feature_active_attrs_light(geom_id);
+
+CREATE INDEX IF NOT EXISTS idx_mv_feature_active_attrs_light_feature_key
+  ON landwatch.mv_feature_active_attrs_light(feature_key);
+
+-- MV: meta do SICAR (pack ativo)
+CREATE MATERIALIZED VIEW IF NOT EXISTS landwatch.mv_sicar_meta_active AS
+SELECT
+  d.dataset_id,
+  d.code AS dataset_code,
+  h.feature_id,
+  p.pack_json
+FROM landwatch.lw_feature_attr_pack_hist h
+JOIN landwatch.lw_attr_pack p ON p.pack_id = h.pack_id
+JOIN landwatch.lw_dataset d ON d.dataset_id = h.dataset_id
+JOIN landwatch.lw_category c ON c.category_id = d.category_id
+WHERE h.valid_to IS NULL
+  AND (c.code = 'SICAR' OR d.code = 'SICAR');
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_mv_sicar_meta_active_pk
+  ON landwatch.mv_sicar_meta_active(dataset_id, feature_id);
+
+-- MV: fase TI (terras indigenas)
+CREATE MATERIALIZED VIEW IF NOT EXISTS landwatch.mv_indigena_phase_active AS
+SELECT
+  d.dataset_id,
+  d.code AS dataset_code,
+  h.feature_id,
+  NULLIF(
+    COALESCE(
+      p.pack_json->>'fase_ti',
+      p.pack_json->>'FASE_TI',
+      p.pack_json->>'faseTi',
+      p.pack_json->>'FASETI',
+      p.pack_json->>'fase_it',
+      p.pack_json->>'FASE_IT',
+      p.pack_json->>'faseIt',
+      p.pack_json->>'FASEIT'
+    ),
+    ''
+  ) AS fase_ti
+FROM landwatch.lw_feature_attr_pack_hist h
+JOIN landwatch.lw_attr_pack p ON p.pack_id = h.pack_id
+JOIN landwatch.lw_dataset d ON d.dataset_id = h.dataset_id
+JOIN landwatch.lw_category c ON c.category_id = d.category_id
+WHERE h.valid_to IS NULL
+  AND (
+    c.code IN ('INDIGENAS', 'TI')
+    OR UPPER(d.code) LIKE 'TI_%'
+    OR UPPER(d.code) LIKE 'TI-%'
+    OR UPPER(d.code) LIKE '%INDIG%'
+  )
+  AND COALESCE(
+    p.pack_json->>'fase_ti',
+    p.pack_json->>'FASE_TI',
+    p.pack_json->>'faseTi',
+    p.pack_json->>'FASETI',
+    p.pack_json->>'fase_it',
+    p.pack_json->>'FASE_IT',
+    p.pack_json->>'faseIt',
+    p.pack_json->>'FASEIT'
+  ) IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_mv_indigena_phase_active_dataset
+  ON landwatch.mv_indigena_phase_active(dataset_code);
+
+CREATE INDEX IF NOT EXISTS idx_mv_indigena_phase_active_feature
+  ON landwatch.mv_indigena_phase_active(feature_id);
+
+CREATE INDEX IF NOT EXISTS idx_mv_indigena_phase_active_phase
+  ON landwatch.mv_indigena_phase_active(fase_ti);
+
+-- MV: sigla categoria UCS
+CREATE MATERIALIZED VIEW IF NOT EXISTS landwatch.mv_ucs_sigla_active AS
+SELECT
+  d.dataset_id,
+  d.code AS dataset_code,
+  h.feature_id,
+  NULLIF(
+    COALESCE(
+      p.pack_json->>'SiglaCateg',
+      p.pack_json->>'SIGLACATEG',
+      p.pack_json->>'siglacateg',
+      p.pack_json->>'sigla_categ'
+    ),
+    ''
+  ) AS sigla_categ
+FROM landwatch.lw_feature_attr_pack_hist h
+JOIN landwatch.lw_attr_pack p ON p.pack_id = h.pack_id
+JOIN landwatch.lw_dataset d ON d.dataset_id = h.dataset_id
+JOIN landwatch.lw_category c ON c.category_id = d.category_id
+WHERE h.valid_to IS NULL
+  AND (
+    c.code IN ('UCS_SNIRH', 'UCS')
+    OR UPPER(d.code) LIKE '%UCS%'
+    OR UPPER(d.code) LIKE '%CONSERV%'
+  )
+  AND COALESCE(
+    p.pack_json->>'SiglaCateg',
+    p.pack_json->>'SIGLACATEG',
+    p.pack_json->>'siglacateg',
+    p.pack_json->>'sigla_categ'
+  ) IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_mv_ucs_sigla_active_dataset
+  ON landwatch.mv_ucs_sigla_active(dataset_code);
+
+CREATE INDEX IF NOT EXISTS idx_mv_ucs_sigla_active_feature
+  ON landwatch.mv_ucs_sigla_active(feature_id);
+
+CREATE INDEX IF NOT EXISTS idx_mv_ucs_sigla_active_sigla
+  ON landwatch.mv_ucs_sigla_active(sigla_categ);
+
 CREATE OR REPLACE FUNCTION landwatch.fn_sicar_feature_current(p_cod_imovel text)
 RETURNS TABLE (
   dataset_id bigint,

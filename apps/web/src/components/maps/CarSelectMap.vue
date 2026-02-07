@@ -87,7 +87,9 @@ const contextMenu = ref({
 
 let map: L.Map | null = null;
 let geoLayer: L.GeoJSON<any> | null = null;
+let selectedOverlay: L.GeoJSON<any> | null = null;
 let searchMarker: L.CircleMarker | null = null;
+const carFeatureMap = new Map<string, CarFeature>();
 
 const carPalette = [
   "#ef4444",
@@ -124,7 +126,7 @@ function colorForCar(key: string) {
   return carPalette[idx];
 }
 
-function ringArea(ring: number[][]) {
+function ringAreaSigned(ring: number[][]) {
   if (!ring || ring.length < 3) return 0;
   let sum = 0;
   for (let i = 0; i < ring.length; i += 1) {
@@ -145,18 +147,24 @@ function ringArea(ring: number[][]) {
     }
     sum += x1 * y2 - x2 * y1;
   }
-  return Math.abs(sum) / 2;
+  return sum / 2;
+}
+
+function polygonArea(rings: number[][][]) {
+  if (!rings || rings.length === 0) return 0;
+  const signed = rings.reduce((acc, ring) => acc + ringAreaSigned(ring), 0);
+  return Math.abs(signed);
 }
 
 function estimateArea(geom: any) {
   if (!geom || !geom.type) return 0;
   if (geom.type === "Polygon") {
-    return geom.coordinates?.reduce((acc: number, ring: number[][]) => acc + ringArea(ring), 0) ?? 0;
+    return polygonArea(geom.coordinates ?? []);
   }
   if (geom.type === "MultiPolygon") {
     return (
       geom.coordinates?.reduce(
-        (acc: number, poly: number[][][]) => acc + poly.reduce((sum, ring) => sum + ringArea(ring), 0),
+        (acc: number, poly: number[][][]) => acc + polygonArea(poly),
         0,
       ) ?? 0
     );
@@ -166,10 +174,21 @@ function estimateArea(geom: any) {
 
 function ensureMap() {
   if (map || !mapEl.value) return;
-  map = L.map(mapEl.value, { zoomControl: true }).setView(
+  map = L.map(mapEl.value, {
+    zoomControl: true,
+    zoomSnap: 0.25,
+    zoomDelta: 0.25,
+    wheelPxPerZoomLevel: 180,
+  }).setView(
     [props.center.lat, props.center.lng],
     13,
   );
+
+  map.createPane("selectedOverlay");
+  const overlayPane = map.getPane("selectedOverlay");
+  if (overlayPane) {
+    overlayPane.style.zIndex = "650";
+  }
 
   L.tileLayer("https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}", {
     maxZoom: 19,
@@ -198,14 +217,23 @@ function ensureMap() {
   });
 }
 
-function renderCars(rows: CarFeature[]) {
+function renderCars(rows: CarFeature[], options?: { append?: boolean }) {
   if (!map) return;
+  const append = options?.append ?? false;
+  if (!append) {
+    carFeatureMap.clear();
+  }
+  for (const row of rows) {
+    if (!row?.feature_key) continue;
+    carFeatureMap.set(row.feature_key, row);
+  }
   if (geoLayer) {
     geoLayer.remove();
     geoLayer = null;
   }
 
-  const orderedRows = rows
+  const allRows = Array.from(carFeatureMap.values());
+  const orderedRows = allRows
     .map((row) => ({
       row,
       area: estimateArea(row.geom),
@@ -242,7 +270,7 @@ function renderCars(rows: CarFeature[]) {
     },
   }).addTo(map);
 
-  if (geoLayer.getBounds().isValid()) {
+  if (!append && geoLayer.getBounds().isValid()) {
     const bounds = geoLayer.getBounds();
     map.fitBounds(bounds, { padding: [20, 20] });
     window.setTimeout(() => {
@@ -250,7 +278,7 @@ function renderCars(rows: CarFeature[]) {
     }, 50);
   }
 
-  bringSelectedToFront();
+  renderSelectedOverlay();
 }
 
 function updateSearchMarker(lat: number, lng: number) {
@@ -269,14 +297,40 @@ function updateSearchMarker(lat: number, lng: number) {
   }
 }
 
-function bringSelectedToFront() {
-  if (!geoLayer || !props.selectedCarKey) return;
-  geoLayer.eachLayer((layer: any) => {
-    const key = layer?.feature?.properties?.feature_key ?? "";
-    if (key === props.selectedCarKey) {
-      layer.bringToFront();
-    }
-  });
+function renderSelectedOverlay() {
+  if (!map) return;
+  if (selectedOverlay) {
+    selectedOverlay.remove();
+    selectedOverlay = null;
+  }
+  const key = props.selectedCarKey;
+  if (!key) return;
+  const feature = carFeatureMap.get(key);
+  if (!feature?.geom) return;
+
+  selectedOverlay = L.geoJSON(
+    {
+      type: "FeatureCollection",
+      features: [
+        {
+          type: "Feature",
+          geometry: feature.geom,
+          properties: {},
+        },
+      ],
+    } as any,
+    {
+      pane: "selectedOverlay",
+      interactive: false,
+      style: {
+        color: "#dc2626",
+        weight: 3,
+        fillOpacity: 0,
+        fillColor: "transparent",
+        className: "car-selected-overlay",
+      },
+    },
+  ).addTo(map);
 }
 
 async function fetchCars(lat: number, lng: number) {
@@ -290,7 +344,7 @@ async function fetchCars(lat: number, lng: number) {
   return unwrapData(res.data);
 }
 
-async function runSearch(lat: number, lng: number) {
+async function runSearch(lat: number, lng: number, options?: { append?: boolean }) {
   await nextTick();
   ensureMap();
   if (map) {
@@ -305,8 +359,8 @@ async function runSearch(lat: number, lng: number) {
 
   try {
     const rows = await fetchCars(lat, lng);
-    lastCount.value = rows.length;
-    renderCars(rows);
+    renderCars(rows, options);
+    lastCount.value = carFeatureMap.size;
   } catch (err: any) {
     lastCount.value = 0;
     const apiMessage =
@@ -324,7 +378,7 @@ async function searchFromContext() {
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
   emit("center-change", { lat, lng });
   hasSearch.value = true;
-  await runSearch(lat, lng);
+  await runSearch(lat, lng, { append: true });
 }
 
 watch(
@@ -352,7 +406,7 @@ watch(
         };
       });
     }
-    bringSelectedToFront();
+    renderSelectedOverlay();
   },
 );
 
@@ -371,6 +425,7 @@ onBeforeUnmount(() => {
   }
   map = null;
   searchMarker = null;
+  selectedOverlay = null;
 });
 </script>
 
@@ -397,6 +452,10 @@ onBeforeUnmount(() => {
   border: 3px solid rgba(15, 23, 42, 0.2);
   border-top-color: #0f172a;
   animation: spin 1s linear infinite;
+}
+
+:global(.car-selected-overlay) {
+  pointer-events: none;
 }
 
 @keyframes spin {

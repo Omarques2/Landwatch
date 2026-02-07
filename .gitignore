@@ -1,6 +1,7 @@
 .codex/
 .agents/
 apps/Versionamento/Dados/
+apps/Versionamento/Dados-*/
 apps/Versionamento/Dados.bkp/
 apps/Versionamento/Dados-12-25/
 apps/Versionamento/work/

@@ -69,7 +69,9 @@
         >
           Baixar GeoJSON
         </UiButton>
-        <UiButton size="sm" @click="printPdf">Baixar PDF</UiButton>
+        <UiButton size="sm" :disabled="!canDownloadPdf" :class="!canDownloadPdf ? 'opacity-50' : ''" @click="printPdf">
+          Baixar PDF
+        </UiButton>
       </div>
     </header>
 
@@ -396,6 +398,11 @@ const analysisPublicUrl = computed(() => {
 });
 
 const canDownloadGeoJson = computed(() => analysis.value?.status === "completed");
+const canDownloadPdf = computed(() => {
+  if (isLoading.value) return false;
+  if (mapLoading.value) return false;
+  return analysis.value?.status === "completed";
+});
 
 const onBeforePrint = () => {
   if (isPrintMode.value) {
@@ -646,6 +653,7 @@ async function downloadGeoJson() {
 }
 
 async function printPdf() {
+  if (!canDownloadPdf.value) return;
   isPrintMode.value = true;
   await nextTick();
   printLayoutRef.value?.prepareForPrint();

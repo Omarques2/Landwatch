@@ -166,7 +166,11 @@ Legenda:
   Aceite: suite e2e roda em staging.
 - [ ] Checklist de deploy (staging -> prod)
   Aceite: checklist documentado e aprovado.
+- [x] MVs "quentes" para acelerar analises (sicar meta, fase_ti, sigla_categ, attrs light)
+  Aceite: analise current usa MVs e mantem fallback historico.
 - [x] MV de feicoes ativas (current) para acelerar interseccoes do SICAR (sem DETER)
   Aceite: consultas de interseccao current usam MV e reduzem latencia significativamente.
 - [x] Downloads + ingest via Blob com limpeza automatica (job unico modular)
   Aceite: job baixa, ingere por categoria e remove blobs antigos com retencao curta (1–2 execucoes).
+- [x] SICAR (Docker) - corrigir template do script interno e melhorar log de falha
+  Aceite: erro nao dispara KeyError 'code' e stack/saida do container aparece no log.
