@@ -5,12 +5,20 @@ import {
   Injectable,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { parseCsv } from '../common/config/env';
 import type { AuthedRequest } from './authed-request.type';
 
 @Injectable()
 export class PlatformAdminGuard implements CanActivate {
   constructor(private readonly prisma: PrismaService) {}
+
+  private getAdminAllowlist(): Set<string> {
+    const raw = process.env.PLATFORM_ADMIN_SUBS ?? '';
+    const entries = raw
+      .split(',')
+      .map((value) => value.trim())
+      .filter(Boolean);
+    return new Set(entries);
+  }
 
   async canActivate(ctx: ExecutionContext): Promise<boolean> {
     const req = ctx.switchToHttp().getRequest<AuthedRequest>();
@@ -19,14 +27,6 @@ export class PlatformAdminGuard implements CanActivate {
       throw new ForbiddenException({
         code: 'NO_SUBJECT',
         message: 'Missing subject claim',
-      });
-    }
-
-    const admins = parseCsv(process.env.PLATFORM_ADMIN_SUBS);
-    if (!admins.length) {
-      throw new ForbiddenException({
-        code: 'PLATFORM_ADMIN_NOT_CONFIGURED',
-        message: 'Platform admin allowlist is empty',
       });
     }
 
@@ -49,7 +49,15 @@ export class PlatformAdminGuard implements CanActivate {
       });
     }
 
-    if (!admins.includes(sub)) {
+    const allowlist = this.getAdminAllowlist();
+    if (allowlist.size === 0) {
+      throw new ForbiddenException({
+        code: 'ADMIN_NOT_CONFIGURED',
+        message: 'Admin allowlist not configured',
+      });
+    }
+
+    if (!allowlist.has(sub)) {
       throw new ForbiddenException({
         code: 'NOT_PLATFORM_ADMIN',
         message: 'User is not platform admin',

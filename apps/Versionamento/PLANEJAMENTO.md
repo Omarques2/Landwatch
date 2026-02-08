@@ -1,6 +1,6 @@
 # Planejamento: LandWatch Versionamento (armazenamento mínimo + ingestão diária)
 
-Atualizado em: 2026-02-05
+Atualizado em: 2026-02-07
 
 ## 1) Objetivo e premissas
 - Prioridade máxima: reduzir armazenamento no Postgres.
@@ -160,6 +160,7 @@ Atualizado em: 2026-02-05
 - Abas no sidebar para Nova analise/Buscar CAR, com confirmacao de campos opcionais e loading no envio.
 - SICAR (Docker): corrigido template do script interno (KeyError 'code') e log de erro detalhado.
 - MVs quentes para analises current (attrs light, sicar meta, fase_ti, sigla_categ) e uso nos endpoints com fallback historico.
+- Seleção de CAR destaca o selecionado sem bloquear cliques nos menores (overlay não interativo).
 
 ## 11) Seeds e execução local
 

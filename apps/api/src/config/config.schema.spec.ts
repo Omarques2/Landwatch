@@ -13,6 +13,8 @@ describe('validateEnv', () => {
     expect(parsed.PORT).toBe(3001);
     expect(parsed.NODE_ENV).toBe('development');
     expect(parsed.CORS_CREDENTIALS).toBe(false);
+    expect(parsed.RATE_LIMIT_API_WINDOW_MS).toBe(60_000);
+    expect(parsed.RATE_LIMIT_API_MAX).toBe(120);
   });
 
   it('rejects when required variables are missing', () => {

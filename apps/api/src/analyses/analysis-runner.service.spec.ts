@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { AnalysisRunnerService } from './analysis-runner.service';
 
 describe('AnalysisRunnerService', () => {
@@ -127,5 +128,64 @@ describe('AnalysisRunnerService', () => {
 
     expect(prisma.analysis.findUnique).not.toHaveBeenCalled();
     expect(prisma.$queryRaw).not.toHaveBeenCalled();
+  });
+
+  it('logs a structured completion event', async () => {
+    const prisma = makePrismaMock();
+    prisma.analysis.updateMany.mockResolvedValue({ count: 1 });
+    prisma.analysis.findUnique.mockResolvedValue({
+      id: 'analysis-1',
+      carKey: 'CAR-1',
+      analysisDate: new Date('2026-01-31'),
+      status: 'pending',
+      cpfCnpj: null,
+    });
+    prisma.$queryRaw.mockResolvedValueOnce([
+      {
+        category_code: 'SICAR',
+        dataset_code: 'SICAR',
+        snapshot_date: null,
+        feature_id: 1n,
+        geom_id: 101n,
+        sicar_area_m2: '100',
+        feature_area_m2: null,
+        overlap_area_m2: null,
+        overlap_pct_of_sicar: null,
+      },
+      {
+        category_code: 'PRODES',
+        dataset_code: 'PRODES_AMZ_2024',
+        snapshot_date: '2026-01-31',
+        feature_id: 2n,
+        geom_id: 202n,
+        sicar_area_m2: '100',
+        feature_area_m2: '20',
+        overlap_area_m2: '5',
+        overlap_pct_of_sicar: '5',
+      },
+    ]);
+
+    const logSpy = jest.spyOn(Logger.prototype, 'log').mockImplementation();
+    const runner = new AnalysisRunnerService(prisma as any, () => now);
+
+    await runner.processAnalysis('analysis-1');
+
+    const completion = logSpy.mock.calls
+      .map((call) => call[0])
+      .find(
+        (msg) =>
+          typeof msg === 'string' &&
+          msg.includes('"event":"analysis.completed"'),
+      );
+
+    expect(completion).toBeTruthy();
+    const parsed = JSON.parse(completion as string);
+    expect(parsed).toMatchObject({
+      event: 'analysis.completed',
+      analysisId: 'analysis-1',
+      intersectionCount: 1,
+    });
+
+    logSpy.mockRestore();
   });
 });

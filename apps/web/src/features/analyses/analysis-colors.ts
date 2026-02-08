@@ -15,7 +15,7 @@ export function formatDatasetLabel(code: string): string {
     .filter(Boolean)
     .map((part) => (/\d{4}$/.test(part) ? part : titleCaseWord(part)))
     .join(" ");
-  return base.replace(/\bProdes\b\s*/i, "").trim();
+  return base.trim();
 }
 
 export function colorForDataset(code: string): string {

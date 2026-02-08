@@ -15,6 +15,7 @@
           :active-key="activeKey"
           :user-name="me?.displayName ?? null"
           :user-email="me?.email ?? null"
+          :user-loading="meLoading"
           :on-logout="onLogout"
           :on-select="navigate"
           :on-new-analysis="goNewAnalysis"
@@ -36,6 +37,7 @@
           :active-key="activeKey"
           :user-name="me?.displayName ?? null"
           :user-email="me?.email ?? null"
+          :user-loading="meLoading"
           :on-logout="onLogout"
           :on-select="navigate"
           :on-new-analysis="goNewAnalysis"
@@ -89,7 +91,7 @@
 import { computed, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { Button as UiButton, Sheet as UiSheet } from "@/components/ui";
-import { MapPin, FileText, ClipboardPlus, LocateFixed } from "lucide-vue-next";
+import { LayoutDashboard, MapPin, FileText, ClipboardPlus, LocateFixed } from "lucide-vue-next";
 import { http } from "@/api/http";
 import { unwrapData, type ApiEnvelope } from "@/api/envelope";
 import { logout } from "@/auth/auth";
@@ -110,8 +112,10 @@ const route = useRoute();
 const sidebarOpen = ref(true);
 const drawerOpen = ref(false);
 const me = ref<Me | null>(null);
+const meLoading = ref(true);
 
 const navItems = [
+  { key: "dashboard", label: "Dashboard", icon: LayoutDashboard },
   { key: "farms", label: "Fazendas", icon: MapPin },
   { key: "analyses", label: "Análises", icon: FileText },
   { key: "new-analysis", label: "Nova análise", icon: ClipboardPlus },
@@ -119,15 +123,17 @@ const navItems = [
 ];
 
 const activeKey = computed(() => {
+  if (route.path.startsWith("/dashboard")) return "dashboard";
   if (route.path.startsWith("/analyses/new")) return "new-analysis";
   if (route.path.startsWith("/analyses/search")) return "car-search";
   if (route.path.startsWith("/analyses")) return "analyses";
   if (route.path.startsWith("/farms")) return "farms";
-  return "farms";
+  return "dashboard";
 });
 
 const pageTitle = computed(() => (route.meta.title as string) ?? "LandWatch");
 const pageSubtitle = computed(() => {
+  if (activeKey.value === "dashboard") return "Visão geral do portfólio";
   if (activeKey.value === "farms") return "Gerencie fazendas e propriedades";
   if (activeKey.value === "analyses") return "Histórico de análises e PDFs";
   if (activeKey.value === "new-analysis") return "Selecione o CAR e rode a análise";
@@ -136,8 +142,13 @@ const pageSubtitle = computed(() => {
 });
 
 async function loadMe() {
-  const res = await http.get<ApiEnvelope<Me>>("/v1/users/me");
-  me.value = unwrapData(res.data);
+  meLoading.value = true;
+  try {
+    const res = await http.get<ApiEnvelope<Me>>("/v1/users/me");
+    me.value = unwrapData(res.data);
+  } finally {
+    meLoading.value = false;
+  }
 }
 
 async function onLogout() {
@@ -145,6 +156,7 @@ async function onLogout() {
 }
 
 async function navigate(key: string) {
+  if (key === "dashboard") await router.push("/dashboard");
   if (key === "farms") await router.push("/farms");
   if (key === "analyses") await router.push("/analyses");
   if (key === "new-analysis") await router.push("/analyses/new");

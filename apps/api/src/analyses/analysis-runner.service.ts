@@ -1,4 +1,9 @@
-import { Injectable, OnModuleDestroy, OnModuleInit, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  OnModuleDestroy,
+  OnModuleInit,
+  Logger,
+} from '@nestjs/common';
 import { Inject, Optional } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -58,6 +63,7 @@ export class AnalysisRunnerService implements OnModuleInit, OnModuleDestroy {
   }
 
   async processAnalysis(analysisId: string) {
+    const startedAt = process.hrtime.bigint();
     try {
       const claimed = await this.prisma.analysis.updateMany({
         where: { id: analysisId, status: 'pending' },
@@ -75,6 +81,8 @@ export class AnalysisRunnerService implements OnModuleInit, OnModuleDestroy {
         },
       });
       if (!analysis) return;
+
+      this.logEvent('analysis.started', { analysisId });
 
       const schema = this.getSchema();
       const analysisDate = analysis.analysisDate
@@ -102,6 +110,11 @@ export class AnalysisRunnerService implements OnModuleInit, OnModuleDestroy {
             hasIntersections: false,
             intersectionCount: 0,
           },
+        });
+        this.logEvent('analysis.failed', {
+          analysisId,
+          reason: 'no_intersections',
+          durationMs: this.elapsedMs(startedAt),
         });
         return;
       }
@@ -142,6 +155,12 @@ export class AnalysisRunnerService implements OnModuleInit, OnModuleDestroy {
           },
         });
       });
+      this.logEvent('analysis.completed', {
+        analysisId,
+        intersectionCount,
+        hasIntersections,
+        durationMs: this.elapsedMs(startedAt),
+      });
     } catch {
       await this.prisma.analysis.update({
         where: { id: analysisId },
@@ -149,6 +168,11 @@ export class AnalysisRunnerService implements OnModuleInit, OnModuleDestroy {
           status: 'failed',
           completedAt: this.nowProvider(),
         },
+      });
+      this.logEvent('analysis.failed', {
+        analysisId,
+        reason: 'exception',
+        durationMs: this.elapsedMs(startedAt),
       });
     }
   }
@@ -166,7 +190,12 @@ export class AnalysisRunnerService implements OnModuleInit, OnModuleDestroy {
       void this.processQueue();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      this.logger.warn(`pollPending failed: ${message}`);
+      this.logger.warn(
+        JSON.stringify({
+          event: 'analysis.poll.failed',
+          error: message,
+        }),
+      );
     } finally {
       this.polling = false;
     }
@@ -213,5 +242,18 @@ export class AnalysisRunnerService implements OnModuleInit, OnModuleDestroy {
     if (typeof value === 'number') return BigInt(value);
     if (typeof value === 'string' && value.length > 0) return BigInt(value);
     return null;
+  }
+
+  private logEvent(event: string, payload: Record<string, unknown>) {
+    this.logger.log(
+      JSON.stringify({
+        event,
+        ...payload,
+      }),
+    );
+  }
+
+  private elapsedMs(startedAt: bigint): number {
+    return Number(process.hrtime.bigint() - startedAt) / 1_000_000;
   }
 }

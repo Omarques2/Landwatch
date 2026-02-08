@@ -20,8 +20,6 @@
     "leaflet": "^1.9.4",
     "leaflet.browser.print": "^2.0.2",
     "lucide-vue-next": "^0.476.0",
-    "powerbi-client": "^2.23.9",
-    "powerbi-models": "^2.0.1",
     "qrcode": "^1.5.3",
     "radix-vue": "^1.9.15",
     "shadcn-vue": "^2.4.3",

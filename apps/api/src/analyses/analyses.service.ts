@@ -10,6 +10,12 @@ import axios from 'axios';
 import type { Claims } from '../auth/claims.type';
 import { PrismaService } from '../prisma/prisma.service';
 import { AnalysisRunnerService, NOW_PROVIDER } from './analysis-runner.service';
+import {
+  isValidCnpj,
+  isValidCpf,
+  isValidCpfCnpj,
+  sanitizeDoc,
+} from '../common/validators/cpf-cnpj';
 
 type CreateAnalysisInput = {
   carKey: string;
@@ -79,13 +85,12 @@ export class AnalysesService {
   }
 
   private normalizeCpfCnpj(input?: string | null): string | null {
-    if (!input) return null;
-    const digits = input.replace(/\D/g, '');
-    if (digits.length === 0) return null;
-    if (digits.length !== 11 && digits.length !== 14) {
+    const digits = sanitizeDoc(input);
+    if (!digits) return null;
+    if (!isValidCpfCnpj(digits)) {
       throw new BadRequestException({
         code: 'INVALID_CPF_CNPJ',
-        message: 'CPF/CNPJ must have 11 or 14 digits',
+        message: 'CPF/CNPJ inválido',
       });
     }
     return digits;
@@ -230,9 +235,16 @@ export class AnalysesService {
     };
   }
 
-  async list(params: { carKey?: string; page: number; pageSize: number }) {
-    const { carKey, page, pageSize } = params;
-    const where = carKey ? { carKey } : {};
+  async list(params: {
+    carKey?: string;
+    farmId?: string;
+    page: number;
+    pageSize: number;
+  }) {
+    const { carKey, farmId, page, pageSize } = params;
+    const where: Prisma.AnalysisWhereInput = {};
+    if (carKey) where.carKey = carKey;
+    if (farmId) where.farmId = farmId;
     const skip = (page - 1) * pageSize;
 
     const [total, rows] = await this.prisma.$transaction([
@@ -1293,9 +1305,18 @@ export class AnalysesService {
   private async buildDocInfo(cpfCnpj: string): Promise<DocInfo> {
     const digits = cpfCnpj.replace(/\D/g, '');
     if (digits.length === 11) {
-      return { type: 'CPF', cpf: digits, isValid: this.validateCpf(digits) };
+      return { type: 'CPF', cpf: digits, isValid: isValidCpf(digits) };
     }
     if (digits.length === 14) {
+      if (!isValidCnpj(digits)) {
+        return {
+          type: 'CNPJ',
+          cnpj: digits,
+          nome: null,
+          fantasia: null,
+          situacao: null,
+        };
+      }
       const stored = await this.getCnpjInfo(digits);
       if (stored) {
         return {
@@ -1419,23 +1440,6 @@ export class AnalysesService {
         situacao: info.situacao,
       },
     });
-  }
-
-  private validateCpf(cpf: string): boolean {
-    if (!cpf || cpf.length !== 11) return false;
-    if (/^(\d)\1+$/.test(cpf)) return false;
-    const calcCheck = (base: string, factor: number) => {
-      let sum = 0;
-      for (let i = 0; i < base.length; i += 1) {
-        sum += Number(base[i]) * (factor - i);
-      }
-      const mod = sum % 11;
-      return mod < 2 ? 0 : 11 - mod;
-    };
-    const base = cpf.slice(0, 9);
-    const d1 = calcCheck(base, 10);
-    const d2 = calcCheck(base + d1, 11);
-    return cpf === base + String(d1) + String(d2);
   }
 
   private extractAttrValue(

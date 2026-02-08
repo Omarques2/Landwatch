@@ -43,6 +43,8 @@ const envBaseSchema = z.object({
   RATE_LIMIT_ADMIN_MAX: numberSchema.default(60),
   RATE_LIMIT_AUTH_WINDOW_MS: numberSchema.default(60_000),
   RATE_LIMIT_AUTH_MAX: numberSchema.default(20),
+  RATE_LIMIT_API_WINDOW_MS: numberSchema.default(60_000),
+  RATE_LIMIT_API_MAX: numberSchema.default(120),
 
   TRUST_PROXY: booleanSchema.default(false),
   DB_SSL_ALLOW_INVALID: booleanSchema.default(false),

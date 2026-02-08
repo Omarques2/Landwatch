@@ -14,12 +14,12 @@ Legenda:
   Aceite: app falha ao subir sem env obrigatoria.
 - [x] CI/CD staging + prod funcionando
   Aceite: pipeline passa e publica API+SWA em staging; prod exige aprovacao.
-- [ ] Guard global de auth (evitar endpoints sem @UseGuards)
+- [x] Guard global de auth (evitar endpoints sem @UseGuards)
   Aceite: endpoints privados retornam 401 sem token.
-- [ ] Aplicar ActiveUserGuard em rotas privadas (bloquear user disabled)
+- [x] Aplicar ActiveUserGuard em rotas privadas (bloquear user disabled)
   Aceite: usuario com status disabled recebe 403.
-- [ ] Remover/isolate modulos legados do pbi-embed (admin-rls, bi-authz, powerbi)
-  Aceite: modules legados removidos ou isolados em pasta ignorada pelo build.
+- [x] Remover/isolate modulos legados do pbi-embed (admin-rls, bi-authz, powerbi)
+  Aceite: modules legados removidos do app e schema ajustado.
 - [ ] Configurar Mapbox (tokens + envs no web/api/worker)
   Aceite: tiles de satelite carregam local e em staging.
 
@@ -32,7 +32,7 @@ Legenda:
   Aceite: tabela com hash de chave + scopes + expiracao.
 - [x] Indices e constraints para org_id e M2M
   Aceite: indices compostos criados e revisados.
-- [ ] Migrations aplicadas em staging (migrate deploy)
+- [x] Migrations aplicadas em staging (migrate deploy)
   Aceite: `prisma migrate deploy` em staging sem erro.
 
 ## EPIC-02 - Auth e identidade (antes de negocio)
@@ -40,11 +40,11 @@ Legenda:
   Aceite: token valido -> 200; token invalido -> 401.
 - [x] Bootstrap user no /v1/users/me (upsert)
   Aceite: primeiro login cria user em app_user.
-- [ ] DTO de resposta /v1/users/me padronizado
+- [x] DTO de resposta /v1/users/me padronizado
   Aceite: resposta inclui email, displayName, status e correlationId.
-- [ ] Registrar lastLoginAt no mesmo fluxo (unificar guard/service)
+- [x] Registrar lastLoginAt no mesmo fluxo (unificar guard/service)
   Aceite: lastLoginAt atualizado em cada login.
-- [ ] Erros padronizados para claims invalidas (sub ausente, token invalido)
+- [x] Erros padronizados para claims invalidas (sub ausente, token invalido)
   Aceite: erro com code consistente (NO_SUBJECT / UNAUTHORIZED).
 
 ## EPIC-03 - M2M API Key (necessario para automacao)
@@ -70,7 +70,7 @@ Legenda:
   Aceite: retorna apenas CARs que intersectam a coordenada.
 - [x] Endpoint bbox para SICAR (zoom >= 13)
   Aceite: retorna geometrias simplificadas por bbox.
-- [x] Validacoes de CAR e CPF/CNPJ (DTO + class-validator)
+- [x] Validacoes de CAR e CPF/CNPJ (inclui digitos verificadores)
   Aceite: entradas invalidas retornam 400 com VALIDATION_ERROR.
 
 ## EPIC-05 - Analises (core)
@@ -132,7 +132,7 @@ Legenda:
   Aceite: login redireciona e token permite /v1/users/me.
 - [x] Console de testes (home) para farms/analises/lookup
   Aceite: UI simples permite criar farm, rodar analise e ver resultados.
-- [ ] Dashboard (cards + ultimas analises)
+- [x] Dashboard (cards + ultimas analises)
   Aceite: cards com dados reais e estados vazios.
 - [~] Lista de analises + filtros
   Aceite: filtros refletem query backend.
@@ -144,27 +144,35 @@ Legenda:
   Aceite: CAR selecionado no mapa preenche form; se nome/CPF-CNPJ vazios, confirma antes de criar.
 - [x] Mascaras de entrada (CAR/CPF-CNPJ/Data)
   Aceite: inputs formatam automaticamente enquanto digita (Nova Analise e Nova Fazenda).
+- [x] Auto-preenchimento de dados da fazenda na Nova Analise
+  Aceite: ao preencher CAR/CPF-CNPJ/nome, sugere dados existentes e preenche campos faltantes.
 - [x] Fazendas (lista + modal criar)
   Aceite: CRUD basico acessivel por modal.
-- [ ] Detalhe da fazenda
-  Aceite: historico de analises por farm.
+- [x] Detalhe da fazenda (editar + mapa)
+  Aceite: edita dados basicos e mostra geometria do CAR + historico de analises.
 - [x] Tela "Buscar por coordenadas"
   Aceite: ponto no mapa retorna CARs que intersectam a coordenada.
 - [x] Suporte a DD/DMM/DMS na busca por coordenadas
   Aceite: campos aceitam formatos com hemisferio (N/S/E/W/O) e convertem para decimal.
 - [x] Mapa de CARs com cores variadas e ordenacao por area
   Aceite: CARs aparecem com cores diferentes e os menores ficam por cima para clique.
+- [x] Seleção de CAR não bloqueia menores
+  Aceite: destaque do selecionado não intercepta cliques em CARs internos.
+- [x] Marcador de busca com pin padrão Leaflet
+  Aceite: ponto de busca usa o pin padrão do Leaflet.
 - [x] Baixar GeoJSON no Detalhe da analise
   Aceite: exporta CAR + intersecoes em um GeoJSON.
+- [x] Skeletons para dados dinâmicos
+  Aceite: telas evitam estado vazio até confirmação da API.
 
 ## EPIC-10 - Hardening final do MVP
-- [ ] Rate limit para endpoints criticos (analises/pdf)
+- [x] Rate limit para endpoints criticos (analises/pdf)
   Aceite: 429 em excesso de requests.
-- [ ] Logs estruturados para jobs e falhas
+- [x] Logs estruturados para jobs e falhas
   Aceite: logs incluem correlationId e jobId.
-- [ ] Testes minimos (auth, farm CRUD, analysis flow)
+- [x] Testes minimos (auth, farm CRUD, analysis flow)
   Aceite: suite e2e roda em staging.
-- [ ] Checklist de deploy (staging -> prod)
+- [x] Checklist de deploy (staging -> prod)
   Aceite: checklist documentado e aprovado.
 - [x] MVs "quentes" para acelerar analises (sicar meta, fase_ti, sigla_categ, attrs light)
   Aceite: analise current usa MVs e mantem fallback historico.
@@ -174,3 +182,7 @@ Legenda:
   Aceite: job baixa, ingere por categoria e remove blobs antigos com retencao curta (1–2 execucoes).
 - [x] SICAR (Docker) - corrigir template do script interno e melhorar log de falha
   Aceite: erro nao dispara KeyError 'code' e stack/saida do container aparece no log.
+- [ ] Auditoria de indices DB (app + landwatch)
+  Aceite: filtros/joins criticos com indices revisados.
+- [ ] Cache de analises (TTL 2 meses)
+  Aceite: cache grava na geracao; leitura do detalhe prioriza cache.

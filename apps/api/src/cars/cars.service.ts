@@ -78,6 +78,77 @@ export class CarsService {
     return JSON.parse(value) as Record<string, unknown>;
   }
 
+  async getByKey(params: {
+    carKey: string;
+    analysisDate?: string;
+    tolerance?: number;
+  }): Promise<{ featureKey: string; geom: Record<string, unknown> }> {
+    const schema = this.getSchema();
+    const carKey = params.carKey.trim();
+    if (!carKey) {
+      throw new BadRequestException({
+        code: 'INVALID_CAR_KEY',
+        message: 'CAR key must not be empty',
+      });
+    }
+    const analysisDate = params.analysisDate;
+    const safeTolerance =
+      typeof params.tolerance === 'number' && Number.isFinite(params.tolerance)
+        ? Math.min(Math.max(params.tolerance, 0), 0.01)
+        : 0.0001;
+    const fn = analysisDate
+      ? Prisma.raw(`"${schema}"."fn_sicar_feature_asof"`)
+      : Prisma.raw(`"${schema}"."fn_sicar_feature_current"`);
+    const sql = analysisDate
+      ? Prisma.sql`
+          SELECT
+            feature_key,
+            ST_AsGeoJSON(
+              ST_SimplifyPreserveTopology(ST_Transform(geom, 4326), ${safeTolerance})
+            ) AS geom
+          FROM ${fn}(${carKey}, ${analysisDate}::date)
+          LIMIT 1
+        `
+      : Prisma.sql`
+          SELECT
+            feature_key,
+            ST_AsGeoJSON(
+              ST_SimplifyPreserveTopology(ST_Transform(geom, 4326), ${safeTolerance})
+            ) AS geom
+          FROM ${fn}(${carKey})
+          LIMIT 1
+        `;
+
+    type ByKeyRow = {
+      feature_key: string;
+      geom: string;
+    };
+
+    let raw: ByKeyRow[];
+    try {
+      raw = await this.prisma.$queryRaw<ByKeyRow[]>(sql);
+    } catch {
+      throw new BadRequestException({
+        code: 'SICAR_DATA_MISSING',
+        message:
+          'Base SICAR não carregada ou funções de análise não instaladas.',
+      });
+    }
+
+    if (!Array.isArray(raw) || raw.length === 0) {
+      throw new BadRequestException({
+        code: 'CAR_NOT_FOUND',
+        message: 'CAR não encontrado na base SICAR.',
+      });
+    }
+
+    const row = raw[0];
+    return {
+      featureKey: row.feature_key,
+      geom: this.parseGeoJson(row.geom),
+    };
+  }
+
   async lookupByPoint(params: {
     lat: number;
     lng: number;

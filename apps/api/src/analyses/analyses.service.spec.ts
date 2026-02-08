@@ -51,7 +51,7 @@ describe('AnalysesService', () => {
     );
     const result = await service.create({ sub: 'entra-1' } as any, {
       carKey: 'CAR-1',
-      cpfCnpj: '12345678901',
+      cpfCnpj: '52998224725',
     });
 
     expect(prisma.analysis.create).toHaveBeenCalledWith(
@@ -67,7 +67,7 @@ describe('AnalysesService', () => {
     const prisma = makePrismaMock();
     prisma.farm.findFirst.mockResolvedValue({
       id: 'farm-1',
-      cpfCnpj: '12345678901',
+      cpfCnpj: '52998224725',
     });
     prisma.$queryRaw.mockResolvedValueOnce([{ ok: 1 }]);
     const runner = { enqueue: jest.fn() };
@@ -84,11 +84,32 @@ describe('AnalysesService', () => {
     expect(prisma.analysis.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
-          cpfCnpj: '12345678901',
+          cpfCnpj: '52998224725',
           farmId: 'farm-1',
         }),
       }),
     );
+  });
+
+  it('rejects invalid CPF/CNPJ input', async () => {
+    const prisma = makePrismaMock();
+    prisma.$queryRaw.mockResolvedValueOnce([{ ok: 1 }]);
+    const runner = { enqueue: jest.fn() };
+
+    const service = new AnalysesService(
+      prisma as any,
+      runner as any,
+      () => now,
+    );
+
+    await expect(
+      service.create({ sub: 'entra-1' } as any, {
+        carKey: 'CAR-1',
+        cpfCnpj: '52998224724',
+      }),
+    ).rejects.toMatchObject({
+      response: { code: 'INVALID_CPF_CNPJ' },
+    });
   });
 
   it('rejects when CAR is not found', async () => {
@@ -159,6 +180,34 @@ describe('AnalysesService', () => {
     expect(result).toHaveLength(1);
     expect(result[0].datasetCode).toBe('PRODES_2024');
     expect(result[0].featureId).toBe('3');
+  });
+
+  it('filters analyses by farmId when provided', async () => {
+    const prisma = makePrismaMock();
+    prisma.analysis.count.mockResolvedValue(1);
+    prisma.analysis.findMany.mockResolvedValue([]);
+    prisma.$transaction = jest.fn(async (ops: any[]) => Promise.all(ops));
+    const runner = { enqueue: jest.fn() };
+    const service = new AnalysesService(
+      prisma as any,
+      runner as any,
+      () => now,
+    );
+
+    await service.list({
+      page: 1,
+      pageSize: 10,
+      farmId: 'farm-1',
+    } as any);
+
+    expect(prisma.analysis.count).toHaveBeenCalledWith({
+      where: { farmId: 'farm-1' },
+    });
+    expect(prisma.analysis.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { farmId: 'farm-1' },
+      }),
+    );
   });
 
   it('splits UCS datasets into a dedicated group without showing the raw UCS dataset', () => {

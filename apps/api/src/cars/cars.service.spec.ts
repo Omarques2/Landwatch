@@ -59,4 +59,51 @@ describe('CarsService', () => {
       },
     });
   });
+
+  it('returns geometry by CAR key', async () => {
+    const prisma = makePrismaMock();
+    prisma.$queryRaw.mockResolvedValueOnce([
+      {
+        feature_key: 'CAR-1',
+        geom: '{"type":"Polygon","coordinates":[[[0,0],[1,0],[1,1],[0,0]]]}',
+      },
+    ]);
+
+    const service = new CarsService(prisma as any);
+
+    const result = await service.getByKey({
+      carKey: 'CAR-1',
+      tolerance: 0.0001,
+    });
+
+    expect(result).toEqual({
+      featureKey: 'CAR-1',
+      geom: {
+        type: 'Polygon',
+        coordinates: [
+          [
+            [0, 0],
+            [1, 0],
+            [1, 1],
+            [0, 0],
+          ],
+        ],
+      },
+    });
+  });
+
+  it('throws when CAR key is not found', async () => {
+    const prisma = makePrismaMock();
+    prisma.$queryRaw.mockResolvedValueOnce([]);
+
+    const service = new CarsService(prisma as any);
+
+    await expect(service.getByKey({ carKey: 'CAR-404' })).rejects.toMatchObject(
+      {
+        response: {
+          code: 'CAR_NOT_FOUND',
+        },
+      },
+    );
+  });
 });

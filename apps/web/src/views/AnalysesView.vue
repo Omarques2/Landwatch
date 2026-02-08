@@ -13,7 +13,19 @@
     </header>
 
     <section class="rounded-2xl border border-border bg-card p-6 shadow-sm">
-      <div v-if="analyses.length === 0" class="text-sm text-muted-foreground">
+      <div
+        v-if="loadingAnalyses && !analysesLoaded"
+        class="space-y-3"
+        data-testid="analyses-skeleton"
+      >
+        <UiSkeleton class="h-16 w-full rounded-xl" />
+        <UiSkeleton class="h-16 w-full rounded-xl" />
+        <UiSkeleton class="h-16 w-full rounded-xl" />
+      </div>
+      <div
+        v-else-if="analysesLoaded && analyses.length === 0"
+        class="text-sm text-muted-foreground"
+      >
         Nenhuma análise encontrada.
       </div>
       <div v-else class="space-y-3">
@@ -62,7 +74,7 @@
 <script setup lang="ts">
 import { onMounted, onBeforeUnmount, ref } from "vue";
 import { useRouter } from "vue-router";
-import { Button as UiButton } from "@/components/ui";
+import { Button as UiButton, Skeleton as UiSkeleton } from "@/components/ui";
 import { http } from "@/api/http";
 import { unwrapPaged, type ApiEnvelope } from "@/api/envelope";
 
@@ -77,6 +89,8 @@ type AnalysisRow = {
 
 const router = useRouter();
 const analyses = ref<AnalysisRow[]>([]);
+const loadingAnalyses = ref(true);
+const analysesLoaded = ref(false);
 let pollTimer: number | null = null;
 
 function statusBadgeClass(status: string) {
@@ -99,8 +113,14 @@ function formatDate(value: string) {
 }
 
 async function loadAnalyses() {
-  const res = await http.get<ApiEnvelope<AnalysisRow[]>>("/v1/analyses");
-  analyses.value = unwrapPaged(res.data).rows;
+  loadingAnalyses.value = true;
+  try {
+    const res = await http.get<ApiEnvelope<AnalysisRow[]>>("/v1/analyses");
+    analyses.value = unwrapPaged(res.data).rows;
+  } finally {
+    loadingAnalyses.value = false;
+    analysesLoaded.value = true;
+  }
 }
 
 async function openDetail(id: string) {

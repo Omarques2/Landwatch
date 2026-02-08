@@ -4,14 +4,26 @@ import {
   ForbiddenException,
   Injectable,
 } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
 import { PrismaService } from '../prisma/prisma.service';
 import type { AuthedRequest } from './authed-request.type';
+import { IS_PUBLIC_KEY } from './public.decorator';
 
 @Injectable()
 export class ActiveUserGuard implements CanActivate {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly reflector: Reflector,
+  ) {}
 
   async canActivate(ctx: ExecutionContext): Promise<boolean> {
+    const isPublic =
+      this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
+        ctx.getHandler(),
+        ctx.getClass(),
+      ]) ?? false;
+    if (isPublic) return true;
+
     const req = ctx.switchToHttp().getRequest<AuthedRequest>();
     const claims = req.user;
     if (!claims?.sub) {

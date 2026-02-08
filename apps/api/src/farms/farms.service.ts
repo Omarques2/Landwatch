@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import type { Claims } from '../auth/claims.type';
+import { isValidCpfCnpj, sanitizeDoc } from '../common/validators/cpf-cnpj';
 
 type ListParams = {
   q?: string;
@@ -18,13 +19,12 @@ export class FarmsService {
   constructor(private readonly prisma: PrismaService) {}
 
   private normalizeCpfCnpj(input?: string | null): string | null {
-    if (!input) return null;
-    const digits = input.replace(/\D/g, '');
-    if (digits.length === 0) return null;
-    if (digits.length !== 11 && digits.length !== 14) {
+    const digits = sanitizeDoc(input);
+    if (!digits) return null;
+    if (!isValidCpfCnpj(digits)) {
       throw new BadRequestException({
         code: 'INVALID_CPF_CNPJ',
-        message: 'CPF/CNPJ must have 11 or 14 digits',
+        message: 'CPF/CNPJ inválido',
       });
     }
     return digits;
@@ -108,17 +108,36 @@ export class FarmsService {
   async update(
     claims: Claims,
     id: string,
-    data: { name?: string; carKey?: string; cpfCnpj?: string },
+    data: { name?: string; carKey?: string; cpfCnpj?: string | null },
   ) {
     await this.resolveUserId(claims);
     await this.getById(id);
+
+    if (data.name !== undefined && data.name.trim().length === 0) {
+      throw new BadRequestException({
+        code: 'INVALID_NAME',
+        message: 'Name must not be empty',
+      });
+    }
+
+    if (data.carKey !== undefined && data.carKey.trim().length === 0) {
+      throw new BadRequestException({
+        code: 'INVALID_CAR_KEY',
+        message: 'CAR key must not be empty',
+      });
+    }
+
+    const cpfCnpj =
+      data.cpfCnpj !== undefined
+        ? this.normalizeCpfCnpj(data.cpfCnpj)
+        : undefined;
 
     return this.prisma.farm.update({
       where: { id },
       data: {
         name: data.name?.trim(),
         carKey: data.carKey ? this.normalizeCarKey(data.carKey) : undefined,
-        cpfCnpj: data.cpfCnpj ? this.normalizeCpfCnpj(data.cpfCnpj) : undefined,
+        cpfCnpj,
       },
     });
   }

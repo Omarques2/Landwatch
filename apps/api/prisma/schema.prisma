@@ -10,6 +10,7 @@ datasource db {
 model User {
   id          String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   entraSub    String     @unique @map("entra_sub")
+  entraOid    String?    @unique @map("entra_oid") @db.Uuid
   email       String?    @map("email")
   displayName String?    @map("display_name")
   status      UserStatus @default(active)
@@ -217,6 +218,7 @@ model CnpjInfo {
   @@map("cnpj_info")
   @@schema("app")
 }
+
 
 enum OrgStatus {
   active

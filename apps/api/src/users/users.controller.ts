@@ -1,5 +1,4 @@
-import { Controller, Get, Req, UseGuards } from '@nestjs/common';
-import { AuthGuard } from '../auth/auth.guard';
+import { Controller, Get, Req, UnauthorizedException } from '@nestjs/common';
 import type { AuthedRequest } from '../auth/authed-request.type';
 import { UsersService } from './users.service';
 
@@ -7,11 +6,15 @@ import { UsersService } from './users.service';
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
-  @UseGuards(AuthGuard)
   @Get('me')
   async me(@Req() req: AuthedRequest) {
     const claims = req.user;
-    if (!claims) return { status: 'pending' };
+    if (!claims) {
+      throw new UnauthorizedException({
+        code: 'UNAUTHORIZED',
+        message: 'Missing user claims',
+      });
+    }
 
     const user = await this.usersService.upsertFromClaims(claims);
 
@@ -21,6 +24,7 @@ export class UsersController {
       email: user.email ?? null,
       displayName: user.displayName ?? null,
       status: user.status,
+      lastLoginAt: user.lastLoginAt ?? null,
     };
   }
 }

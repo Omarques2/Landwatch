@@ -35,8 +35,10 @@
             placeholder="CPF/CNPJ"
             inputmode="numeric"
             maxlength="18"
+            :class="farmDocError ? 'border-red-500 focus-visible:ring-red-500/40' : ''"
             @update:model-value="onFarmDocInput"
           />
+          <div v-if="farmDocError" class="text-xs text-red-500">{{ farmDocError }}</div>
 
           <UiButton class="mt-2" @click="createFarm">Salvar fazenda</UiButton>
           <div v-if="farmMessage" class="text-xs text-muted-foreground">{{ farmMessage }}</div>
@@ -46,65 +48,89 @@
       <div class="rounded-2xl border border-border bg-card p-6 shadow-sm">
         <div class="flex items-center justify-between">
           <div class="text-lg font-semibold">Fazendas cadastradas</div>
-          <div class="text-xs text-muted-foreground">{{ farms.length }} itens</div>
+          <div class="text-xs text-muted-foreground">
+            <UiSkeleton v-if="loadingFarms && !farmsLoaded" class="h-3 w-10" />
+            <span v-else>{{ farms.length }} itens</span>
+          </div>
         </div>
         <div class="mt-4 space-y-3">
-          <div v-if="farms.length === 0" class="text-sm text-muted-foreground">
-            Nenhuma fazenda cadastrada.
+          <div
+            v-if="loadingFarms"
+            class="space-y-3"
+            data-testid="farms-skeleton"
+          >
+            <UiSkeleton class="h-16 w-full rounded-xl" />
+            <UiSkeleton class="h-16 w-full rounded-xl" />
+            <UiSkeleton class="h-16 w-full rounded-xl" />
           </div>
           <div
-            v-for="farm in farms"
-            :key="farm.id"
-            class="rounded-xl border border-border bg-background p-4"
+            v-else-if="farmsLoaded && farms.length === 0"
+            class="text-sm text-muted-foreground"
           >
-            <div class="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <div class="font-semibold">{{ farm.name }}</div>
-                <div class="text-xs text-muted-foreground">
-                  {{ farm.carKey }} · {{ farm.cpfCnpj ?? "-" }}
+            Nenhuma fazenda cadastrada.
+          </div>
+          <template v-else>
+            <div
+              v-for="farm in farms"
+              :key="farm.id"
+              class="rounded-xl border border-border bg-background p-4"
+            >
+              <div class="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div class="font-semibold">{{ farm.name }}</div>
+                  <div class="text-xs text-muted-foreground">
+                    {{ farm.carKey }} · {{ farm.cpfCnpj ?? "-" }}
+                  </div>
+                </div>
+                <div class="flex items-center gap-2">
+                  <UiButton size="sm" variant="outline" @click="goDetail(farm)">
+                    Ver detalhes
+                  </UiButton>
+                  <UiButton size="sm" variant="outline" @click="startEdit(farm)">
+                    Editar
+                  </UiButton>
+                  <UiButton size="sm" @click="goNewAnalysis(farm)">Gerar análise</UiButton>
                 </div>
               </div>
-              <div class="flex items-center gap-2">
-                <UiButton size="sm" variant="outline" @click="startEdit(farm)">
-                  Editar
-                </UiButton>
-                <UiButton size="sm" @click="goNewAnalysis(farm)">Gerar análise</UiButton>
-              </div>
-            </div>
 
-            <div v-if="editingId === farm.id" class="mt-4 grid gap-3">
-              <div class="grid gap-2 md:grid-cols-3">
-                <div>
-                  <UiLabel>Nome</UiLabel>
-                  <UiInput v-model="editForm.name" />
-                </div>
-                <div>
-                  <UiLabel>CAR</UiLabel>
-                  <UiInput
-                    :model-value="editForm.carKey"
-                    inputmode="text"
-                    autocapitalize="characters"
-                    maxlength="43"
-                    @update:model-value="onEditCarInput"
-                  />
-                </div>
-                <div>
-                  <UiLabel>CPF/CNPJ</UiLabel>
+              <div v-if="editingId === farm.id" class="mt-4 grid gap-3">
+                <div class="grid gap-2 md:grid-cols-3">
+                  <div>
+                    <UiLabel>Nome</UiLabel>
+                    <UiInput v-model="editForm.name" />
+                  </div>
+                  <div>
+                    <UiLabel>CAR</UiLabel>
+                    <UiInput
+                      :model-value="editForm.carKey"
+                      inputmode="text"
+                      autocapitalize="characters"
+                      maxlength="43"
+                      @update:model-value="onEditCarInput"
+                    />
+                  </div>
+                  <div>
+                    <UiLabel>CPF/CNPJ</UiLabel>
                   <UiInput
                     :model-value="editForm.cpfCnpj"
                     inputmode="numeric"
                     maxlength="18"
+                    :class="editDocError ? 'border-red-500 focus-visible:ring-red-500/40' : ''"
                     @update:model-value="onEditDocInput"
                   />
+                  <div v-if="editDocError" class="text-xs text-red-500">{{ editDocError }}</div>
+                  </div>
+                </div>
+                <div class="flex gap-2">
+                  <UiButton size="sm" @click="saveEdit(farm.id)">Salvar</UiButton>
+                  <UiButton size="sm" variant="outline" @click="cancelEdit">Cancelar</UiButton>
+                </div>
+                <div v-if="editMessage" class="text-xs text-muted-foreground">
+                  {{ editMessage }}
                 </div>
               </div>
-              <div class="flex gap-2">
-                <UiButton size="sm" @click="saveEdit(farm.id)">Salvar</UiButton>
-                <UiButton size="sm" variant="outline" @click="cancelEdit">Cancelar</UiButton>
-              </div>
-              <div v-if="editMessage" class="text-xs text-muted-foreground">{{ editMessage }}</div>
             </div>
-          </div>
+          </template>
         </div>
       </div>
     </section>
@@ -112,11 +138,17 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref } from "vue";
+import { computed, onMounted, reactive, ref } from "vue";
 import { useRouter } from "vue-router";
-import { Button as UiButton, Input as UiInput, Label as UiLabel } from "@/components/ui";
+import {
+  Button as UiButton,
+  Input as UiInput,
+  Label as UiLabel,
+  Skeleton as UiSkeleton,
+} from "@/components/ui";
 import { http } from "@/api/http";
 import { unwrapData, unwrapPaged, type ApiEnvelope } from "@/api/envelope";
+import { isValidCpfCnpj, sanitizeDoc } from "@/lib/doc-utils";
 
 type Farm = {
   id: string;
@@ -127,11 +159,27 @@ type Farm = {
 
 const router = useRouter();
 const farms = ref<Farm[]>([]);
+const loadingFarms = ref(true);
+const farmsLoaded = ref(false);
 const farmForm = reactive({ name: "", carKey: "", cpfCnpj: "" });
 const farmMessage = ref("");
 const editingId = ref<string | null>(null);
 const editForm = reactive({ name: "", carKey: "", cpfCnpj: "" });
 const editMessage = ref("");
+
+const farmDocError = computed(() => {
+  const digits = sanitizeDoc(farmForm.cpfCnpj ?? "");
+  if (!digits) return "";
+  if (digits.length !== 11 && digits.length !== 14) return "";
+  return isValidCpfCnpj(digits) ? "" : "CPF/CNPJ inválido";
+});
+
+const editDocError = computed(() => {
+  const digits = sanitizeDoc(editForm.cpfCnpj ?? "");
+  if (!digits) return "";
+  if (digits.length !== 11 && digits.length !== 14) return "";
+  return isValidCpfCnpj(digits) ? "" : "CPF/CNPJ inválido";
+});
 
 function maskCarKey(value: string) {
   const cleaned = value
@@ -190,14 +238,24 @@ function onEditDocInput(value: string) {
 }
 
 async function loadFarms() {
-  const res = await http.get<ApiEnvelope<Farm[]>>("/v1/farms");
-  farms.value = unwrapPaged(res.data).rows;
+  loadingFarms.value = true;
+  try {
+    const res = await http.get<ApiEnvelope<Farm[]>>("/v1/farms");
+    farms.value = unwrapPaged(res.data).rows;
+  } finally {
+    loadingFarms.value = false;
+    farmsLoaded.value = true;
+  }
 }
 
 async function createFarm() {
   farmMessage.value = "";
   if (!farmForm.name.trim() || !farmForm.carKey.trim()) {
     farmMessage.value = "Nome e CAR são obrigatórios.";
+    return;
+  }
+  if (farmDocError.value) {
+    farmMessage.value = farmDocError.value;
     return;
   }
   const payload = {
@@ -228,10 +286,14 @@ function cancelEdit() {
 
 async function saveEdit(id: string) {
   editMessage.value = "";
+  if (editDocError.value) {
+    editMessage.value = editDocError.value;
+    return;
+  }
   const payload = {
     name: editForm.name.trim() || undefined,
     carKey: editForm.carKey.trim() || undefined,
-    cpfCnpj: editForm.cpfCnpj?.trim() || undefined,
+    cpfCnpj: editForm.cpfCnpj.trim() ? editForm.cpfCnpj.trim() : null,
   };
   const res = await http.patch<ApiEnvelope<Farm>>(`/v1/farms/${id}`, payload);
   unwrapData(res.data);
@@ -242,6 +304,10 @@ async function saveEdit(id: string) {
 
 async function goNewAnalysis(farm: Farm) {
   await router.push({ path: "/analyses/new", query: { farmId: farm.id } });
+}
+
+async function goDetail(farm: Farm) {
+  await router.push(`/farms/${farm.id}`);
 }
 
 onMounted(() => {

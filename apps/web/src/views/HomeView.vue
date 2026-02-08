@@ -325,6 +325,7 @@ import { computed, onMounted, reactive, ref } from "vue";
 import { logout } from "../auth/auth";
 import { http } from "../api/http";
 import { unwrapData, unwrapPaged, type ApiEnvelope } from "../api/envelope";
+import { isValidCpfCnpj, sanitizeDoc } from "../lib/doc-utils";
 
 type Me = {
   id: string;
@@ -426,6 +427,13 @@ async function loadFarms() {
 
 async function createFarm() {
   farmMessage.value = "";
+  const digits = sanitizeDoc(farmForm.cpfCnpj ?? "");
+  if (digits.length === 11 || digits.length === 14) {
+    if (!isValidCpfCnpj(digits)) {
+      farmMessage.value = "CPF/CNPJ inválido.";
+      return;
+    }
+  }
   const payload = {
     name: farmForm.name,
     carKey: farmForm.carKey,
@@ -444,6 +452,13 @@ async function loadAnalyses() {
 
 async function createAnalysis() {
   analysisMessage.value = "";
+  const digits = sanitizeDoc(analysisForm.cpfCnpj ?? "");
+  if (digits.length === 11 || digits.length === 14) {
+    if (!isValidCpfCnpj(digits)) {
+      analysisMessage.value = "CPF/CNPJ inválido.";
+      return;
+    }
+  }
   const payload = {
     carKey: analysisForm.carKey,
     cpfCnpj: analysisForm.cpfCnpj || undefined,

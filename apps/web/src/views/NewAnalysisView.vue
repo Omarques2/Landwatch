@@ -23,6 +23,8 @@
           autocapitalize="characters"
           maxlength="43"
           @update:model-value="onCarInput"
+          @blur="onCarCommit"
+          @keydown.enter.prevent="onCarCommit"
         />
 
         <UiLabel for="analysis-doc">CPF/CNPJ (opcional)</UiLabel>
@@ -32,8 +34,12 @@
           placeholder="CPF/CNPJ"
           inputmode="numeric"
           maxlength="18"
+          :class="docError ? 'border-red-500 focus-visible:ring-red-500/40' : ''"
           @update:model-value="onDocInput"
+          @blur="onDocCommit"
+          @keydown.enter.prevent="onDocCommit"
         />
+        <div v-if="docError" class="text-xs text-red-500">{{ docError }}</div>
 
         <UiLabel for="analysis-date">Data de referência (opcional)</UiLabel>
         <UiInput
@@ -46,6 +52,12 @@
           @update:model-value="onDateInput"
         />
         <div v-if="dateError" class="text-xs text-red-500">{{ dateError }}</div>
+        <div v-if="autoFillLoading" class="text-xs text-muted-foreground">
+          Buscando dados da fazenda...
+        </div>
+        <div v-else-if="autoFillMessage" class="text-xs text-muted-foreground">
+          {{ autoFillMessage }}
+        </div>
 
         <UiButton
           class="mt-2 inline-flex items-center gap-2"
@@ -135,8 +147,9 @@ import {
   Label as UiLabel,
 } from "@/components/ui";
 import { http } from "@/api/http";
-import { unwrapData, type ApiEnvelope } from "@/api/envelope";
+import { unwrapData, unwrapPaged, type ApiEnvelope } from "@/api/envelope";
 import CarSelectMap from "@/components/maps/CarSelectMap.vue";
+import { isValidCpfCnpj, sanitizeDoc } from "@/lib/doc-utils";
 
 type Farm = {
   id: string;
@@ -167,6 +180,8 @@ const analysisForm = reactive({
   analysisDate: "",
 });
 const message = ref("");
+const autoFillLoading = ref(false);
+const autoFillMessage = ref("");
 
 const viewMode = computed<"analysis" | "search">(() => {
   return route.path.startsWith("/analyses/search") ? "search" : "analysis";
@@ -186,11 +201,79 @@ async function loadFarm(id: string) {
   analysisForm.cpfCnpj = farm.cpfCnpj ?? "";
 }
 
+let autoFillRequestId = 0;
+
+function isCarKeyComplete(value: string) {
+  const cleaned = value.replace(/[^A-Z0-9]/gi, "");
+  return cleaned.length === 41;
+}
+
+function resolveAutoFillQuery() {
+  const digits = sanitizeDoc(analysisForm.cpfCnpj ?? "");
+  if (digits && isValidCpfCnpj(digits)) return digits;
+  if (isCarKeyComplete(analysisForm.carKey)) {
+    return analysisForm.carKey.trim();
+  }
+  return null;
+}
+
+async function autoFillFarm(query: string) {
+  if (analysisForm.farmId) return;
+  const requestId = (autoFillRequestId += 1);
+  autoFillLoading.value = true;
+  autoFillMessage.value = "Buscando dados da fazenda...";
+  try {
+    const res = await http.get<ApiEnvelope<Farm[]>>("/v1/farms", {
+      params: { q: query, page: 1, pageSize: 1 },
+    });
+    if (requestId !== autoFillRequestId) return;
+    const rows = unwrapPaged(res.data).rows;
+    const match = rows[0];
+    if (!match) {
+      autoFillMessage.value = "";
+      return;
+    }
+    analysisForm.farmId = match.id;
+    if (!analysisForm.farmName.trim()) {
+      analysisForm.farmName = match.name ?? "";
+    }
+    if (!analysisForm.carKey.trim()) {
+      analysisForm.carKey = maskCarKey(match.carKey ?? "");
+    }
+    if (!analysisForm.cpfCnpj.trim() && match.cpfCnpj) {
+      analysisForm.cpfCnpj = maskCpfCnpj(match.cpfCnpj);
+    }
+    autoFillMessage.value = "Dados da fazenda preenchidos.";
+  } catch {
+    if (requestId === autoFillRequestId) {
+      autoFillMessage.value = "";
+    }
+  } finally {
+    if (requestId === autoFillRequestId) {
+      autoFillLoading.value = false;
+    }
+  }
+}
+
+async function triggerAutoFill() {
+  if (analysisForm.farmId) return;
+  const query = resolveAutoFillQuery();
+  if (!query) {
+    autoFillMessage.value = "";
+    return;
+  }
+  await autoFillFarm(query);
+}
+
 async function submitAnalysis() {
   message.value = "";
   if (isSubmitting.value) return;
   if (!analysisForm.carKey.trim()) {
     message.value = "Selecione um CAR para continuar.";
+    return;
+  }
+  if (docError.value) {
+    message.value = docError.value;
     return;
   }
   if (dateError.value) {
@@ -266,9 +349,20 @@ function onCarInput(value: string) {
   analysisForm.carKey = maskCarKey(value ?? "");
 }
 
+function onCarCommit() {
+  analysisForm.carKey = maskCarKey(analysisForm.carKey ?? "");
+  void triggerAutoFill();
+}
+
 function onDocInput(value: string) {
   const digits = (value ?? "").replace(/\D/g, "").slice(0, 14);
   analysisForm.cpfCnpj = maskCpfCnpj(digits);
+}
+
+function onDocCommit() {
+  const digits = (analysisForm.cpfCnpj ?? "").replace(/\D/g, "");
+  analysisForm.cpfCnpj = maskCpfCnpj(digits);
+  void triggerAutoFill();
 }
 
 function onDateInput(value: string) {
@@ -389,6 +483,13 @@ const dateError = computed(() => {
   const value = analysisForm.analysisDate?.trim();
   if (!value) return "";
   return isValidDate(value) ? "" : "Data inválida";
+});
+
+const docError = computed(() => {
+  const digits = sanitizeDoc(analysisForm.cpfCnpj ?? "");
+  if (!digits) return "";
+  if (digits.length !== 11 && digits.length !== 14) return "";
+  return isValidCpfCnpj(digits) ? "" : "CPF/CNPJ inválido";
 });
 
 function updateCenter(payload: { lat: number; lng: number }) {

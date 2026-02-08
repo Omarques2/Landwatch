@@ -82,16 +82,27 @@
 
     <div class="mt-auto border-t border-border bg-card" :class="padSection">
       <div class="flex items-center gap-3">
-        <div
-          class="grid h-10 w-10 place-items-center rounded-full border border-border bg-background text-sm font-semibold"
-        >
-          {{ userInitials }}
-        </div>
-        <div v-if="!collapsed" class="min-w-0 flex-1">
-          <div class="truncate text-sm font-semibold">{{ userNameOrFallback }}</div>
-          <div class="truncate text-xs text-muted-foreground">{{ userEmailOrFallback }}</div>
-        </div>
-      <UiButton
+        <template v-if="props.userLoading">
+          <div data-testid="sidebar-user-skeleton" class="flex items-center gap-3">
+            <UiSkeleton class="h-10 w-10 rounded-full" />
+            <div v-if="!collapsed" class="min-w-0 flex-1 space-y-2">
+              <UiSkeleton class="h-3 w-24" />
+              <UiSkeleton class="h-3 w-32" />
+            </div>
+          </div>
+        </template>
+        <template v-else>
+          <div
+            class="grid h-10 w-10 place-items-center rounded-full border border-border bg-background text-sm font-semibold"
+          >
+            {{ userInitials }}
+          </div>
+          <div v-if="!collapsed" class="min-w-0 flex-1">
+            <div class="truncate text-sm font-semibold">{{ userNameOrFallback }}</div>
+            <div class="truncate text-xs text-muted-foreground">{{ userEmailOrFallback }}</div>
+          </div>
+        </template>
+        <UiButton
           variant="outline"
           size="icon"
           class="h-9 w-9"
@@ -107,7 +118,7 @@
 
 <script setup lang="ts">
 import { computed } from "vue";
-import { Button as UiButton } from "@/components/ui";
+import { Button as UiButton, Skeleton as UiSkeleton } from "@/components/ui";
 import { LogOut, Plus, X } from "lucide-vue-next";
 import HamburgerIcon from "./icons/HamburgerIcon.vue";
 import logoUrl from "../assets/logo.png";
@@ -121,6 +132,7 @@ const props = defineProps<{
   activeKey: string;
   userName?: string | null;
   userEmail?: string | null;
+  userLoading?: boolean;
   onLogout: () => void | Promise<void>;
   onSelect: (key: string) => void | Promise<void>;
   onNewAnalysis: () => void | Promise<void>;

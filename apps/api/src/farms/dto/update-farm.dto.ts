@@ -1,4 +1,4 @@
-import { IsOptional, IsString, Length } from 'class-validator';
+import { IsOptional, IsString, Length, ValidateIf } from 'class-validator';
 
 export class UpdateFarmDto {
   @IsOptional()
@@ -12,7 +12,8 @@ export class UpdateFarmDto {
   carKey?: string;
 
   @IsOptional()
+  @ValidateIf((_, value) => value !== null && value !== undefined)
   @IsString()
   @Length(11, 18)
-  cpfCnpj?: string;
+  cpfCnpj?: string | null;
 }

@@ -92,8 +92,24 @@ async function bootstrap() {
     },
   });
 
+  const apiLimiter = rateLimit({
+    windowMs: parseNumber(process.env.RATE_LIMIT_API_WINDOW_MS, 60_000),
+    max: parseNumber(process.env.RATE_LIMIT_API_MAX, 120),
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: 'Too many requests',
+    handler: (req, res) => {
+      const correlationId = getCorrelationId(req);
+      res.status(429).json({
+        error: { code: 'RATE_LIMIT', message: 'Too many requests' },
+        correlationId,
+      });
+    },
+  });
+
   app.use('/admin', adminLimiter);
   app.use('/auth', authLimiter);
+  app.use('/v1', apiLimiter);
 
   app.enableShutdownHooks();
 

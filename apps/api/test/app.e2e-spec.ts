@@ -13,9 +13,6 @@ describe('AppController (e2e)', () => {
     process.env.NODE_ENV = 'test';
     process.env.DATABASE_URL = 'postgresql://user:pass@localhost:5432/test';
     process.env.ENTRA_API_AUDIENCE = 'api://test';
-    process.env.PBI_TENANT_ID = 'tenant-id';
-    process.env.PBI_CLIENT_ID = 'client-id';
-    process.env.PBI_CLIENT_SECRET = 'client-secret';
   });
 
   beforeEach(async () => {

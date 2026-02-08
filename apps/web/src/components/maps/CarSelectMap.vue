@@ -88,8 +88,9 @@ const contextMenu = ref({
 let map: L.Map | null = null;
 let geoLayer: L.GeoJSON<any> | null = null;
 let selectedOverlay: L.GeoJSON<any> | null = null;
-let searchMarker: L.CircleMarker | null = null;
+let searchMarker: L.Marker | null = null;
 const carFeatureMap = new Map<string, CarFeature>();
+
 
 const carPalette = [
   "#ef4444",
@@ -285,13 +286,7 @@ function updateSearchMarker(lat: number, lng: number) {
   if (!map) return;
   const point: L.LatLngExpression = [lat, lng];
   if (!searchMarker) {
-    searchMarker = L.circleMarker(point, {
-      radius: 6,
-      color: "#1d4ed8",
-      weight: 2,
-      fillColor: "#60a5fa",
-      fillOpacity: 0.9,
-    }).addTo(map);
+    searchMarker = L.marker(point).addTo(map);
   } else {
     searchMarker.setLatLng(point);
   }

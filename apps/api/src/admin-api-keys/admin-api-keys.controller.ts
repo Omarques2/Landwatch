@@ -1,12 +1,10 @@
 import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
-import { AuthGuard } from '../auth/auth.guard';
-import { ActiveUserGuard } from '../auth/active-user.guard';
 import { PlatformAdminGuard } from '../auth/platform-admin.guard';
 import { AdminApiKeysService } from './admin-api-keys.service';
 import { CreateApiKeyDto } from './dto/create-api-key.dto';
 
 @Controller('v1/admin/api-keys')
-@UseGuards(AuthGuard, ActiveUserGuard, PlatformAdminGuard)
+@UseGuards(PlatformAdminGuard)
 export class AdminApiKeysController {
   constructor(private readonly apiKeys: AdminApiKeysService) {}
 

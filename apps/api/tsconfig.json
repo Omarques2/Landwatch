@@ -23,13 +23,5 @@
     "noFallthroughCasesInSwitch": false
   },
   "include": ["src/**/*.ts"],
-  "exclude": [
-    "node_modules",
-    "dist",
-    "test",
-    "src/admin-rls/**",
-    "src/admin-users/**",
-    "src/bi-authz/**",
-    "src/powerbi/**"
-  ]
+  "exclude": ["node_modules", "dist", "test"]
 }

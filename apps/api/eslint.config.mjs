@@ -8,10 +8,6 @@ export default tseslint.config(
   {
     ignores: [
       'eslint.config.mjs',
-      'src/admin-rls/**',
-      'src/admin-users/**',
-      'src/bi-authz/**',
-      'src/powerbi/**',
       'test/**',
     ],
   },

@@ -2,6 +2,7 @@ import {
   PublicClientApplication,
   type AccountInfo,
   type AuthenticationResult,
+  BrowserAuthError,
   InteractionRequiredAuthError,
 } from "@azure/msal-browser";
 
@@ -112,7 +113,15 @@ export async function acquireApiToken(): Promise<string> {
     });
     return res.accessToken;
   } catch (err) {
-    if (err instanceof InteractionRequiredAuthError) {
+    const errorCode = (err as { errorCode?: string }).errorCode;
+    const needsInteraction =
+      err instanceof InteractionRequiredAuthError ||
+      (err instanceof BrowserAuthError &&
+        (errorCode === "monitor_window_timeout" ||
+          errorCode === "silent_token_refresh_timeout" ||
+          errorCode === "block_iframe_reload"));
+
+    if (needsInteraction) {
       await msal.acquireTokenRedirect({
         scopes: [apiScope],
         prompt: "select_account",

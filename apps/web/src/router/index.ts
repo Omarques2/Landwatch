@@ -4,7 +4,9 @@ import { getActiveAccount, initAuthOnce } from "../auth/auth";
 import LoginView from "../views/LoginView.vue";
 import CallbackView from "../views/CallbackView.vue";
 import AppShellView from "../views/AppShellView.vue";
+import DashboardView from "../views/DashboardView.vue";
 import FarmsView from "../views/FarmsView.vue";
+import FarmDetailView from "../views/FarmDetailView.vue";
 import AnalysesView from "../views/AnalysesView.vue";
 import NewAnalysisView from "../views/NewAnalysisView.vue";
 import AnalysisDetailView from "../views/AnalysisDetailView.vue";
@@ -21,8 +23,14 @@ const router = createRouter({
       component: AppShellView,
       meta: { requiresAuth: true },
       children: [
-        { path: "", redirect: "/farms" },
+        { path: "", redirect: "/dashboard" },
+        { path: "dashboard", component: DashboardView, meta: { title: "Dashboard" } },
         { path: "farms", component: FarmsView, meta: { title: "Fazendas" } },
+        {
+          path: "farms/:id",
+          component: FarmDetailView,
+          meta: { title: "Detalhe da fazenda" },
+        },
         { path: "analyses", component: AnalysesView, meta: { title: "Análises" } },
         {
           path: "analyses/new",

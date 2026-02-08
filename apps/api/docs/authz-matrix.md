@@ -1,16 +1,15 @@
 # AuthZ Matrix
 
-This table documents the guard coverage for admin, RLS, and Power BI endpoints.
+This table documents the guard coverage for MVP endpoints.
 
 | Route group | Guards | Notes |
 | --- | --- | --- |
-| /admin/* | AuthGuard + PlatformAdminGuard | Admin-only surface |
-| /admin/rls/* | AuthGuard + PlatformAdminGuard | RLS operations |
-| /admin/powerbi/* | AuthGuard + PlatformAdminGuard | Power BI catalog ops |
-| /powerbi/* | AuthGuard + ActiveUserGuard | Requires active user + membership |
-| /admin/bootstrap/* | AuthGuard + BOOTSTRAP_TOKEN header | One-time bootstrap |
-| /users/me | AuthGuard | User profile/status |
+| /v1/admin/api-keys/* | AuthGuard + PlatformAdminGuard | Admin-only API key management |
+| /v1/users/me | AuthGuard | User profile/status |
+| /v1/farms/* | AuthGuard + ActiveUserGuard | Farm CRUD |
+| /v1/analyses/* | AuthGuard + ActiveUserGuard | Analyses |
+| /v1/cars/* | AuthGuard + ActiveUserGuard | CAR lookup |
 
 Additional notes:
-- Platform admin is scoped to appKey=PBI_EMBED.
-- ActiveUserGuard blocks pending/disabled users and users without active memberships.
+- Platform admin uses a subject allowlist (env `PLATFORM_ADMIN_SUBS`).
+- ActiveUserGuard blocks disabled users.

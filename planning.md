@@ -141,6 +141,8 @@ Fora do MVP (ou MVP+):
 - Direcao visual e telas base em `docs/ui-design.md`.
 - Layout base: header + sidebar + content cards.
 - Foco em legibilidade, fluxo simples e estados vazios claros.
+- Skeletons obrigatorios para dados dinamicos; mensagens de vazio apenas apos resposta da API.
+- Marcador de busca por coordenadas usa pin padrão Leaflet para contraste imediato.
 
 ## Seguranca e compliance
 - JWT validation (aud/iss) e guard global.
@@ -175,6 +177,8 @@ Fora do MVP (ou MVP+):
 - Analise por lotes para evitar overload (concurrency por org).
 - Planejar MV de feicoes ativas (current) para acelerar interseccoes do SICAR (sem DETER), mantendo historico intacto.
 - Nao precomputar todas as interseccoes (custo/armazenamento alto); usar MV de feicoes ativas como fonte corrente.
+- Auditoria de indices no schema app.* e landwatch.* antes do fechamento do MVP (joins/filters principais).
+- Tabela de cache de analises (atributos + geometria) com TTL de 2 meses; gravar apenas na geracao da analise.
 ## Ingest (Downloads + Blob)
 - Downloads temporarios via Azure Blob Storage com limpeza automatica apos ingest.
 - Job unico modular: download -> manifest -> ingest seletivo por categoria.
@@ -244,12 +248,27 @@ Card P1 — Fluxo essencial (login -> farm -> analise)
 Card P1 — Telas base (Dashboard, Analises, Fazendas, Nova Analise)
 - Aceite: UI consistente com `docs/ui-design.md` e responsiva.
 
+Card P1 — Skeletons em dados dinâmicos
+- Aceite: nenhuma tela exibe vazio antes da resposta do backend.
+
+Card P1 — Detalhe da fazenda: editar dados + mapa do CAR
+- Aceite: usuario edita nome/CAR/CPF-CNPJ e visualiza a geometria no mapa.
+
 ### EPIC-10: Hardening e qualidade (P1/P2)
 Card P1 — Envelope + ExceptionFilter + correlationId
 - Aceite: respostas padronizadas com correlationId.
 
 Card P1 — Health/Ready + CI gates
 - Aceite: pipeline bloqueia deploy sem /ready.
+
+Card P1 — Rate limit basico + logs estruturados
+- Aceite: 429 em excesso e logs de jobs com payload estruturado.
+
+Card P1 — Auditoria de indices DB (app + landwatch)
+- Aceite: todos os filtros/joins criticos estao cobertos por indices.
+
+Card P1 — Cache de analises (TTL 2 meses)
+- Aceite: tabela de cache grava na geracao; leitura do detalhe prioriza cache.
 
 Card P2 — Tests e2e + factories
 - Aceite: test:e2e isolado de prod/staging.

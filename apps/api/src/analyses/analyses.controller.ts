@@ -6,23 +6,25 @@ import {
   Post,
   Query,
   Req,
-  UseGuards,
+  UnauthorizedException,
 } from '@nestjs/common';
-import { AuthGuard } from '../auth/auth.guard';
-import { ActiveUserGuard } from '../auth/active-user.guard';
 import type { AuthedRequest } from '../auth/authed-request.type';
 import { AnalysesService } from './analyses.service';
 import { CreateAnalysisDto } from './dto/create-analysis.dto';
 import { ListAnalysesQuery } from './dto/list-analyses.query';
 
 @Controller('v1/analyses')
-@UseGuards(AuthGuard, ActiveUserGuard)
 export class AnalysesController {
   constructor(private readonly analyses: AnalysesService) {}
 
   @Post()
   async create(@Req() req: AuthedRequest, @Body() dto: CreateAnalysisDto) {
-    if (!req.user) return { status: 'pending' };
+    if (!req.user) {
+      throw new UnauthorizedException({
+        code: 'UNAUTHORIZED',
+        message: 'Missing user claims',
+      });
+    }
     return this.analyses.create(req.user, dto);
   }
 
@@ -30,7 +32,12 @@ export class AnalysesController {
   async list(@Query() query: ListAnalysesQuery) {
     const page = query.page ?? 1;
     const pageSize = query.pageSize ?? 20;
-    return this.analyses.list({ carKey: query.carKey, page, pageSize });
+    return this.analyses.list({
+      carKey: query.carKey,
+      farmId: query.farmId,
+      page,
+      pageSize,
+    });
   }
 
   @Get('metadata/indigenas/phases')
