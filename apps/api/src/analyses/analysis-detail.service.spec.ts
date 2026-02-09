@@ -251,7 +251,9 @@ describe('AnalysisDetailService', () => {
     );
 
     const socialCodes = new Set(
-      (social?.items ?? []).map((item: { datasetCode: string }) => item.datasetCode),
+      (social?.items ?? []).map(
+        (item: { datasetCode: string }) => item.datasetCode,
+      ),
     );
     expect(socialCodes.has('LDI_SEMAS_AUTOMATIZADO')).toBe(false);
     expect(socialCodes.has('LDI_SEMAS_MANUAL')).toBe(false);

@@ -188,7 +188,7 @@ Legenda:
   Aceite: erro nao dispara KeyError 'code' e stack/saida do container aparece no log.
 - [x] Auditoria de indices DB (app + landwatch)
   Aceite: filtros/joins criticos com indices revisados (indices criados + ANALYZE aplicado).
-- [ ] Intersecoes com GIST (evitar ST_Transform no WHERE)
+- [x] Intersecoes com GIST (evitar ST_Transform no WHERE)
   Aceite: queries de interseccao usam bbox no SRID nativo e o planner usa GIST.
 - [~] Cache de analises (TTL 2 meses)
   Aceite: cache grava na geracao; leitura do detalhe prioriza cache; limpeza automática por expiração. Pendente validar em ambiente com MVs estáveis.

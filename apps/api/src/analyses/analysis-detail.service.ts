@@ -136,7 +136,11 @@ export class AnalysisDetailService {
       sicarRow?.featureId ?? null,
       analysisDate,
     );
-    const biomas = await this.fetchBiomas(schema, filteredResults, analysisDate);
+    const biomas = await this.fetchBiomas(
+      schema,
+      analysis.carKey,
+      analysisDate,
+    );
     const docMatches = analysis.cpfCnpj
       ? await this.fetchDocMatches(schema, analysis.cpfCnpj, analysisDate)
       : [];
@@ -500,28 +504,45 @@ export class AnalysisDetailService {
 
   private async fetchBiomas(
     schema: string,
-    results: Array<{ categoryCode?: string | null }>,
+    carKey: string,
     analysisDate: string,
-  ) {
-    const hasBioma = results.some((row) => row.categoryCode === 'BIOMAS');
-    if (!hasBioma) return [] as Array<{ code: string; label: string }>;
+  ): Promise<string[]> {
+    const fn = Prisma.raw(`"${schema}"."fn_sicar_feature_asof"`);
     const rows = await this.prisma.$queryRaw<
-      Array<{ code: string; label: string }>
+      Array<{ code: string | null; label: string | null }>
     >(Prisma.sql`
-      SELECT
+      WITH sicar AS (
+        SELECT geom
+        FROM ${fn}(${carKey}, ${analysisDate}::date)
+        LIMIT 1
+      )
+      SELECT DISTINCT
         COALESCE(p.pack_json->>'Sigla', p.pack_json->>'sigla', p.pack_json->>'SIGLA') AS code,
         COALESCE(p.pack_json->>'Bioma', p.pack_json->>'bioma', p.pack_json->>'BIOMA') AS label
-      FROM ${Prisma.raw(`"${schema}"."lw_feature_attr_pack_hist"`)} h
-      JOIN ${Prisma.raw(`"${schema}"."lw_attr_pack"`)} p ON p.pack_id = h.pack_id
-      JOIN ${Prisma.raw(`"${schema}"."lw_dataset"`)} d ON d.dataset_id = h.dataset_id
-      JOIN ${Prisma.raw(`"${schema}"."lw_category"`)} c ON c.category_id = d.category_id
-      WHERE c.code = 'BIOMAS'
-        AND h.valid_from <= ${analysisDate}::date
-        AND (h.valid_to IS NULL OR h.valid_to > ${analysisDate}::date)
+      FROM sicar
+      JOIN ${Prisma.raw(`"${schema}"."lw_feature_geom_hist"`)} g
+        ON g.valid_from <= ${analysisDate}::date
+       AND (g.valid_to IS NULL OR g.valid_to > ${analysisDate}::date)
+      JOIN ${Prisma.raw(`"${schema}"."lw_geom_store"`)} s
+        ON s.geom_id = g.geom_id
+      JOIN ${Prisma.raw(`"${schema}"."lw_dataset"`)} d
+        ON d.dataset_id = g.dataset_id
+      JOIN ${Prisma.raw(`"${schema}"."lw_category"`)} c
+        ON c.category_id = d.category_id
+       AND c.code = 'BIOMAS'
+      JOIN ${Prisma.raw(`"${schema}"."lw_feature_attr_pack_hist"`)} h
+        ON h.dataset_id = g.dataset_id
+       AND h.feature_id = g.feature_id
+       AND h.valid_from <= ${analysisDate}::date
+       AND (h.valid_to IS NULL OR h.valid_to > ${analysisDate}::date)
+      JOIN ${Prisma.raw(`"${schema}"."lw_attr_pack"`)} p
+        ON p.pack_id = h.pack_id
+      WHERE ST_Intersects(sicar.geom, s.geom)
     `);
-    return rows
-      .filter((row) => row.code && row.label)
-      .map((row) => ({ code: row.code, label: row.label }));
+    const values = (rows ?? [])
+      .map((row) => (row.label ?? row.code ?? '').trim())
+      .filter((value) => value.length > 0);
+    return Array.from(new Set(values));
   }
 
   private async fetchDatasets(schema: string): Promise<DatasetRow[]> {

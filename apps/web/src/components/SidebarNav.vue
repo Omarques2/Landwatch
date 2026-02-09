@@ -1,5 +1,8 @@
 <template>
-  <div class="flex h-full flex-col bg-card text-foreground">
+  <div
+    class="flex h-full flex-col bg-card text-foreground"
+    :data-collapsed="collapsed ? 'true' : 'false'"
+  >
     <div
       class="grid items-center border-b border-border bg-card h-[var(--topbar-h)]"
       :class="padHeader"
@@ -71,12 +74,21 @@
         <button
           v-for="item in items"
           :key="item.key"
-          class="group flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left transition hover:bg-accent"
-          :class="item.key === activeKey ? 'bg-accent text-foreground' : ''"
+          class="sidebar-nav-item group flex w-full items-center rounded-xl py-2 transition hover:bg-accent"
+          :class="[
+            collapsed
+              ? 'justify-center px-0 text-center'
+              : 'justify-start gap-3 px-3 text-left',
+            item.key === activeKey ? 'bg-accent text-foreground' : '',
+          ]"
           :title="collapsed ? item.label : ''"
           @click="handleSelect(item.key)"
         >
-          <component :is="item.icon" class="h-5 w-5 shrink-0" />
+          <component
+            :is="item.icon"
+            class="sidebar-nav-icon h-5 w-5 shrink-0"
+            :class="collapsed ? 'mx-auto' : ''"
+          />
           <span v-if="!collapsed" class="truncate text-sm font-medium">{{ item.label }}</span>
         </button>
       </div>
@@ -171,3 +183,18 @@ async function handleNewAnalysis() {
   await props.onNewAnalysis();
 }
 </script>
+
+<style scoped>
+[data-collapsed="true"] .sidebar-nav-item {
+  justify-content: center;
+  padding-left: 0;
+  padding-right: 0;
+  gap: 0;
+  text-align: center;
+}
+
+[data-collapsed="true"] .sidebar-nav-icon {
+  margin-left: auto;
+  margin-right: auto;
+}
+</style>

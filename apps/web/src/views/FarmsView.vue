@@ -43,21 +43,68 @@
               :key="farm.id"
               class="rounded-xl border border-border bg-background p-4"
             >
-              <div class="flex flex-wrap items-center justify-between gap-3">
+              <div class="flex flex-col gap-3">
                 <div>
                   <div class="font-semibold">{{ farm.name }}</div>
                   <div class="text-xs text-muted-foreground">
                     {{ farm.carKey }} · {{ farm.cpfCnpj ?? "-" }}
                   </div>
                 </div>
-                <div class="flex items-center gap-2">
-                  <UiButton size="sm" variant="outline" @click="goDetail(farm)">
+                <div class="flex flex-wrap items-center gap-2">
+                  <UiButton
+                    size="icon"
+                    variant="outline"
+                    class="sm:hidden"
+                    @click="goDetail(farm)"
+                    aria-label="Ver detalhes"
+                  >
+                    <Eye class="h-4 w-4" aria-hidden="true" />
+                  </UiButton>
+                  <UiButton
+                    size="sm"
+                    variant="outline"
+                    class="hidden items-center gap-2 sm:inline-flex"
+                    @click="goDetail(farm)"
+                  >
+                    <Eye class="h-4 w-4" aria-hidden="true" />
                     Ver detalhes
                   </UiButton>
-                  <UiButton size="sm" variant="outline" @click="startEdit(farm)">
+
+                  <UiButton
+                    size="icon"
+                    variant="outline"
+                    class="sm:hidden"
+                    @click="startEdit(farm)"
+                    aria-label="Editar"
+                  >
+                    <Pencil class="h-4 w-4" aria-hidden="true" />
+                  </UiButton>
+                  <UiButton
+                    size="sm"
+                    variant="outline"
+                    class="hidden items-center gap-2 sm:inline-flex"
+                    @click="startEdit(farm)"
+                  >
+                    <Pencil class="h-4 w-4" aria-hidden="true" />
                     Editar
                   </UiButton>
-                  <UiButton size="sm" @click="goNewAnalysis(farm)">Gerar análise</UiButton>
+
+                  <UiButton
+                    size="icon"
+                    class="sm:hidden"
+                    @click="goNewAnalysis(farm)"
+                    aria-label="Gerar análise"
+                  >
+                    <FileText class="h-4 w-4" aria-hidden="true" />
+                  </UiButton>
+                  <UiButton
+                    size="sm"
+                    class="hidden items-center gap-2 sm:inline-flex"
+                    @click="goNewAnalysis(farm)"
+                  >
+                    <FileText class="h-4 w-4" aria-hidden="true" />
+                    Gerar análise
+                  </UiButton>
                 </div>
               </div>
 
@@ -159,6 +206,7 @@
 import axios from "axios";
 import { computed, onMounted, reactive, ref } from "vue";
 import { useRouter } from "vue-router";
+import { Eye, FileText, Pencil } from "lucide-vue-next";
 import {
   Button as UiButton,
   Dialog as UiDialog,

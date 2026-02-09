@@ -306,10 +306,31 @@ export class AnalysesService {
     return parsed;
   }
 
+  private normalizeCachedDetail(detail: Record<string, unknown>) {
+    const biomas = detail.biomas;
+    if (!Array.isArray(biomas)) return detail;
+    if (biomas.every((item) => typeof item === 'string')) return detail;
+    const normalized = biomas
+      .map((item) => {
+        if (typeof item === 'string') return item.trim();
+        if (!item || typeof item !== 'object') return '';
+        const record = item as Record<string, unknown>;
+        const label =
+          record.label ??
+          record.code ??
+          record.bioma ??
+          record.BIOMA ??
+          record.Bioma;
+        return typeof label === 'string' ? label.trim() : '';
+      })
+      .filter((value) => value.length > 0);
+    return { ...detail, biomas: normalized };
+  }
+
   async getById(id: string) {
     const cached = await this.cache.get<AnalysisCachePayload>(id);
     if (cached?.cacheVersion === ANALYSIS_CACHE_VERSION && cached.detail) {
-      return cached.detail;
+      return this.normalizeCachedDetail(cached.detail);
     }
     if (cached && cached.cacheVersion !== ANALYSIS_CACHE_VERSION) {
       await this.cache.invalidate(id);
