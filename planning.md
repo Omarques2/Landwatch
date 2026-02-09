@@ -180,7 +180,9 @@ Fora do MVP (ou MVP+):
 - Analise por lotes para evitar overload (concurrency por org).
 - Planejar MV de feicoes ativas (current) para acelerar interseccoes do SICAR (sem DETER), mantendo historico intacto.
 - Nao precomputar todas as interseccoes (custo/armazenamento alto); usar MV de feicoes ativas como fonte corrente.
+- Interseccoes usando GIST e bbox no SRID nativo (evitar ST_Transform no WHERE para manter uso do indice).
 - Auditoria de indices no schema app.* e landwatch.* antes do fechamento do MVP (joins/filters principais).
+- Auditoria aplicada com ANALYZE nas tabelas criticas (app.farm, app.analysis, lw_doc_index, lw_feature_geom_hist).
 - Tabela de cache de analises (atributos + geometria) com TTL de 2 meses; gravar apenas na geracao da analise.
 ## Ingest (Downloads + Blob)
 - Downloads temporarios via Azure Blob Storage com limpeza automatica apos ingest.

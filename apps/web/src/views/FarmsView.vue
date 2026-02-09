@@ -7,45 +7,13 @@
           Cadastre, edite e gere análises rapidamente.
         </div>
       </div>
-      <UiButton variant="outline" size="sm" @click="loadFarms">Atualizar</UiButton>
+      <div class="flex flex-wrap items-center gap-2">
+        <UiButton size="sm" @click="openCreate">Nova fazenda</UiButton>
+        <UiButton variant="outline" size="sm" @click="loadFarms">Atualizar</UiButton>
+      </div>
     </header>
 
-    <section class="grid gap-6 lg:grid-cols-[1fr_1.4fr]">
-      <div class="rounded-2xl border border-border bg-card p-6 shadow-sm">
-        <div class="text-lg font-semibold">Nova fazenda</div>
-        <div class="mt-4 grid gap-3">
-          <UiLabel for="farm-name">Nome</UiLabel>
-          <UiInput id="farm-name" v-model="farmForm.name" placeholder="Nome da fazenda" />
-
-          <UiLabel for="farm-car">CAR (cod_imovel)</UiLabel>
-          <UiInput
-            id="farm-car"
-            :model-value="farmForm.carKey"
-            placeholder="CAR (cod_imovel)"
-            inputmode="text"
-            autocapitalize="characters"
-            maxlength="43"
-            @update:model-value="onFarmCarInput"
-          />
-
-          <UiLabel for="farm-doc">CPF/CNPJ (opcional)</UiLabel>
-          <UiInput
-            id="farm-doc"
-            :model-value="farmForm.cpfCnpj"
-            placeholder="CPF/CNPJ"
-            inputmode="numeric"
-            maxlength="18"
-            :class="farmDocError ? 'border-red-500 focus-visible:ring-red-500/40' : ''"
-            @update:model-value="onFarmDocInput"
-          />
-          <div v-if="farmDocError" class="text-xs text-red-500">{{ farmDocError }}</div>
-
-          <UiButton class="mt-2" @click="createFarm">Salvar fazenda</UiButton>
-          <div v-if="farmMessage" class="text-xs text-muted-foreground">{{ farmMessage }}</div>
-        </div>
-      </div>
-
-      <div class="rounded-2xl border border-border bg-card p-6 shadow-sm">
+    <section class="rounded-2xl border border-border bg-card p-6 shadow-sm">
         <div class="flex items-center justify-between">
           <div class="text-lg font-semibold">Fazendas cadastradas</div>
           <div class="text-xs text-muted-foreground">
@@ -132,16 +100,72 @@
             </div>
           </template>
         </div>
-      </div>
     </section>
+
+    <UiDialog :open="createOpen" max-width-class="max-w-xl" @close="closeCreate">
+      <UiDialogHeader>
+        <UiDialogTitle>Nova fazenda</UiDialogTitle>
+        <UiDialogDescription>
+          Informe o CAR e os dados principais para cadastro.
+        </UiDialogDescription>
+      </UiDialogHeader>
+      <div class="grid gap-4 p-6">
+        <div class="grid gap-2">
+          <UiLabel for="farm-name">Nome</UiLabel>
+          <UiInput id="farm-name" v-model="farmForm.name" placeholder="Nome da fazenda" />
+        </div>
+
+        <div class="grid gap-2">
+          <UiLabel for="farm-car">CAR (cod_imovel)</UiLabel>
+          <UiInput
+            id="farm-car"
+            :model-value="farmForm.carKey"
+            placeholder="CAR (cod_imovel)"
+            inputmode="text"
+            autocapitalize="characters"
+            maxlength="43"
+            @update:model-value="onFarmCarInput"
+          />
+        </div>
+
+        <div class="grid gap-2">
+          <UiLabel for="farm-doc">CPF/CNPJ (opcional)</UiLabel>
+          <UiInput
+            id="farm-doc"
+            :model-value="farmForm.cpfCnpj"
+            placeholder="CPF/CNPJ"
+            inputmode="numeric"
+            maxlength="18"
+            :class="farmDocError ? 'border-red-500 focus-visible:ring-red-500/40' : ''"
+            @update:model-value="onFarmDocInput"
+          />
+          <div v-if="farmDocError" class="text-xs text-red-500">{{ farmDocError }}</div>
+        </div>
+      </div>
+      <UiDialogFooter class="flex flex-wrap items-center gap-2 border-t border-border px-6 py-4">
+        <UiButton variant="outline" :disabled="savingFarm" @click="closeCreate">
+          Cancelar
+        </UiButton>
+        <UiButton :disabled="savingFarm" @click="createFarm">Salvar fazenda</UiButton>
+        <div v-if="farmMessage" class="ml-auto text-xs text-muted-foreground">
+          {{ farmMessage }}
+        </div>
+      </UiDialogFooter>
+    </UiDialog>
   </div>
 </template>
 
 <script setup lang="ts">
+import axios from "axios";
 import { computed, onMounted, reactive, ref } from "vue";
 import { useRouter } from "vue-router";
 import {
   Button as UiButton,
+  Dialog as UiDialog,
+  DialogDescription as UiDialogDescription,
+  DialogFooter as UiDialogFooter,
+  DialogHeader as UiDialogHeader,
+  DialogTitle as UiDialogTitle,
   Input as UiInput,
   Label as UiLabel,
   Skeleton as UiSkeleton,
@@ -161,6 +185,8 @@ const router = useRouter();
 const farms = ref<Farm[]>([]);
 const loadingFarms = ref(true);
 const farmsLoaded = ref(false);
+const createOpen = ref(false);
+const savingFarm = ref(false);
 const farmForm = reactive({ name: "", carKey: "", cpfCnpj: "" });
 const farmMessage = ref("");
 const editingId = ref<string | null>(null);
@@ -237,6 +263,19 @@ function onEditDocInput(value: string) {
   editForm.cpfCnpj = maskCpfCnpj(value ?? "");
 }
 
+function openCreate() {
+  farmMessage.value = "";
+  farmForm.name = "";
+  farmForm.carKey = "";
+  farmForm.cpfCnpj = "";
+  createOpen.value = true;
+}
+
+function closeCreate() {
+  createOpen.value = false;
+  farmMessage.value = "";
+}
+
 async function loadFarms() {
   loadingFarms.value = true;
   try {
@@ -265,13 +304,25 @@ async function createFarm() {
     carKey: farmForm.carKey.trim(),
     cpfCnpj: farmForm.cpfCnpj?.trim() || undefined,
   };
-  const res = await http.post<ApiEnvelope<Farm>>("/v1/farms", payload);
-  const created = unwrapData(res.data);
-  farmMessage.value = `Fazenda criada: ${created.name}`;
-  farmForm.name = "";
-  farmForm.carKey = "";
-  farmForm.cpfCnpj = "";
-  await loadFarms();
+  savingFarm.value = true;
+  try {
+    const res = await http.post<ApiEnvelope<Farm>>("/v1/farms", payload);
+    const created = unwrapData(res.data);
+    farmMessage.value = `Fazenda criada: ${created.name}`;
+    await loadFarms();
+    closeCreate();
+  } catch (error) {
+    const apiCode = axios.isAxiosError(error)
+      ? (error.response?.data as { error?: { code?: string } } | undefined)?.error?.code
+      : undefined;
+    if (apiCode === "UNIQUE_CONSTRAINT") {
+      farmMessage.value = "Já existe uma fazenda cadastrada com esse CAR.";
+    } else {
+      farmMessage.value = "Não foi possível cadastrar a fazenda.";
+    }
+  } finally {
+    savingFarm.value = false;
+  }
 }
 
 function startEdit(farm: Farm) {

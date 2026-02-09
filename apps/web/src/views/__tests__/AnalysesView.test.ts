@@ -54,6 +54,7 @@ describe("AnalysesView", () => {
     await flushPromises();
 
     await wrapper.find('[data-testid="analysis-filter-farm"]').setValue("farm-1");
+    await wrapper.find('[data-testid="analysis-filter-car"]').setValue("SP-123");
     await wrapper.find('[data-testid="analysis-filter-start"]').setValue("2026-02-01");
     await wrapper.find('[data-testid="analysis-filter-end"]').setValue("2026-02-10");
     await wrapper.find('[data-testid="analysis-filter-apply"]').trigger("click");
@@ -63,6 +64,7 @@ describe("AnalysesView", () => {
     const lastCall = calls[calls.length - 1];
     expect(lastCall?.[1]?.params).toMatchObject({
       farmId: "farm-1",
+      carKey: "SP-123",
       startDate: "2026-02-01",
       endDate: "2026-02-10",
       page: 1,

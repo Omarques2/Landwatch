@@ -37,6 +37,15 @@
             </option>
           </UiSelect>
         </div>
+        <div class="min-w-[220px] space-y-1">
+          <UiLabel for="analysis-filter-car" class="text-xs">CAR</UiLabel>
+          <UiInput
+            id="analysis-filter-car"
+            v-model="filters.carKey"
+            data-testid="analysis-filter-car"
+            placeholder="Ex: SP-123..."
+          />
+        </div>
         <div class="min-w-[170px] space-y-1">
           <UiLabel for="analysis-filter-start" class="text-xs">Data início</UiLabel>
           <UiInput
@@ -168,6 +177,15 @@
           </UiSelect>
         </div>
         <div class="space-y-1">
+          <UiLabel for="analysis-filter-car-mobile">CAR</UiLabel>
+          <UiInput
+            id="analysis-filter-car-mobile"
+            v-model="filters.carKey"
+            data-testid="analysis-filter-car-mobile"
+            placeholder="Ex: SP-123..."
+          />
+        </div>
+        <div class="space-y-1">
           <UiLabel for="analysis-filter-start-mobile">Data início</UiLabel>
           <UiInput
             id="analysis-filter-start-mobile"
@@ -250,6 +268,7 @@ const pageSize = ref(20);
 const total = ref(0);
 const filters = reactive({
   farmId: "",
+  carKey: "",
   startDate: "",
   endDate: "",
 });
@@ -289,6 +308,7 @@ async function fetchAnalyses(pageToLoad: number) {
   const res = await http.get<ApiEnvelope<AnalysisRow[]>>("/v1/analyses", {
     params: {
       farmId: filters.farmId || undefined,
+      carKey: filters.carKey || undefined,
       startDate: filters.startDate || undefined,
       endDate: filters.endDate || undefined,
       page: pageToLoad,
@@ -351,6 +371,7 @@ async function applyFilters() {
 
 async function clearFilters() {
   filters.farmId = "";
+  filters.carKey = "";
   filters.startDate = "";
   filters.endDate = "";
   await loadAnalyses({ reset: true });

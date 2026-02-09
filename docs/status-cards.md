@@ -186,8 +186,10 @@ Legenda:
   Aceite: job baixa, ingere por categoria e remove blobs antigos com retencao curta (1–2 execucoes).
 - [x] SICAR (Docker) - corrigir template do script interno e melhorar log de falha
   Aceite: erro nao dispara KeyError 'code' e stack/saida do container aparece no log.
-- [ ] Auditoria de indices DB (app + landwatch)
-  Aceite: filtros/joins criticos com indices revisados.
+- [x] Auditoria de indices DB (app + landwatch)
+  Aceite: filtros/joins criticos com indices revisados (indices criados + ANALYZE aplicado).
+- [ ] Intersecoes com GIST (evitar ST_Transform no WHERE)
+  Aceite: queries de interseccao usam bbox no SRID nativo e o planner usa GIST.
 - [~] Cache de analises (TTL 2 meses)
   Aceite: cache grava na geracao; leitura do detalhe prioriza cache; limpeza automática por expiração. Pendente validar em ambiente com MVs estáveis.
 - [x] Detectar lock de MVs e sinalizar no sistema
