@@ -134,7 +134,6 @@ model Farm {
   id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   name        String
   carKey      String   @map("car_key")
-  cpfCnpj     String?  @map("cpf_cnpj")
   ownerUserId String   @map("owner_user_id") @db.Uuid
   orgId       String?  @map("org_id") @db.Uuid
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -143,11 +142,36 @@ model Farm {
   owner User @relation(fields: [ownerUserId], references: [id], onDelete: Restrict)
   org   Org? @relation(fields: [orgId], references: [id], onDelete: SetNull)
   analyses Analysis[]
+  documents FarmDocument[]
 
   @@unique([carKey], map: "farm_car_key_key")
   @@index([ownerUserId], map: "farm_owner_user_id_idx")
   @@index([orgId], map: "farm_org_id_idx")
   @@map("farm")
+  @@schema("app")
+}
+
+enum FarmDocType {
+  CPF
+  CNPJ
+
+  @@map("farm_doc_type")
+  @@schema("app")
+}
+
+model FarmDocument {
+  id            String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  farmId        String     @map("farm_id") @db.Uuid
+  docType       FarmDocType @map("doc_type")
+  docNormalized String     @map("doc_normalized")
+  createdAt     DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  farm Farm @relation(fields: [farmId], references: [id], onDelete: Cascade)
+
+  @@unique([farmId, docNormalized], map: "farm_document_unique")
+  @@index([docNormalized], map: "farm_document_doc_idx")
+  @@index([farmId], map: "farm_document_farm_idx")
+  @@map("farm_document")
   @@schema("app")
 }
 

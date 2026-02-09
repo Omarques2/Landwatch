@@ -46,6 +46,25 @@
           @keydown.enter.prevent="onDocCommit"
         />
         <div v-if="docError" class="text-xs text-red-500">{{ docError }}</div>
+        <div v-if="farmDocuments.length" class="grid gap-2">
+          <div class="text-xs text-muted-foreground">Documentos cadastrados</div>
+          <div class="flex flex-wrap gap-2">
+            <UiButton
+              v-for="doc in farmDocuments"
+              :key="doc.id"
+              size="sm"
+              variant="outline"
+              :class="
+                selectedDocNormalized === doc.docNormalized
+                  ? 'border-emerald-200 text-emerald-700'
+                  : ''
+              "
+              @click="selectFarmDoc(doc)"
+            >
+              {{ doc.docType }} · {{ formatDoc(doc.docNormalized) }}
+            </UiButton>
+          </div>
+        </div>
 
         <UiLabel for="analysis-date">Data de referência (opcional)</UiLabel>
         <UiInput
@@ -188,11 +207,17 @@ import CarSelectMap from "@/components/maps/CarSelectMap.vue";
 import { isValidCpfCnpj, sanitizeDoc } from "@/lib/doc-utils";
 import { mvBusy } from "@/state/landwatch-status";
 
+type FarmDocument = {
+  id: string;
+  docType: "CPF" | "CNPJ";
+  docNormalized: string;
+};
+
 type Farm = {
   id: string;
   name: string;
   carKey: string;
-  cpfCnpj?: string | null;
+  documents?: FarmDocument[];
 };
 
 const router = useRouter();
@@ -220,6 +245,11 @@ const analysisForm = reactive({
 const message = ref("");
 const autoFillLoading = ref(false);
 const autoFillMessage = ref("");
+const farmDocuments = ref<FarmDocument[]>([]);
+const selectedDocNormalized = computed(() => {
+  const digits = sanitizeDoc(analysisForm.cpfCnpj ?? "");
+  return digits || null;
+});
 
 const viewMode = computed<"analysis" | "search">(() => {
   return route.path.startsWith("/analyses/search") ? "search" : "analysis";
@@ -236,7 +266,7 @@ async function loadFarm(id: string) {
   analysisForm.farmId = farm.id;
   analysisForm.farmName = farm.name;
   analysisForm.carKey = farm.carKey;
-  analysisForm.cpfCnpj = farm.cpfCnpj ?? "";
+  farmDocuments.value = farm.documents ?? [];
 }
 
 let autoFillRequestId = 0;
@@ -246,29 +276,38 @@ function isCarKeyComplete(value: string) {
   return cleaned.length === 41;
 }
 
-function resolveAutoFillQuery() {
+function resolveAutoFillQuery(): { type: "car" | "doc"; value: string } | null {
   const digits = sanitizeDoc(analysisForm.cpfCnpj ?? "");
-  if (digits && isValidCpfCnpj(digits)) return digits;
+  if (digits && isValidCpfCnpj(digits)) return { type: "doc", value: digits };
   if (isCarKeyComplete(analysisForm.carKey)) {
-    return analysisForm.carKey.trim();
+    return { type: "car", value: analysisForm.carKey.trim() };
   }
   return null;
 }
 
-async function autoFillFarm(query: string) {
+async function autoFillFarm(query: { type: "car" | "doc"; value: string }) {
   if (analysisForm.farmId) return;
   const requestId = (autoFillRequestId += 1);
   autoFillLoading.value = true;
   autoFillMessage.value = "Buscando dados da fazenda...";
   try {
-    const res = await http.get<ApiEnvelope<Farm[]>>("/v1/farms", {
-      params: { q: query, page: 1, pageSize: 1 },
-    });
-    if (requestId !== autoFillRequestId) return;
-    const rows = unwrapPaged(res.data).rows;
-    const match = rows[0];
+    let match: Farm | undefined;
+    if (query.type === "car") {
+      const res = await http.get<ApiEnvelope<Farm>>("/v1/farms/by-car", {
+        params: { carKey: query.value },
+      });
+      if (requestId !== autoFillRequestId) return;
+      match = unwrapData(res.data);
+    } else {
+      const res = await http.get<ApiEnvelope<Farm[]>>("/v1/farms", {
+        params: { q: query.value, page: 1, pageSize: 1, includeDocs: true },
+      });
+      if (requestId !== autoFillRequestId) return;
+      match = unwrapPaged(res.data).rows[0];
+    }
     if (!match) {
       autoFillMessage.value = "";
+      farmDocuments.value = [];
       return;
     }
     analysisForm.farmId = match.id;
@@ -278,13 +317,12 @@ async function autoFillFarm(query: string) {
     if (!analysisForm.carKey.trim()) {
       analysisForm.carKey = maskCarKey(match.carKey ?? "");
     }
-    if (!analysisForm.cpfCnpj.trim() && match.cpfCnpj) {
-      analysisForm.cpfCnpj = maskCpfCnpj(match.cpfCnpj);
-    }
+    farmDocuments.value = match.documents ?? [];
     autoFillMessage.value = "Dados da fazenda preenchidos.";
   } catch {
     if (requestId === autoFillRequestId) {
       autoFillMessage.value = "";
+      farmDocuments.value = [];
     }
   } finally {
     if (requestId === autoFillRequestId) {
@@ -298,6 +336,7 @@ async function triggerAutoFill() {
   const query = resolveAutoFillQuery();
   if (!query) {
     autoFillMessage.value = "";
+    farmDocuments.value = [];
     return;
   }
   await autoFillFarm(query);
@@ -431,7 +470,12 @@ function useMyLocation() {
 }
 
 function onCarInput(value: string) {
-  analysisForm.carKey = maskCarKey(value ?? "");
+  const masked = maskCarKey(value ?? "");
+  analysisForm.carKey = masked;
+  if (analysisForm.farmId) {
+    analysisForm.farmId = "";
+    farmDocuments.value = [];
+  }
 }
 
 function onCarCommit() {
@@ -513,6 +557,14 @@ function maskCpfCnpj(digits: string) {
   if (p4) out += `/${p4}`;
   if (p5) out += `-${p5}`;
   return out;
+}
+
+function selectFarmDoc(doc: FarmDocument) {
+  analysisForm.cpfCnpj = maskCpfCnpj(doc.docNormalized);
+}
+
+function formatDoc(doc: string) {
+  return maskCpfCnpj(doc ?? "");
 }
 
 function parseCoordinate(raw: string | null | undefined, kind: "lat" | "lng") {

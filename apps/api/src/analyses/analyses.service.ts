@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Inject, Optional } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { FarmDocType, Prisma } from '@prisma/client';
 import type { Claims } from '../auth/claims.type';
 import { PrismaService } from '../prisma/prisma.service';
 import { AnalysisRunnerService, NOW_PROVIDER } from './analysis-runner.service';
@@ -80,6 +80,12 @@ export class AnalysesService {
       });
     }
     return digits;
+  }
+
+  private buildFarmDoc(digits: string) {
+    const docType: FarmDocType =
+      digits.length === 11 ? FarmDocType.CPF : FarmDocType.CNPJ;
+    return { docNormalized: digits, docType };
   }
 
   private normalizeCarKey(input: string): string {
@@ -182,37 +188,56 @@ export class AnalysesService {
       });
     }
 
-    const cpfCnpj = inputCpf ?? farm?.cpfCnpj ?? null;
+    const cpfCnpj = inputCpf ?? null;
     if (cpfCnpj && cpfCnpj.length === 14) {
       await this.docInfo.updateCnpjInfoBestEffort(cpfCnpj);
     }
 
     let farmId = farm?.id ?? null;
-    if (!farm && input.farmName?.trim()) {
-      const createdFarm = await this.prisma.farm.create({
-        data: {
-          name: input.farmName.trim(),
-          carKey,
-          cpfCnpj: inputCpf ?? null,
-          ownerUserId: userId,
-        },
-        select: { id: true },
-      });
-      farmId = createdFarm.id;
-    }
+    const analysis = await this.prisma.$transaction(async (tx) => {
+      if (!farm && input.farmName?.trim()) {
+        const createdFarm = await tx.farm.create({
+          data: {
+            name: input.farmName.trim(),
+            carKey,
+            ownerUserId: userId,
+          },
+          select: { id: true },
+        });
+        farmId = createdFarm.id;
+      }
 
-    const analysis = await this.prisma.analysis.create({
-      data: {
-        carKey,
-        cpfCnpj,
-        analysisDate: new Date(analysisDate),
-        status: 'pending',
-        createdByUserId: userId,
-        farmId,
-        hasIntersections: false,
-        intersectionCount: 0,
-      },
-      select: { id: true, carKey: true, analysisDate: true, status: true },
+      if (farmId && cpfCnpj) {
+        const doc = this.buildFarmDoc(cpfCnpj);
+        await tx.farmDocument.upsert({
+          where: {
+            farmId_docNormalized: {
+              farmId,
+              docNormalized: doc.docNormalized,
+            },
+          },
+          create: {
+            farmId,
+            docNormalized: doc.docNormalized,
+            docType: doc.docType,
+          },
+          update: {},
+        });
+      }
+
+      return tx.analysis.create({
+        data: {
+          carKey,
+          cpfCnpj,
+          analysisDate: new Date(analysisDate),
+          status: 'pending',
+          createdByUserId: userId,
+          farmId,
+          hasIntersections: false,
+          intersectionCount: 0,
+        },
+        select: { id: true, carKey: true, analysisDate: true, status: true },
+      });
     });
 
     this.runner.enqueue(analysis.id);

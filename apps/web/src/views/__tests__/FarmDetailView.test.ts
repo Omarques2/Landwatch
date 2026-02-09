@@ -34,7 +34,13 @@ describe("FarmDetailView", () => {
           id: "farm-1",
           name: "Fazenda Teste",
           carKey: "SP-1234567-0000000000000000000000000000000000",
-          cpfCnpj: "52998224725",
+          documents: [
+            {
+              id: "doc-1",
+              docType: "CPF",
+              docNormalized: "52998224725",
+            },
+          ],
         },
       },
     };
@@ -88,7 +94,13 @@ describe("FarmDetailView", () => {
           id: "farm-1",
           name: "Fazenda Teste",
           carKey: "SP-1234567-0000000000000000000000000000000000",
-          cpfCnpj: "52998224725",
+          documents: [
+            {
+              id: "doc-1",
+              docType: "CPF",
+              docNormalized: "52998224725",
+            },
+          ],
         },
       },
     };
@@ -120,7 +132,13 @@ describe("FarmDetailView", () => {
           id: "farm-1",
           name: "Fazenda Atualizada",
           carKey: "SP-1234567-0000000000000000000000000000000000",
-          cpfCnpj: "52998224725",
+          documents: [
+            {
+              id: "doc-1",
+              docType: "CPF",
+              docNormalized: "52998224725",
+            },
+          ],
         },
       },
     });
@@ -161,7 +179,7 @@ describe("FarmDetailView", () => {
           id: "farm-1",
           name: "Fazenda Teste",
           carKey: "SP-1234567-0000000000000000000000000000000000",
-          cpfCnpj: null,
+          documents: [],
         },
       },
     };

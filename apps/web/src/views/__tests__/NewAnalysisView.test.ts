@@ -88,15 +88,14 @@ describe("NewAnalysisView", () => {
   it("auto-fills farm data on blur when carKey is complete", async () => {
     (http.get as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       data: {
-        data: [
-          {
-            id: "farm-1",
-            name: "Fazenda Teste",
-            carKey: "SP-1234567-0000000000000000000000000000000000",
-            cpfCnpj: "52998224725",
-          },
-        ],
-        meta: { page: 1, pageSize: 20, total: 1 },
+        data: {
+          id: "farm-1",
+          name: "Fazenda Teste",
+          carKey: "SP-1234567-0000000000000000000000000000000000",
+          documents: [
+            { id: "doc-1", docType: "CPF", docNormalized: "52998224725" },
+          ],
+        },
       },
     });
 
@@ -121,7 +120,9 @@ describe("NewAnalysisView", () => {
             id: "farm-2",
             name: "Fazenda CPF",
             carKey: "SP-7654321-1111111111111111111111111111111111",
-            cpfCnpj: "52998224725",
+            documents: [
+              { id: "doc-1", docType: "CPF", docNormalized: "52998224725" },
+            ],
           },
         ],
         meta: { page: 1, pageSize: 20, total: 1 },

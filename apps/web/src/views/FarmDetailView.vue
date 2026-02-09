@@ -57,17 +57,41 @@
                 @update:model-value="onEditCarInput"
               />
             </div>
-            <div>
+          </div>
+          <div class="grid gap-2">
+            <div class="flex items-center justify-between">
               <UiLabel>CPF/CNPJ</UiLabel>
-              <UiInput
-                data-testid="farm-edit-doc"
-                :model-value="editForm.cpfCnpj"
-                inputmode="numeric"
-                maxlength="18"
-                :class="editDocError ? 'border-red-500 focus-visible:ring-red-500/40' : ''"
-                @update:model-value="onEditDocInput"
-              />
-              <div v-if="editDocError" class="text-xs text-red-500">{{ editDocError }}</div>
+              <UiButton size="sm" variant="outline" class="h-8" @click="addEditDoc">
+                <Plus class="h-4 w-4" aria-hidden="true" />
+                Adicionar
+              </UiButton>
+            </div>
+            <div v-if="editForm.documents.length === 0" class="text-xs text-muted-foreground">
+              Nenhum documento cadastrado.
+            </div>
+            <div v-for="(doc, idx) in editForm.documents" :key="`edit-doc-${idx}`" class="grid gap-1">
+              <div class="flex items-center gap-2">
+                <UiInput
+                  data-testid="farm-edit-doc"
+                  :model-value="doc"
+                  inputmode="numeric"
+                  maxlength="18"
+                  class="flex-1"
+                  :class="editDocErrors[idx] ? 'border-red-500 focus-visible:ring-red-500/40' : ''"
+                  @update:model-value="(value) => onEditDocInput(idx, value as string)"
+                />
+                <UiButton
+                  size="icon"
+                  variant="outline"
+                  aria-label="Remover documento"
+                  @click="removeEditDoc(idx)"
+                >
+                  <Trash2 class="h-4 w-4" aria-hidden="true" />
+                </UiButton>
+              </div>
+              <div v-if="editDocErrors[idx]" class="text-xs text-red-500">
+                {{ editDocErrors[idx] }}
+              </div>
             </div>
           </div>
           <div class="flex gap-2">
@@ -88,7 +112,11 @@
             CAR: {{ farm.carKey }}
           </div>
           <div class="text-sm text-muted-foreground">
-            CPF/CNPJ: {{ farm.cpfCnpj ?? "-" }}
+            CPF/CNPJ:
+            <span v-if="farm.documents?.length">
+              {{ farm.documents.map((doc) => formatDoc(doc.docNormalized)).join(", ") }}
+            </span>
+            <span v-else>-</span>
           </div>
         </template>
       </div>
@@ -170,6 +198,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
+import { Plus, Trash2 } from "lucide-vue-next";
 import {
   Button as UiButton,
   Input as UiInput,
@@ -182,11 +211,17 @@ import AnalysisMap from "@/components/maps/AnalysisMap.vue";
 import { isValidCpfCnpj, sanitizeDoc } from "@/lib/doc-utils";
 import { mvBusy } from "@/state/landwatch-status";
 
+type FarmDocument = {
+  id: string;
+  docType: "CPF" | "CNPJ";
+  docNormalized: string;
+};
+
 type Farm = {
   id: string;
   name: string;
   carKey: string;
-  cpfCnpj?: string | null;
+  documents?: FarmDocument[];
 };
 
 type AnalysisRow = {
@@ -207,7 +242,7 @@ const loadingAnalyses = ref(true);
 const farmError = ref("");
 const analysisError = ref("");
 const isEditing = ref(false);
-const editForm = reactive({ name: "", carKey: "", cpfCnpj: "" });
+const editForm = reactive({ name: "", carKey: "", documents: [] as string[] });
 const editMessage = ref("");
 const farmGeom = ref<Record<string, unknown> | null>(null);
 const loadingGeom = ref(true);
@@ -225,12 +260,19 @@ const farmGeomFeatures = computed(() => {
   ];
 });
 
-const editDocError = computed(() => {
-  const digits = sanitizeDoc(editForm.cpfCnpj ?? "");
-  if (!digits) return "";
-  if (digits.length !== 11 && digits.length !== 14) return "";
-  return isValidCpfCnpj(digits) ? "" : "CPF/CNPJ inválido";
-});
+function buildDocErrors(docs: string[]) {
+  return docs.map((doc) => {
+    const digits = sanitizeDoc(doc ?? "");
+    if (!digits) return "";
+    if (digits.length !== 11 && digits.length !== 14) {
+      return "CPF/CNPJ incompleto";
+    }
+    return isValidCpfCnpj(digits) ? "" : "CPF/CNPJ inválido";
+  });
+}
+
+const editDocErrors = computed(() => buildDocErrors(editForm.documents));
+const hasEditDocError = computed(() => editDocErrors.value.some(Boolean));
 
 function statusBadgeClass(status: string) {
   if (status === "completed") return "border-emerald-200 text-emerald-600";
@@ -295,8 +337,20 @@ function onEditCarInput(value: string) {
   editForm.carKey = maskCarKey(value ?? "");
 }
 
-function onEditDocInput(value: string) {
-  editForm.cpfCnpj = maskCpfCnpj(value ?? "");
+function onEditDocInput(index: number, value: string) {
+  editForm.documents[index] = maskCpfCnpj(value ?? "");
+}
+
+function addEditDoc() {
+  editForm.documents.push("");
+}
+
+function removeEditDoc(index: number) {
+  editForm.documents.splice(index, 1);
+}
+
+function formatDoc(doc: string) {
+  return maskCpfCnpj(doc ?? "");
 }
 
 async function loadFarm() {
@@ -307,7 +361,8 @@ async function loadFarm() {
     farm.value = unwrapData(res.data);
     editForm.name = farm.value?.name ?? "";
     editForm.carKey = farm.value?.carKey ?? "";
-    editForm.cpfCnpj = farm.value?.cpfCnpj ?? "";
+    editForm.documents =
+      farm.value?.documents?.map((doc) => maskCpfCnpj(doc.docNormalized)) ?? [];
     if (!mvBusy.value) {
       void loadGeometry(farm.value?.carKey ?? "");
     } else {
@@ -379,7 +434,8 @@ function startEdit() {
   editMessage.value = "";
   editForm.name = farm.value.name ?? "";
   editForm.carKey = farm.value.carKey ?? "";
-  editForm.cpfCnpj = farm.value.cpfCnpj ?? "";
+  editForm.documents =
+    farm.value.documents?.map((doc) => maskCpfCnpj(doc.docNormalized)) ?? [];
   isEditing.value = true;
 }
 
@@ -394,15 +450,18 @@ async function saveEdit() {
     editMessage.value = "Nome e CAR são obrigatórios.";
     return;
   }
-  if (editDocError.value) {
-    editMessage.value = editDocError.value;
+  if (hasEditDocError.value) {
+    editMessage.value = editDocErrors.value.find(Boolean) ?? "";
     return;
   }
   try {
+    const documents = editForm.documents
+      .map((doc) => doc.trim())
+      .filter((doc) => doc.length > 0);
     const payload = {
       name: editForm.name.trim(),
       carKey: editForm.carKey.trim(),
-      cpfCnpj: editForm.cpfCnpj.trim() ? editForm.cpfCnpj.trim() : null,
+      documents,
     };
     const res = await http.patch<ApiEnvelope<Farm>>(
       `/v1/farms/${farmId}`,

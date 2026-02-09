@@ -1,4 +1,5 @@
 import { Logger } from '@nestjs/common';
+import { ANALYSIS_CACHE_VERSION } from './analysis-cache.constants';
 import { AnalysisRunnerService } from './analysis-runner.service';
 
 function makePrismaMock() {
@@ -238,7 +239,7 @@ describe('AnalysisRunnerService', () => {
     expect(deps.cache.set).toHaveBeenCalledWith(
       'analysis-1',
       expect.objectContaining({
-        cacheVersion: 2,
+        cacheVersion: ANALYSIS_CACHE_VERSION,
         detail: { id: 'analysis-1' },
         map: expect.any(Object),
       }),

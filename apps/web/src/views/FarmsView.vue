@@ -47,7 +47,7 @@
                 <div>
                   <div class="font-semibold">{{ farm.name }}</div>
                   <div class="text-xs text-muted-foreground">
-                    {{ farm.carKey }} · {{ farm.cpfCnpj ?? "-" }}
+                    {{ farm.carKey }} · {{ formatDocumentsSummary(farm) }}
                   </div>
                 </div>
                 <div class="flex flex-wrap items-center gap-2">
@@ -55,8 +55,8 @@
                     size="icon"
                     variant="outline"
                     class="sm:hidden"
-                    @click="goDetail(farm)"
                     aria-label="Ver detalhes"
+                    @click="goDetail(farm)"
                   >
                     <Eye class="h-4 w-4" aria-hidden="true" />
                   </UiButton>
@@ -74,8 +74,8 @@
                     size="icon"
                     variant="outline"
                     class="sm:hidden"
-                    @click="startEdit(farm)"
                     aria-label="Editar"
+                    @click="startEdit(farm)"
                   >
                     <Pencil class="h-4 w-4" aria-hidden="true" />
                   </UiButton>
@@ -92,8 +92,8 @@
                   <UiButton
                     size="icon"
                     class="sm:hidden"
-                    @click="goNewAnalysis(farm)"
                     aria-label="Gerar análise"
+                    @click="goNewAnalysis(farm)"
                   >
                     <FileText class="h-4 w-4" aria-hidden="true" />
                   </UiButton>
@@ -124,16 +124,45 @@
                       @update:model-value="onEditCarInput"
                     />
                   </div>
-                  <div>
+                </div>
+                <div class="grid gap-2">
+                  <div class="flex items-center justify-between">
                     <UiLabel>CPF/CNPJ</UiLabel>
-                  <UiInput
-                    :model-value="editForm.cpfCnpj"
-                    inputmode="numeric"
-                    maxlength="18"
-                    :class="editDocError ? 'border-red-500 focus-visible:ring-red-500/40' : ''"
-                    @update:model-value="onEditDocInput"
-                  />
-                  <div v-if="editDocError" class="text-xs text-red-500">{{ editDocError }}</div>
+                    <UiButton
+                      size="sm"
+                      variant="outline"
+                      class="h-8"
+                      @click="addEditDoc"
+                    >
+                      <Plus class="h-4 w-4" aria-hidden="true" />
+                      Adicionar
+                    </UiButton>
+                  </div>
+                  <div v-if="editForm.documents.length === 0" class="text-xs text-muted-foreground">
+                    Nenhum documento cadastrado.
+                  </div>
+                  <div v-for="(doc, idx) in editForm.documents" :key="`edit-doc-${idx}`" class="grid gap-1">
+                    <div class="flex items-center gap-2">
+                      <UiInput
+                        :model-value="doc"
+                        inputmode="numeric"
+                        maxlength="18"
+                        class="flex-1"
+                        :class="editDocErrors[idx] ? 'border-red-500 focus-visible:ring-red-500/40' : ''"
+                        @update:model-value="(value) => onEditDocInput(idx, value as string)"
+                      />
+                      <UiButton
+                        size="icon"
+                        variant="outline"
+                        aria-label="Remover documento"
+                        @click="removeEditDoc(idx)"
+                      >
+                        <Trash2 class="h-4 w-4" aria-hidden="true" />
+                      </UiButton>
+                    </div>
+                    <div v-if="editDocErrors[idx]" class="text-xs text-red-500">
+                      {{ editDocErrors[idx] }}
+                    </div>
                   </div>
                 </div>
                 <div class="flex gap-2">
@@ -176,17 +205,40 @@
         </div>
 
         <div class="grid gap-2">
-          <UiLabel for="farm-doc">CPF/CNPJ (opcional)</UiLabel>
-          <UiInput
-            id="farm-doc"
-            :model-value="farmForm.cpfCnpj"
-            placeholder="CPF/CNPJ"
-            inputmode="numeric"
-            maxlength="18"
-            :class="farmDocError ? 'border-red-500 focus-visible:ring-red-500/40' : ''"
-            @update:model-value="onFarmDocInput"
-          />
-          <div v-if="farmDocError" class="text-xs text-red-500">{{ farmDocError }}</div>
+          <div class="flex items-center justify-between">
+            <UiLabel>CPF/CNPJ (opcional)</UiLabel>
+            <UiButton size="sm" variant="outline" class="h-8" @click="addFarmDoc">
+              <Plus class="h-4 w-4" aria-hidden="true" />
+              Adicionar
+            </UiButton>
+          </div>
+          <div v-if="farmForm.documents.length === 0" class="text-xs text-muted-foreground">
+            Nenhum documento informado.
+          </div>
+          <div v-for="(doc, idx) in farmForm.documents" :key="`farm-doc-${idx}`" class="grid gap-1">
+            <div class="flex items-center gap-2">
+              <UiInput
+                :model-value="doc"
+                placeholder="CPF/CNPJ"
+                inputmode="numeric"
+                maxlength="18"
+                class="flex-1"
+                :class="farmDocErrors[idx] ? 'border-red-500 focus-visible:ring-red-500/40' : ''"
+                @update:model-value="(value) => onFarmDocInput(idx, value as string)"
+              />
+              <UiButton
+                size="icon"
+                variant="outline"
+                aria-label="Remover documento"
+                @click="removeFarmDoc(idx)"
+              >
+                <Trash2 class="h-4 w-4" aria-hidden="true" />
+              </UiButton>
+            </div>
+            <div v-if="farmDocErrors[idx]" class="text-xs text-red-500">
+              {{ farmDocErrors[idx] }}
+            </div>
+          </div>
         </div>
       </div>
       <UiDialogFooter class="flex flex-wrap items-center gap-2 border-t border-border px-6 py-4">
@@ -206,7 +258,7 @@
 import axios from "axios";
 import { computed, onMounted, reactive, ref } from "vue";
 import { useRouter } from "vue-router";
-import { Eye, FileText, Pencil } from "lucide-vue-next";
+import { Eye, FileText, Pencil, Plus, Trash2 } from "lucide-vue-next";
 import {
   Button as UiButton,
   Dialog as UiDialog,
@@ -222,11 +274,18 @@ import { http } from "@/api/http";
 import { unwrapData, unwrapPaged, type ApiEnvelope } from "@/api/envelope";
 import { isValidCpfCnpj, sanitizeDoc } from "@/lib/doc-utils";
 
+type FarmDocument = {
+  id: string;
+  docType: "CPF" | "CNPJ";
+  docNormalized: string;
+};
+
 type Farm = {
   id: string;
   name: string;
   carKey: string;
-  cpfCnpj?: string | null;
+  documentsCount?: number;
+  documents?: FarmDocument[];
 };
 
 const router = useRouter();
@@ -235,25 +294,27 @@ const loadingFarms = ref(true);
 const farmsLoaded = ref(false);
 const createOpen = ref(false);
 const savingFarm = ref(false);
-const farmForm = reactive({ name: "", carKey: "", cpfCnpj: "" });
+const farmForm = reactive({ name: "", carKey: "", documents: [] as string[] });
 const farmMessage = ref("");
 const editingId = ref<string | null>(null);
-const editForm = reactive({ name: "", carKey: "", cpfCnpj: "" });
+const editForm = reactive({ name: "", carKey: "", documents: [] as string[] });
 const editMessage = ref("");
 
-const farmDocError = computed(() => {
-  const digits = sanitizeDoc(farmForm.cpfCnpj ?? "");
-  if (!digits) return "";
-  if (digits.length !== 11 && digits.length !== 14) return "";
-  return isValidCpfCnpj(digits) ? "" : "CPF/CNPJ inválido";
-});
+function buildDocErrors(docs: string[]) {
+  return docs.map((doc) => {
+    const digits = sanitizeDoc(doc ?? "");
+    if (!digits) return "";
+    if (digits.length !== 11 && digits.length !== 14) {
+      return "CPF/CNPJ incompleto";
+    }
+    return isValidCpfCnpj(digits) ? "" : "CPF/CNPJ inválido";
+  });
+}
 
-const editDocError = computed(() => {
-  const digits = sanitizeDoc(editForm.cpfCnpj ?? "");
-  if (!digits) return "";
-  if (digits.length !== 11 && digits.length !== 14) return "";
-  return isValidCpfCnpj(digits) ? "" : "CPF/CNPJ inválido";
-});
+const farmDocErrors = computed(() => buildDocErrors(farmForm.documents));
+const editDocErrors = computed(() => buildDocErrors(editForm.documents));
+const hasFarmDocError = computed(() => farmDocErrors.value.some(Boolean));
+const hasEditDocError = computed(() => editDocErrors.value.some(Boolean));
 
 function maskCarKey(value: string) {
   const cleaned = value
@@ -299,23 +360,39 @@ function onFarmCarInput(value: string) {
   farmForm.carKey = maskCarKey(value ?? "");
 }
 
-function onFarmDocInput(value: string) {
-  farmForm.cpfCnpj = maskCpfCnpj(value ?? "");
+function onFarmDocInput(index: number, value: string) {
+  farmForm.documents[index] = maskCpfCnpj(value ?? "");
 }
 
 function onEditCarInput(value: string) {
   editForm.carKey = maskCarKey(value ?? "");
 }
 
-function onEditDocInput(value: string) {
-  editForm.cpfCnpj = maskCpfCnpj(value ?? "");
+function onEditDocInput(index: number, value: string) {
+  editForm.documents[index] = maskCpfCnpj(value ?? "");
+}
+
+function addFarmDoc() {
+  farmForm.documents.push("");
+}
+
+function removeFarmDoc(index: number) {
+  farmForm.documents.splice(index, 1);
+}
+
+function addEditDoc() {
+  editForm.documents.push("");
+}
+
+function removeEditDoc(index: number) {
+  editForm.documents.splice(index, 1);
 }
 
 function openCreate() {
   farmMessage.value = "";
   farmForm.name = "";
   farmForm.carKey = "";
-  farmForm.cpfCnpj = "";
+  farmForm.documents = [];
   createOpen.value = true;
 }
 
@@ -328,7 +405,7 @@ async function loadFarms() {
   loadingFarms.value = true;
   try {
     const res = await http.get<ApiEnvelope<Farm[]>>("/v1/farms", {
-      params: { page: 1, pageSize: 100 },
+      params: { page: 1, pageSize: 100, includeDocs: true },
     });
     farms.value = unwrapPaged(res.data).rows;
   } finally {
@@ -343,14 +420,17 @@ async function createFarm() {
     farmMessage.value = "Nome e CAR são obrigatórios.";
     return;
   }
-  if (farmDocError.value) {
-    farmMessage.value = farmDocError.value;
+  if (hasFarmDocError.value) {
+    farmMessage.value = farmDocErrors.value.find(Boolean) ?? "";
     return;
   }
+  const documents = farmForm.documents
+    .map((doc) => doc.trim())
+    .filter((doc) => doc.length > 0);
   const payload = {
     name: farmForm.name.trim(),
     carKey: farmForm.carKey.trim(),
-    cpfCnpj: farmForm.cpfCnpj?.trim() || undefined,
+    documents: documents.length > 0 ? documents : undefined,
   };
   savingFarm.value = true;
   try {
@@ -373,11 +453,25 @@ async function createFarm() {
   }
 }
 
-function startEdit(farm: Farm) {
+async function startEdit(farm: Farm) {
   editingId.value = farm.id;
+  editMessage.value = "";
   editForm.name = farm.name;
   editForm.carKey = farm.carKey;
-  editForm.cpfCnpj = farm.cpfCnpj ?? "";
+  if (farm.documents) {
+    editForm.documents = farm.documents.map((doc) => maskCpfCnpj(doc.docNormalized));
+    return;
+  }
+  try {
+    const res = await http.get<ApiEnvelope<Farm>>(`/v1/farms/${farm.id}`);
+    const full = unwrapData(res.data);
+    editForm.documents = full.documents
+      ? full.documents.map((doc) => maskCpfCnpj(doc.docNormalized))
+      : [];
+  } catch {
+    editForm.documents = [];
+    editMessage.value = "Não foi possível carregar documentos.";
+  }
 }
 
 function cancelEdit() {
@@ -387,20 +481,29 @@ function cancelEdit() {
 
 async function saveEdit(id: string) {
   editMessage.value = "";
-  if (editDocError.value) {
-    editMessage.value = editDocError.value;
+  if (hasEditDocError.value) {
+    editMessage.value = editDocErrors.value.find(Boolean) ?? "";
     return;
   }
+  const documents = editForm.documents
+    .map((doc) => doc.trim())
+    .filter((doc) => doc.length > 0);
   const payload = {
     name: editForm.name.trim() || undefined,
     carKey: editForm.carKey.trim() || undefined,
-    cpfCnpj: editForm.cpfCnpj.trim() ? editForm.cpfCnpj.trim() : null,
+    documents,
   };
   const res = await http.patch<ApiEnvelope<Farm>>(`/v1/farms/${id}`, payload);
   unwrapData(res.data);
   editMessage.value = "Fazenda atualizada.";
   editingId.value = null;
   await loadFarms();
+}
+
+function formatDocumentsSummary(farm: Farm) {
+  const count = farm.documentsCount ?? farm.documents?.length ?? 0;
+  if (!count) return "Sem documentos";
+  return `${count} documento${count === 1 ? "" : "s"}`;
 }
 
 async function goNewAnalysis(farm: Farm) {

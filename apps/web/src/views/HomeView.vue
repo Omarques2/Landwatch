@@ -77,7 +77,9 @@
               class="rounded-lg border border-border px-3 py-2"
             >
               <div class="font-semibold">{{ farm.name }}</div>
-              <div class="text-xs text-muted-foreground">{{ farm.carKey }} · {{ farm.cpfCnpj ?? "-" }}</div>
+              <div class="text-xs text-muted-foreground">
+                {{ farm.carKey }} · {{ (farm.documentsCount ?? farm.documents?.length ?? 0) }} documentos
+              </div>
             </div>
           </div>
         </div>
@@ -339,7 +341,8 @@ type Farm = {
   id: string;
   name: string;
   carKey: string;
-  cpfCnpj?: string | null;
+  documentsCount?: number;
+  documents?: Array<{ id: string; docType: "CPF" | "CNPJ"; docNormalized: string }>;
 };
 
 type Analysis = {
@@ -439,7 +442,7 @@ async function createFarm() {
   const payload = {
     name: farmForm.name,
     carKey: farmForm.carKey,
-    cpfCnpj: farmForm.cpfCnpj || undefined,
+    documents: farmForm.cpfCnpj ? [farmForm.cpfCnpj] : undefined,
   };
   const res = await http.post<ApiEnvelope<Farm>>("/v1/farms", payload);
   const created = unwrapData(res.data);

@@ -1,4 +1,11 @@
-import { IsOptional, IsString, Length, ValidateIf } from 'class-validator';
+import {
+  ArrayUnique,
+  IsArray,
+  IsOptional,
+  IsString,
+  Length,
+  ValidateIf,
+} from 'class-validator';
 
 export class UpdateFarmDto {
   @IsOptional()
@@ -16,4 +23,11 @@ export class UpdateFarmDto {
   @IsString()
   @Length(11, 18)
   cpfCnpj?: string | null;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayUnique()
+  @IsString({ each: true })
+  @Length(11, 18, { each: true })
+  documents?: string[];
 }

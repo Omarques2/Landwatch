@@ -11,6 +11,7 @@ import {
 } from '@nestjs/common';
 import type { AuthedRequest } from '../auth/authed-request.type';
 import { CreateFarmDto } from './dto/create-farm.dto';
+import { FarmByCarQuery } from './dto/farm-by-car.query';
 import { ListFarmsQuery } from './dto/list-farms.query';
 import { UpdateFarmDto } from './dto/update-farm.dto';
 import { FarmsService } from './farms.service';
@@ -23,7 +24,17 @@ export class FarmsController {
   async list(@Query() query: ListFarmsQuery) {
     const page = query.page ?? 1;
     const pageSize = query.pageSize ?? 20;
-    return this.farms.list({ q: query.q, page, pageSize });
+    return this.farms.list({
+      q: query.q,
+      page,
+      pageSize,
+      includeDocs: query.includeDocs,
+    });
+  }
+
+  @Get('by-car')
+  async getByCar(@Query() query: FarmByCarQuery) {
+    return this.farms.getByCarKey(query.carKey);
   }
 
   @Get(':id')

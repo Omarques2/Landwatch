@@ -1,5 +1,12 @@
-import { Type } from 'class-transformer';
-import { IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
+import { Transform, Type } from 'class-transformer';
+import {
+  IsBoolean,
+  IsInt,
+  IsOptional,
+  IsString,
+  Max,
+  Min,
+} from 'class-validator';
 
 export class ListFarmsQuery {
   @IsOptional()
@@ -18,4 +25,9 @@ export class ListFarmsQuery {
   @Min(1)
   @Max(100)
   pageSize?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  @Transform(({ value }) => value === true || value === 'true')
+  includeDocs?: boolean;
 }

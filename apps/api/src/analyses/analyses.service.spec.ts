@@ -1,13 +1,17 @@
 import { AnalysesService } from './analyses.service';
+import { ANALYSIS_CACHE_VERSION } from './analysis-cache.constants';
 
 function makePrismaMock() {
-  return {
+  const prisma: any = {
     user: {
       findUnique: jest.fn().mockResolvedValue({ id: 'user-1' }),
     },
     farm: {
       findUnique: jest.fn(),
       findFirst: jest.fn(),
+    },
+    farmDocument: {
+      upsert: jest.fn(),
     },
     analysis: {
       create: jest
@@ -18,8 +22,14 @@ function makePrismaMock() {
       count: jest.fn(),
     },
     $queryRaw: jest.fn(),
-    $transaction: jest.fn(async (ops: any[]) => Promise.all(ops)),
   };
+  prisma.$transaction = jest.fn(async (input: any) => {
+    if (typeof input === 'function') {
+      return input(prisma);
+    }
+    return Promise.all(input);
+  });
+  return prisma;
 }
 
 describe('AnalysesService', () => {
@@ -50,10 +60,11 @@ describe('AnalysesService', () => {
   it('creates a pending analysis and enqueues async processing', async () => {
     const prisma = makePrismaMock();
     prisma.$queryRaw.mockResolvedValueOnce([{ ok: 1 }]);
+    prisma.farm.findFirst.mockResolvedValue({ id: 'farm-1' });
     const deps = makeDeps();
 
     const service = new AnalysesService(
-      prisma as any,
+      prisma,
       deps.runner as any,
       deps.detail as any,
       deps.cache as any,
@@ -73,19 +84,26 @@ describe('AnalysesService', () => {
     );
     expect(deps.runner.enqueue).toHaveBeenCalledWith('analysis-1');
     expect(result.status).toBe('pending');
+    expect(prisma.farmDocument.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          farmId_docNormalized: {
+            farmId: 'farm-1',
+            docNormalized: '52998224725',
+          },
+        }),
+      }),
+    );
   });
 
-  it('uses farm cpfCnpj when input does not provide one', async () => {
+  it('does not inject farm documents when input does not provide CPF/CNPJ', async () => {
     const prisma = makePrismaMock();
-    prisma.farm.findFirst.mockResolvedValue({
-      id: 'farm-1',
-      cpfCnpj: '52998224725',
-    });
+    prisma.farm.findFirst.mockResolvedValue({ id: 'farm-1' });
     prisma.$queryRaw.mockResolvedValueOnce([{ ok: 1 }]);
     const deps = makeDeps();
 
     const service = new AnalysesService(
-      prisma as any,
+      prisma,
       deps.runner as any,
       deps.detail as any,
       deps.cache as any,
@@ -93,14 +111,12 @@ describe('AnalysesService', () => {
       deps.landwatchStatus as any,
       () => now,
     );
-    await service.create({ sub: 'entra-1' } as any, {
-      carKey: 'CAR-1',
-    });
+    await service.create({ sub: 'entra-1' } as any, { carKey: 'CAR-1' });
 
     expect(prisma.analysis.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
-          cpfCnpj: '52998224725',
+          cpfCnpj: null,
           farmId: 'farm-1',
         }),
       }),
@@ -113,7 +129,7 @@ describe('AnalysesService', () => {
     const deps = makeDeps();
 
     const service = new AnalysesService(
-      prisma as any,
+      prisma,
       deps.runner as any,
       deps.detail as any,
       deps.cache as any,
@@ -138,7 +154,7 @@ describe('AnalysesService', () => {
     const deps = makeDeps();
 
     const service = new AnalysesService(
-      prisma as any,
+      prisma,
       deps.runner as any,
       deps.detail as any,
       deps.cache as any,
@@ -167,7 +183,7 @@ describe('AnalysesService', () => {
     );
 
     const service = new AnalysesService(
-      prisma as any,
+      prisma,
       deps.runner as any,
       deps.detail as any,
       deps.cache as any,
@@ -189,12 +205,12 @@ describe('AnalysesService', () => {
     const prisma = makePrismaMock();
     const deps = makeDeps();
     deps.cache.get.mockResolvedValue({
-      cacheVersion: 3,
+      cacheVersion: ANALYSIS_CACHE_VERSION,
       detail: { id: 'analysis-1' },
     });
 
     const service = new AnalysesService(
-      prisma as any,
+      prisma,
       deps.runner as any,
       deps.detail as any,
       deps.cache as any,
@@ -223,12 +239,12 @@ describe('AnalysesService', () => {
       },
     ];
     deps.cache.get.mockResolvedValue({
-      cacheVersion: 3,
+      cacheVersion: ANALYSIS_CACHE_VERSION,
       map: { tolerance: 0.0001, rows: mapRows },
     });
 
     const service = new AnalysesService(
-      prisma as any,
+      prisma,
       deps.runner as any,
       deps.detail as any,
       deps.cache as any,
@@ -249,7 +265,7 @@ describe('AnalysesService', () => {
     prisma.analysis.findMany.mockResolvedValue([]);
     const deps = makeDeps();
     const service = new AnalysesService(
-      prisma as any,
+      prisma,
       deps.runner as any,
       deps.detail as any,
       deps.cache as any,
@@ -280,7 +296,7 @@ describe('AnalysesService', () => {
     prisma.analysis.findMany.mockResolvedValue([]);
     const deps = makeDeps();
     const service = new AnalysesService(
-      prisma as any,
+      prisma,
       deps.runner as any,
       deps.detail as any,
       deps.cache as any,
