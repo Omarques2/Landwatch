@@ -1,6 +1,5 @@
 <template>
   <div class="relative mx-auto flex max-w-6xl flex-col gap-6 px-6 py-6 overflow-hidden">
-    <AnalysisWatermark/>
     <div class="relative z-10">
     <header class="flex flex-wrap items-center justify-between gap-4">
       <div>
@@ -223,7 +222,6 @@ import {
 } from "@/components/ui";
 import { http } from "@/api/http";
 import { unwrapPaged, type ApiEnvelope } from "@/api/envelope";
-import AnalysisWatermark from "@/components/analyses/AnalysisWatermark.vue";
 
 type AnalysisRow = {
   id: string;
