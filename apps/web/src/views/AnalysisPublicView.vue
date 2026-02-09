@@ -1,5 +1,21 @@
 <template>
-  <div class="analysis-public-root mx-auto flex max-w-6xl flex-col gap-6 px-6 py-6">
+  <div class="analysis-public-root relative mx-auto flex max-w-6xl flex-col gap-6 px-6 py-6 overflow-hidden">
+    <Teleport to="body">
+      <div v-if="isPrintMode" class="analysis-print-teleport">
+        <AnalysisPrintLayout
+          ref="printLayoutRef"
+          :analysis="analysis"
+          :map-features="mapFeatures"
+          :map-loading="mapLoading"
+          :is-loading="isLoading"
+          :analysis-public-url="analysisPublicUrl"
+          :logo-src="printLogo"
+        />
+      </div>
+    </Teleport>
+    <AnalysisWatermark v-if="!isPrintMode"/>
+    <div class="relative z-10">
+      <template v-if="!isPrintMode">
     <header class="public-header">
       <div class="public-title-row">
         <img :src="printLogo" alt="SigFarm" class="public-logo" />
@@ -74,7 +90,12 @@
           >
             <div class="loading-spinner" aria-label="Carregando"></div>
           </div>
-          <AnalysisMap v-else-if="mapFeatures.length" :features="mapFeatures" :show-legend="false" />
+          <AnalysisMap
+            v-else-if="mapFeatures.length"
+            ref="analysisMapRef"
+            :features="mapFeatures"
+            :show-legend="false"
+          />
           <div
             v-else-if="analysis?.status === 'completed'"
             class="grid h-full place-items-center text-sm text-muted-foreground"
@@ -137,17 +158,21 @@
         </div>
       </div>
     </section>
+      </template>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
 import { useRoute } from "vue-router";
 import { http } from "@/api/http";
 import { unwrapData, type ApiEnvelope } from "@/api/envelope";
 import { colorForDataset, formatDatasetLabel } from "@/features/analyses/analysis-colors";
 import { getAnalysisMapCache, setAnalysisMapCache } from "@/features/analyses/analysis-map-cache";
 import AnalysisMap from "@/components/maps/AnalysisMap.vue";
+import AnalysisPrintLayout from "@/components/analyses/AnalysisPrintLayout.vue";
+import AnalysisWatermark from "@/components/analyses/AnalysisWatermark.vue";
 import printLogo from "@/assets/logo.png";
 
 type AnalysisResult = {
@@ -199,6 +224,15 @@ const analysis = ref<AnalysisDetail | null>(null);
 const mapFeatures = ref<MapFeature[]>([]);
 const mapLoading = ref(false);
 const isLoading = ref(false);
+const analysisMapRef = ref<InstanceType<typeof AnalysisMap> | null>(null);
+const printLayoutRef = ref<InstanceType<typeof AnalysisPrintLayout> | null>(null);
+const isPrintMode = ref(false);
+const originalTitle = ref<string | null>(null);
+
+const analysisPublicUrl = computed(() => {
+  if (typeof window === "undefined") return "";
+  return window.location.href;
+});
 
 const sicarStatusOk = computed(() => {
   const status = analysis.value?.sicarStatus;
@@ -340,6 +374,28 @@ function fixMojibake(value: string) {
   }
 }
 
+const onBeforePrint = () => {
+  if (isPrintMode.value) {
+    printLayoutRef.value?.prepareForPrint();
+    return;
+  }
+  isPrintMode.value = true;
+  setBodyPrintMode(true);
+  setPrintTitle();
+  void nextTick().then(() => printLayoutRef.value?.prepareForPrint());
+};
+
+const onAfterPrint = () => {
+  if (isPrintMode.value) {
+    printLayoutRef.value?.resetAfterPrint();
+    isPrintMode.value = false;
+    setBodyPrintMode(false);
+  } else {
+    analysisMapRef.value?.resetAfterPrint();
+  }
+  restoreTitle();
+};
+
 async function loadAnalysis() {
   const id = route.params.id as string;
   isLoading.value = true;
@@ -377,7 +433,41 @@ async function loadMap(id: string) {
 
 onMounted(async () => {
   await loadAnalysis();
+  window.addEventListener("beforeprint", onBeforePrint);
+  window.addEventListener("afterprint", onAfterPrint);
 });
+
+onBeforeUnmount(() => {
+  window.removeEventListener("beforeprint", onBeforePrint);
+  window.removeEventListener("afterprint", onAfterPrint);
+  restoreTitle();
+  setBodyPrintMode(false);
+});
+
+function setBodyPrintMode(active: boolean) {
+  if (typeof document === "undefined") return;
+  document.body.classList.toggle("print-preview", active);
+}
+
+function setPrintTitle() {
+  if (typeof document === "undefined") return;
+  if (!originalTitle.value) originalTitle.value = document.title;
+  const farm = (analysis.value?.farmName || "Analise")
+    .replace(/[^\w\s-]/g, "")
+    .trim()
+    .replace(/\s+/g, "-");
+  const date = analysis.value?.analysisDate?.slice(0, 10) ?? "";
+  const id = analysis.value?.id ?? "";
+  const suffix = [farm, date, id].filter(Boolean).join("-");
+  document.title = suffix ? `Sigfarm-LandWatch-${suffix}` : "Sigfarm-LandWatch";
+}
+
+function restoreTitle() {
+  if (typeof document === "undefined") return;
+  if (!originalTitle.value) return;
+  document.title = originalTitle.value;
+  originalTitle.value = null;
+}
 </script>
 
 <style scoped>

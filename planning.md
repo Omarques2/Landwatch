@@ -143,6 +143,9 @@ Fora do MVP (ou MVP+):
 - Foco em legibilidade, fluxo simples e estados vazios claros.
 - Skeletons obrigatorios para dados dinamicos; mensagens de vazio apenas apos resposta da API.
 - Marcador de busca por coordenadas usa pin padrão Leaflet para contraste imediato.
+- Aviso de base geoespacial em atualização (MV refresh) com bloqueio de ações dependentes.
+- Futuro: status de MV via websocket/evento (evitar polling no cliente).
+- Botão "Usar minha localização" para preencher coordenadas via GPS no Buscar CAR.
 
 ## Seguranca e compliance
 - JWT validation (aud/iss) e guard global.
@@ -254,6 +257,9 @@ Card P1 — Skeletons em dados dinâmicos
 Card P1 — Detalhe da fazenda: editar dados + mapa do CAR
 - Aceite: usuario edita nome/CAR/CPF-CNPJ e visualiza a geometria no mapa.
 
+Card P1 — Coordenadas via GPS
+- Aceite: botão solicita geolocalização e preenche latitude/longitude quando permitido.
+
 ### EPIC-10: Hardening e qualidade (P1/P2)
 Card P1 — Envelope + ExceptionFilter + correlationId
 - Aceite: respostas padronizadas com correlationId.
@@ -269,6 +275,9 @@ Card P1 — Auditoria de indices DB (app + landwatch)
 
 Card P1 — Cache de analises (TTL 2 meses)
 - Aceite: tabela de cache grava na geracao; leitura do detalhe prioriza cache.
+
+Card P1 — Detectar lock de MVs e sinalizar no sistema
+- Aceite: API detecta refresh/lock de MV e UI informa "base em atualizacao" ao executar lookup/bbox durante ingestao.
 
 Card P2 — Tests e2e + factories
 - Aceite: test:e2e isolado de prod/staging.

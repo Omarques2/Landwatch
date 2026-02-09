@@ -35,6 +35,8 @@ export class AnalysesController {
     return this.analyses.list({
       carKey: query.carKey,
       farmId: query.farmId,
+      startDate: query.startDate,
+      endDate: query.endDate,
       page,
       pageSize,
     });

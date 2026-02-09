@@ -1,7 +1,7 @@
 <!-- src/views/LoginView.vue -->
 <template>
   <div class="relative min-h-screen overflow-hidden bg-background text-foreground">
-    <!-- BI background (SVG) -->
+    <!-- Farm fields background (SVG) -->
     <svg
       class="pointer-events-none absolute inset-0 h-full w-full login-bg opacity-[0.42] dark:opacity-[0.25]"
       viewBox="0 0 1400 900"
@@ -9,153 +9,191 @@
       aria-hidden="true"
     >
       <defs>
-        <pattern id="grid" width="44" height="44" patternUnits="userSpaceOnUse">
-          <path d="M 44 0 L 0 0 0 44" stroke="currentColor" stroke-opacity="0.10" stroke-width="1" />
-        </pattern>
-
-        <linearGradient id="fade" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stop-color="white" stop-opacity="1" />
-          <stop offset="1" stop-color="white" stop-opacity="0.12" />
+        <linearGradient id="baseWash" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="#E7E6DA" stop-opacity="0.7" />
+          <stop offset="1" stop-color="#D6D9C5" stop-opacity="0.55" />
         </linearGradient>
 
-        <mask id="fadeMask">
-          <rect x="0" y="0" width="1400" height="900" fill="url(#fade)" />
-        </mask>
+        <linearGradient id="fieldGreen" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="#708E70" stop-opacity="0.82" />
+          <stop offset="1" stop-color="#4F6D54" stop-opacity="0.86" />
+        </linearGradient>
 
-        <!-- leve highlight (não parece skeleton/loading) -->
-        <radialGradient id="softSpot" cx="50%" cy="45%" r="65%">
-          <stop offset="0" stop-color="white" stop-opacity="0.22" />
-          <stop offset="1" stop-color="white" stop-opacity="0" />
+        <linearGradient id="fieldOlive" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="#8A9C6A" stop-opacity="0.82" />
+          <stop offset="1" stop-color="#6B7C53" stop-opacity="0.86" />
+        </linearGradient>
+
+        <linearGradient id="fieldGold" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="#C9B27C" stop-opacity="0.82" />
+          <stop offset="1" stop-color="#AA8B59" stop-opacity="0.86" />
+        </linearGradient>
+
+        <linearGradient id="fieldWheat" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="#E0C7A1" stop-opacity="0.82" />
+          <stop offset="1" stop-color="#C6A479" stop-opacity="0.86" />
+        </linearGradient>
+
+        <linearGradient id="fieldSoil" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="#8E6A54" stop-opacity="0.78" />
+          <stop offset="1" stop-color="#6B4A3A" stop-opacity="0.82" />
+        </linearGradient>
+
+        <linearGradient id="fieldMint" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="#7AA594" stop-opacity="0.78" />
+          <stop offset="1" stop-color="#5E8677" stop-opacity="0.82" />
+        </linearGradient>
+
+        <linearGradient id="river" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0" stop-color="#6C8FA3" stop-opacity="0.6" />
+          <stop offset="1" stop-color="#3B6C79" stop-opacity="0.65" />
+        </linearGradient>
+
+        <pattern
+          id="rowsA"
+          width="18"
+          height="18"
+          patternUnits="userSpaceOnUse"
+          patternTransform="rotate(-18)"
+        >
+          <path d="M0 0 H18" stroke="#F1E7C9" stroke-opacity="0.35" stroke-width="1" />
+        </pattern>
+
+        <pattern
+          id="rowsB"
+          width="16"
+          height="16"
+          patternUnits="userSpaceOnUse"
+          patternTransform="rotate(12)"
+        >
+          <path d="M0 0 H16" stroke="#D8E5C0" stroke-opacity="0.35" stroke-width="1" />
+        </pattern>
+
+        <pattern
+          id="rowsC"
+          width="14"
+          height="14"
+          patternUnits="userSpaceOnUse"
+          patternTransform="rotate(-6)"
+        >
+          <path d="M0 0 H14" stroke="#E8D7B2" stroke-opacity="0.35" stroke-width="1" />
+        </pattern>
+
+        <radialGradient id="sunGlow" cx="20%" cy="10%" r="60%">
+          <stop offset="0" stop-color="#FFF1D2" stop-opacity="0.38" />
+          <stop offset="1" stop-color="#FFF1D2" stop-opacity="0" />
         </radialGradient>
+
+        <linearGradient id="mist" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.25" />
+          <stop offset="1" stop-color="#FFFFFF" stop-opacity="0.02" />
+        </linearGradient>
       </defs>
 
-      <!-- grid -->
-      <rect x="0" y="0" width="1400" height="900" fill="url(#grid)" mask="url(#fadeMask)" />
-      <rect x="0" y="0" width="1400" height="900" fill="url(#softSpot)" opacity="0.22" />
+      <rect x="0" y="0" width="1400" height="900" fill="url(#baseWash)" />
+      <rect x="0" y="0" width="1400" height="900" fill="url(#sunGlow)" opacity="0.55" />
+      <rect x="0" y="0" width="1400" height="900" fill="url(#mist)" opacity="0.5" />
 
-      <!-- ========= Top-left: Large dashboard card ========= -->
-      <g transform="translate(110,120)">
-        <g class="svg-anim float-a">
-          <rect x="0" y="0" width="520" height="320" rx="28" fill="currentColor" fill-opacity="0.05" />
-          <rect x="30" y="28" width="260" height="16" rx="8" fill="currentColor" fill-opacity="0.15" />
-          <rect x="30" y="58" width="180" height="12" rx="6" fill="currentColor" fill-opacity="0.10" />
-          <rect x="30" y="80" width="140" height="12" rx="6" fill="currentColor" fill-opacity="0.10" />
-
-          <!-- KPI chips -->
-          <rect x="30" y="110" width="120" height="30" rx="15" fill="currentColor" fill-opacity="0.09" />
-          <rect x="160" y="110" width="140" height="30" rx="15" fill="currentColor" fill-opacity="0.09" />
-          <rect x="310" y="110" width="110" height="30" rx="15" fill="currentColor" fill-opacity="0.09" />
-
-          <!-- two panels -->
-          <rect x="30" y="155" width="300" height="125" rx="18" fill="currentColor" fill-opacity="0.10" />
-          <rect x="344" y="155" width="146" height="125" rx="18" fill="currentColor" fill-opacity="0.10" />
-
-          <!-- footer strip -->
-          <rect x="30" y="290" width="460" height="16" rx="8" fill="currentColor" fill-opacity="0.08" />
-        </g>
+      <!-- ========= Fields / parcels ========= -->
+      <g class="svg-anim float-a">
+        <polygon points="60,120 380,70 520,180 180,240" fill="url(#fieldWheat)" stroke="#7A7B6E" stroke-opacity="0.35" />
+        <polygon points="180,240 520,180 640,280 240,340" fill="url(#fieldGold)" stroke="#7A7B6E" stroke-opacity="0.35" />
+        <polygon points="60,120 180,240 80,320 10,230" fill="url(#fieldGreen)" stroke="#7A7B6E" stroke-opacity="0.35" />
+        <polygon points="520,180 760,160 860,270 640,280" fill="url(#fieldOlive)" stroke="#7A7B6E" stroke-opacity="0.35" />
+        <polygon points="760,160 1040,120 1120,230 860,270" fill="url(#fieldWheat)" stroke="#7A7B6E" stroke-opacity="0.35" />
+        <polygon points="1040,120 1330,160 1310,300 1120,230" fill="url(#fieldSoil)" stroke="#7A7B6E" stroke-opacity="0.35" />
+        <polygon points="240,340 640,280 720,410 320,470" fill="url(#fieldGreen)" stroke="#7A7B6E" stroke-opacity="0.35" />
+        <polygon points="640,280 860,270 960,380 720,410" fill="url(#fieldMint)" stroke="#7A7B6E" stroke-opacity="0.35" />
+        <polygon points="860,270 1120,230 1200,360 960,380" fill="url(#fieldGold)" stroke="#7A7B6E" stroke-opacity="0.35" />
+        <polygon points="1120,230 1310,300 1290,420 1200,360" fill="url(#fieldWheat)" stroke="#7A7B6E" stroke-opacity="0.35" />
+        <polygon points="80,320 240,340 320,470 120,520" fill="url(#fieldSoil)" stroke="#7A7B6E" stroke-opacity="0.35" />
+        <polygon points="320,470 720,410 820,560 380,620" fill="url(#fieldWheat)" stroke="#7A7B6E" stroke-opacity="0.35" />
+        <polygon points="720,410 960,380 1060,520 820,560" fill="url(#fieldGreen)" stroke="#7A7B6E" stroke-opacity="0.35" />
+        <polygon points="960,380 1200,360 1240,520 1060,520" fill="url(#fieldOlive)" stroke="#7A7B6E" stroke-opacity="0.35" />
+        <polygon points="120,520 380,620 300,760 80,690" fill="url(#fieldGreen)" stroke="#7A7B6E" stroke-opacity="0.35" />
+        <polygon points="380,620 820,560 900,710 300,760" fill="url(#fieldGold)" stroke="#7A7B6E" stroke-opacity="0.35" />
+        <polygon points="820,560 1060,520 1160,700 900,710" fill="url(#fieldWheat)" stroke="#7A7B6E" stroke-opacity="0.35" />
+        <polygon points="1060,520 1240,520 1340,680 1160,700" fill="url(#fieldSoil)" stroke="#7A7B6E" stroke-opacity="0.35" />
+        <polygon points="80,690 300,760 260,860 40,820" fill="url(#fieldOlive)" stroke="#7A7B6E" stroke-opacity="0.35" />
+        <polygon points="300,760 900,710 980,840 260,860" fill="url(#fieldMint)" stroke="#7A7B6E" stroke-opacity="0.35" />
+        <polygon points="900,710 1160,700 1300,860 980,840" fill="url(#fieldGreen)" stroke="#7A7B6E" stroke-opacity="0.35" />
       </g>
 
-      <!-- ========= Top-right: Card + table ========= -->
-      <g transform="translate(780,120)">
-        <g class="svg-anim float-b">
-          <rect x="0" y="0" width="500" height="300" rx="28" fill="currentColor" fill-opacity="0.05" />
-          <rect x="30" y="28" width="220" height="16" rx="8" fill="currentColor" fill-opacity="0.15" />
-
-          <!-- mini table header -->
-          <rect x="30" y="70" width="440" height="34" rx="12" fill="currentColor" fill-opacity="0.10" />
-          <!-- rows -->
-          <rect x="30" y="112" width="440" height="26" rx="10" fill="currentColor" fill-opacity="0.08" />
-          <rect x="30" y="144" width="440" height="26" rx="10" fill="currentColor" fill-opacity="0.08" />
-          <rect x="30" y="176" width="440" height="26" rx="10" fill="currentColor" fill-opacity="0.08" />
-          <rect x="30" y="208" width="440" height="26" rx="10" fill="currentColor" fill-opacity="0.08" />
-
-          <rect x="30" y="248" width="240" height="14" rx="7" fill="currentColor" fill-opacity="0.10" />
-        </g>
+      <!-- ========= Crop rows overlay ========= -->
+      <g class="svg-anim float-b" opacity="0.55">
+        <polygon points="60,120 380,70 520,180 180,240" fill="url(#rowsA)" />
+        <polygon points="180,240 520,180 640,280 240,340" fill="url(#rowsA)" />
+        <polygon points="760,160 1040,120 1120,230 860,270" fill="url(#rowsC)" />
+        <polygon points="240,340 640,280 720,410 320,470" fill="url(#rowsB)" />
+        <polygon points="960,380 1200,360 1240,520 1060,520" fill="url(#rowsC)" />
+        <polygon points="320,470 720,410 820,560 380,620" fill="url(#rowsA)" />
+        <polygon points="380,620 820,560 900,710 300,760" fill="url(#rowsB)" />
+        <polygon points="300,760 900,710 980,840 260,860" fill="url(#rowsA)" />
       </g>
 
-      <!-- ========= Mid-left: bar chart ========= -->
-      <g transform="translate(160,520)">
-        <g class="svg-anim float-c" fill="currentColor" fill-opacity="0.10">
-          <rect x="0" y="150" width="36" height="90" rx="10" />
-          <rect x="56" y="110" width="36" height="130" rx="10" />
-          <rect x="112" y="170" width="36" height="70" rx="10" />
-          <rect x="168" y="80" width="36" height="160" rx="10" />
-          <rect x="224" y="120" width="36" height="120" rx="10" />
-          <rect x="280" y="95" width="36" height="145" rx="10" />
-          <rect x="336" y="140" width="36" height="100" rx="10" />
-        </g>
+      <!-- ========= Roads ========= -->
+      <g class="svg-anim float-c" stroke="#B7B09C" stroke-opacity="0.6" stroke-width="10" stroke-linecap="round">
+        <path d="M80 320 L520 180 L1100 120" />
+        <path d="M240 340 L320 470 L380 620 L300 760" />
+        <path d="M640 280 L720 410 L820 560 L900 710" />
+        <path d="M960 380 L1060 520 L1160 700" />
+      </g>
+      <g class="svg-anim float-d" stroke="#E0D8C7" stroke-opacity="0.45" stroke-width="4" stroke-linecap="round">
+        <path d="M120 520 L320 470" />
+        <path d="M1200 360 L1290 420" />
+        <path d="M820 560 L1060 520" />
       </g>
 
-      <!-- ========= Mid: small cards ========= -->
-      <g transform="translate(520,520)">
-        <g class="svg-anim float-d">
-          <rect x="0" y="0" width="260" height="140" rx="24" fill="currentColor" fill-opacity="0.05" />
-          <rect x="22" y="22" width="140" height="14" rx="7" fill="currentColor" fill-opacity="0.14" />
-          <rect x="22" y="50" width="216" height="70" rx="16" fill="currentColor" fill-opacity="0.10" />
-        </g>
-      </g>
-
-      <g transform="translate(520,680)">
-        <g class="svg-anim float-e">
-          <rect x="0" y="0" width="260" height="140" rx="24" fill="currentColor" fill-opacity="0.05" />
-          <rect x="22" y="22" width="160" height="14" rx="7" fill="currentColor" fill-opacity="0.14" />
-          <rect x="22" y="50" width="120" height="12" rx="6" fill="currentColor" fill-opacity="0.10" />
-          <rect x="22" y="72" width="200" height="12" rx="6" fill="currentColor" fill-opacity="0.10" />
-          <rect x="22" y="98" width="180" height="12" rx="6" fill="currentColor" fill-opacity="0.10" />
-        </g>
-      </g>
-
-      <!-- ========= Right: donut charts ========= -->
-      <g transform="translate(1040,560)">
-        <g class="svg-anim float-f">
-          <circle cx="0" cy="0" r="62" stroke="currentColor" stroke-opacity="0.10" stroke-width="18" />
-          <path
-            d="M 0 -62 A 62 62 0 0 1 54 30"
-            stroke="currentColor"
-            stroke-opacity="0.22"
-            stroke-width="18"
-            stroke-linecap="round"
-          />
-          <path
-            d="M 54 30 A 62 62 0 0 1 -26 56"
-            stroke="currentColor"
-            stroke-opacity="0.16"
-            stroke-width="18"
-            stroke-linecap="round"
-          />
-        </g>
-      </g>
-
-      <g transform="translate(1220,700)">
-        <g class="svg-anim float-g">
-          <circle cx="0" cy="0" r="48" stroke="currentColor" stroke-opacity="0.10" stroke-width="16" />
-          <path
-            d="M 0 -48 A 48 48 0 0 1 41 24"
-            stroke="currentColor"
-            stroke-opacity="0.20"
-            stroke-width="16"
-            stroke-linecap="round"
-          />
-        </g>
-      </g>
-
-      <!-- ========= Line charts (só “breathing” leve) ========= -->
+      <!-- ========= River ========= -->
       <path
         class="svg-anim breathe-a"
-        d="M790 520 C 880 430, 970 650, 1060 520 C 1140 410, 1230 600, 1310 470"
-        stroke="currentColor"
-        stroke-opacity="0.18"
-        stroke-width="3.2"
+        d="M1400 520 C 1220 480, 1100 560, 980 520 C 880 490, 760 560, 640 530 C 520 500, 360 580, 200 520"
+        stroke="url(#river)"
+        stroke-width="26"
         stroke-linecap="round"
+        opacity="0.55"
       />
       <path
         class="svg-anim breathe-b"
-        d="M790 560 C 860 520, 980 700, 1060 560 C 1140 440, 1230 650, 1310 520"
-        stroke="currentColor"
-        stroke-opacity="0.12"
-        stroke-width="3.2"
+        d="M1400 520 C 1220 480, 1100 560, 980 520 C 880 490, 760 560, 640 530 C 520 500, 360 580, 200 520"
+        stroke="#BFE0E6"
+        stroke-width="6"
         stroke-linecap="round"
+        opacity="0.5"
       />
+
+      <!-- ========= Tree clusters ========= -->
+      <g class="svg-anim float-e" fill="#2F5D38" fill-opacity="0.5">
+        <circle cx="210" cy="210" r="14" />
+        <circle cx="230" cy="200" r="10" />
+        <circle cx="250" cy="220" r="12" />
+        <circle cx="1080" cy="240" r="14" />
+        <circle cx="1100" cy="230" r="10" />
+        <circle cx="1120" cy="250" r="12" />
+        <circle cx="520" cy="640" r="14" />
+        <circle cx="540" cy="630" r="10" />
+        <circle cx="560" cy="650" r="12" />
+        <circle cx="980" cy="760" r="14" />
+        <circle cx="1000" cy="750" r="10" />
+        <circle cx="1020" cy="770" r="12" />
+      </g>
+
+      <!-- ========= Farm houses ========= -->
+      <g class="svg-anim float-f">
+        <rect x="670" y="300" width="24" height="18" fill="#E9E3D4" opacity="0.75" />
+        <polygon points="670,300 682,288 694,300" fill="#A55B45" opacity="0.8" />
+        <rect x="1180" y="420" width="22" height="16" fill="#E9E3D4" opacity="0.75" />
+        <polygon points="1180,420 1191,410 1202,420" fill="#A55B45" opacity="0.8" />
+        <rect x="360" y="700" width="22" height="16" fill="#E9E3D4" opacity="0.75" />
+        <polygon points="360,700 371,690 382,700" fill="#A55B45" opacity="0.8" />
+      </g>
+
+      <!-- ========= Irrigation circles ========= -->
+      <g class="svg-anim float-g" stroke="#DDE9CF" stroke-opacity="0.6" fill="none">
+        <circle cx="1010" cy="200" r="66" stroke-width="3" />
+        <circle cx="1010" cy="200" r="38" stroke-width="2" />
+        <circle cx="360" cy="520" r="44" stroke-width="2.5" />
+      </g>
     </svg>
 
     <!-- color blobs (drift bem leve) -->

@@ -9,7 +9,14 @@
       </div>
       <div class="flex gap-2">
         <UiButton variant="outline" size="sm" @click="goBack">Voltar</UiButton>
-        <UiButton size="sm" :disabled="!farm" @click="goNewAnalysis">Nova análise</UiButton>
+        <UiButton
+          size="sm"
+          :disabled="!farm || mvBusy"
+          :class="mvBusy ? 'opacity-60' : ''"
+          @click="goNewAnalysis"
+        >
+          Nova análise
+        </UiButton>
       </div>
     </header>
 
@@ -92,6 +99,12 @@
 
     <section class="rounded-2xl border border-border bg-card p-6 shadow-sm">
       <div class="text-lg font-semibold">Mapa da fazenda</div>
+      <div
+        v-if="mvBusy"
+        class="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700"
+      >
+        Base geoespacial em atualização. O mapa pode ficar indisponível por alguns minutos.
+      </div>
       <div v-if="loadingGeom" class="mt-4" data-testid="farm-map-skeleton">
         <UiSkeleton class="h-72 w-full rounded-xl" />
       </div>
@@ -167,6 +180,7 @@ import { http } from "@/api/http";
 import { unwrapData, unwrapPaged, type ApiEnvelope } from "@/api/envelope";
 import AnalysisMap from "@/components/maps/AnalysisMap.vue";
 import { isValidCpfCnpj, sanitizeDoc } from "@/lib/doc-utils";
+import { mvBusy } from "@/state/landwatch-status";
 
 type Farm = {
   id: string;
@@ -294,7 +308,12 @@ async function loadFarm() {
     editForm.name = farm.value?.name ?? "";
     editForm.carKey = farm.value?.carKey ?? "";
     editForm.cpfCnpj = farm.value?.cpfCnpj ?? "";
-    void loadGeometry(farm.value?.carKey ?? "");
+    if (!mvBusy.value) {
+      void loadGeometry(farm.value?.carKey ?? "");
+    } else {
+      loadingGeom.value = false;
+      geomError.value = "Base geoespacial em atualização.";
+    }
   } catch (err: any) {
     farmError.value =
       err?.response?.data?.error?.message ??
@@ -332,6 +351,11 @@ async function loadGeometry(carKey: string) {
   farmGeom.value = null;
   if (!carKey) {
     loadingGeom.value = false;
+    return;
+  }
+  if (mvBusy.value) {
+    loadingGeom.value = false;
+    geomError.value = "Base geoespacial em atualização.";
     return;
   }
   try {
@@ -400,6 +424,7 @@ async function openDetail(id: string) {
 }
 
 async function goNewAnalysis() {
+  if (mvBusy.value) return;
   await router.push({ path: "/analyses/new", query: { farmId } });
 }
 

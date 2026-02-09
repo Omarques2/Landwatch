@@ -12,6 +12,7 @@ import { FarmsModule } from './farms/farms.module';
 import { CarsModule } from './cars/cars.module';
 import { AnalysesModule } from './analyses/analyses.module';
 import { DashboardModule } from './dashboard/dashboard.module';
+import { LandwatchStatusModule } from './landwatch-status/landwatch-status.module';
 
 @Module({
   imports: [
@@ -29,6 +30,7 @@ import { DashboardModule } from './dashboard/dashboard.module';
     CarsModule,
     AnalysesModule,
     DashboardModule,
+    LandwatchStatusModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: GlobalAuthGuard }],
 })

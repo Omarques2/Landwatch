@@ -2,6 +2,12 @@
   <div class="mx-auto flex max-w-6xl flex-col gap-6 px-6 py-6">
     <section v-if="viewMode === 'analysis'" class="rounded-2xl border border-border bg-card p-6 shadow-sm">
       <div class="text-lg font-semibold">Nova análise</div>
+      <div
+        v-if="mvBusy"
+        class="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700"
+      >
+        Base geoespacial em atualização. Aguarde para gerar uma nova análise.
+      </div>
       <div class="mt-4 grid gap-3">
         <UiLabel for="analysis-name">Nome da fazenda</UiLabel>
         <UiInput
@@ -61,7 +67,7 @@
 
         <UiButton
           class="mt-2 inline-flex items-center gap-2"
-          :disabled="isSubmitting"
+          :disabled="isSubmitting || mvBusy"
           @click="submitAnalysis"
         >
           <span v-if="isSubmitting" class="inline-flex items-center gap-2">
@@ -77,25 +83,54 @@
     </section>
 
     <section v-else class="rounded-2xl border border-border bg-card p-6 shadow-sm">
+      <div
+        v-if="mvBusy"
+        class="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700"
+      >
+        Base geoespacial em atualização. A busca por CARs está temporariamente indisponível.
+      </div>
       <div class="grid gap-3 md:grid-cols-2">
         <div>
           <UiLabel>Latitude</UiLabel>
-          <UiInput v-model="center.lat" placeholder="-10.0000 ou 10° 00' 00&quot; S" />
+          <UiInput
+            v-model="center.lat"
+            data-testid="gps-lat"
+            placeholder="-10.0000 ou 10° 00' 00&quot; S"
+          />
         </div>
         <div>
           <UiLabel>Longitude</UiLabel>
-          <UiInput v-model="center.lng" placeholder="-50.0000 ou 50° 00' 00&quot; W" />
+          <UiInput
+            v-model="center.lng"
+            data-testid="gps-lng"
+            placeholder="-50.0000 ou 50° 00' 00&quot; W"
+          />
         </div>
       </div>
       <div class="mt-3 flex flex-wrap items-center gap-2">
-        <UiButton size="sm" :disabled="!canSearch" @click="searchCars">
+        <UiButton size="sm" :disabled="!canSearch || mvBusy" @click="searchCars">
           Buscar CARs
         </UiButton>
         <UiButton
           size="sm"
+          variant="outline"
+          data-testid="gps-button"
+          :disabled="mvBusy || gpsLoading"
+          @click="useMyLocation"
+        >
+          <span v-if="gpsLoading" class="inline-flex items-center gap-2">
+            <span
+              class="inline-block h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent"
+            ></span>
+            Localizando...
+          </span>
+          <span v-else>Usar minha localização</span>
+        </UiButton>
+        <UiButton
+          size="sm"
           class="shadow-sm"
-          :class="!analysisForm.carKey ? 'opacity-50' : ''"
-          :disabled="!analysisForm.carKey"
+          :class="!analysisForm.carKey || mvBusy ? 'opacity-50' : ''"
+          :disabled="!analysisForm.carKey || mvBusy"
           @click="goToAnalysisTab"
         >
           Gerar análise
@@ -109,6 +144,7 @@
           v-model:selected-car-key="analysisForm.carKey"
           :center="centerValue"
           :search-token="searchToken"
+          :disabled="mvBusy"
           @center-change="updateCenter"
         />
       </div>
@@ -150,6 +186,7 @@ import { http } from "@/api/http";
 import { unwrapData, unwrapPaged, type ApiEnvelope } from "@/api/envelope";
 import CarSelectMap from "@/components/maps/CarSelectMap.vue";
 import { isValidCpfCnpj, sanitizeDoc } from "@/lib/doc-utils";
+import { mvBusy } from "@/state/landwatch-status";
 
 type Farm = {
   id: string;
@@ -169,6 +206,7 @@ const parsedCenter = ref({ lat: -15.5, lng: -55.5 });
 const centerValue = computed(() => parsedCenter.value);
 const searchToken = ref(0);
 const searchMessage = ref("");
+const gpsLoading = ref(false);
 const canSearch = computed(() => {
   return parseCoordinate(center.lat, "lat") !== null && parseCoordinate(center.lng, "lng") !== null;
 });
@@ -268,6 +306,10 @@ async function triggerAutoFill() {
 async function submitAnalysis() {
   message.value = "";
   if (isSubmitting.value) return;
+  if (mvBusy.value) {
+    message.value = "Base geoespacial em atualização. Aguarde para continuar.";
+    return;
+  }
   if (!analysisForm.carKey.trim()) {
     message.value = "Selecione um CAR para continuar.";
     return;
@@ -331,6 +373,11 @@ async function goToAnalysisTab() {
 }
 
 function searchCars() {
+  if (mvBusy.value) {
+    searchMessage.value =
+      "Base geoespacial em atualização. Aguarde para buscar CARs.";
+    return;
+  }
   const parsedLat = parseCoordinate(center.lat, "lat");
   const parsedLng = parseCoordinate(center.lng, "lng");
   if (!parsedLat || !parsedLng) {
@@ -343,6 +390,44 @@ function searchCars() {
   parsedCenter.value = { lat: parsedLat, lng: parsedLng };
   searchMessage.value = "";
   searchToken.value += 1;
+}
+
+function useMyLocation() {
+  if (mvBusy.value) {
+    searchMessage.value =
+      "Base geoespacial em atualização. Aguarde para buscar CARs.";
+    return;
+  }
+  if (!("geolocation" in navigator)) {
+    searchMessage.value =
+      "Geolocalização indisponível neste dispositivo ou navegador.";
+    return;
+  }
+  gpsLoading.value = true;
+  searchMessage.value = "Obtendo localização...";
+
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      const lat = Number(pos.coords.latitude.toFixed(6));
+      const lng = Number(pos.coords.longitude.toFixed(6));
+      center.lat = lat.toFixed(6);
+      center.lng = lng.toFixed(6);
+      parsedCenter.value = { lat, lng };
+      searchMessage.value = "Coordenadas atualizadas.";
+      gpsLoading.value = false;
+    },
+    (err) => {
+      if (err?.code === err.PERMISSION_DENIED) {
+        searchMessage.value = "Permissão de localização negada.";
+      } else if (err?.code === err.TIMEOUT) {
+        searchMessage.value = "Tempo esgotado ao obter localização.";
+      } else {
+        searchMessage.value = "Não foi possível obter a localização.";
+      }
+      gpsLoading.value = false;
+    },
+    { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 },
+  );
 }
 
 function onCarInput(value: string) {

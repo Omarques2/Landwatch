@@ -19,6 +19,7 @@
           :on-logout="onLogout"
           :on-select="navigate"
           :on-new-analysis="goNewAnalysis"
+          :disable-new-analysis="mvBusy"
           @toggle-collapsed="sidebarOpen = !sidebarOpen"
         />
       </aside>
@@ -41,6 +42,7 @@
           :on-logout="onLogout"
           :on-select="navigate"
           :on-new-analysis="goNewAnalysis"
+          :disable-new-analysis="mvBusy"
           @close="drawerOpen = false"
         />
       </UiSheet>
@@ -68,10 +70,20 @@
               </div>
             </div>
 
+            <div
+              v-if="mvBusy"
+              class="hidden items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700 md:flex"
+            >
+              <span class="h-2 w-2 rounded-full bg-amber-500"></span>
+              Base geoespacial em atualização
+            </div>
+
             <UiButton
               variant="default"
               size="md"
               class="h-9 px-4"
+              :disabled="mvBusy"
+              :title="mvBusy ? 'Base geoespacial em atualização' : 'Nova análise'"
               @click="goNewAnalysis"
             >
               Nova análise
@@ -88,13 +100,19 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { Button as UiButton, Sheet as UiSheet } from "@/components/ui";
 import { LayoutDashboard, MapPin, FileText, ClipboardPlus, LocateFixed } from "lucide-vue-next";
 import { http } from "@/api/http";
 import { unwrapData, type ApiEnvelope } from "@/api/envelope";
 import { logout } from "@/auth/auth";
+import {
+  fetchLandwatchStatus,
+  mvBusy,
+  startLandwatchStatusPolling,
+  stopLandwatchStatusPolling,
+} from "@/state/landwatch-status";
 import SidebarNav from "@/components/SidebarNav.vue";
 import HamburgerIcon from "@/components/icons/HamburgerIcon.vue";
 
@@ -165,10 +183,17 @@ async function navigate(key: string) {
 }
 
 async function goNewAnalysis() {
+  if (mvBusy.value) return;
   await router.push("/analyses/new");
 }
 
 onMounted(async () => {
   await loadMe();
+  await fetchLandwatchStatus();
+  startLandwatchStatusPolling();
+});
+
+onBeforeUnmount(() => {
+  stopLandwatchStatusPolling();
 });
 </script>

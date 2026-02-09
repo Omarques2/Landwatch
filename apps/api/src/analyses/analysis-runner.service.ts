@@ -7,6 +7,10 @@ import {
 import { Inject, Optional } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { LandwatchStatusService } from '../landwatch-status/landwatch-status.service';
+import { AnalysisDetailService } from './analysis-detail.service';
+import { AnalysisCacheService } from './analysis-cache.service';
+import { ANALYSIS_CACHE_VERSION } from './analysis-cache.constants';
 
 export const NOW_PROVIDER = 'NOW_PROVIDER';
 
@@ -40,6 +44,9 @@ export class AnalysisRunnerService implements OnModuleInit, OnModuleDestroy {
 
   constructor(
     private readonly prisma: PrismaService,
+    private readonly landwatchStatus: LandwatchStatusService,
+    private readonly detail: AnalysisDetailService,
+    private readonly cache: AnalysisCacheService,
     @Optional() @Inject(NOW_PROVIDER) nowProvider?: () => Date,
   ) {
     this.nowProvider = nowProvider ?? (() => new Date());
@@ -89,6 +96,22 @@ export class AnalysisRunnerService implements OnModuleInit, OnModuleDestroy {
         ? analysis.analysisDate.toISOString().slice(0, 10)
         : undefined;
 
+      if (analysisDate && this.isCurrentAnalysisDate(analysisDate)) {
+        try {
+          await this.landwatchStatus.assertNotRefreshing();
+        } catch {
+          await this.prisma.analysis.update({
+            where: { id: analysisId },
+            data: { status: 'pending' },
+          });
+          this.logEvent('analysis.deferred', {
+            analysisId,
+            reason: 'mv_refresh',
+          });
+          return;
+        }
+      }
+
       const intersectionsSql = this.buildIntersectionsQuery(
         schema,
         analysis.carKey,
@@ -98,7 +121,20 @@ export class AnalysisRunnerService implements OnModuleInit, OnModuleDestroy {
       const rawIntersections =
         await this.prisma.$queryRaw<IntersectionRow[]>(intersectionsSql);
       const intersections = Array.isArray(rawIntersections)
-        ? rawIntersections
+        ? rawIntersections.filter((row) => {
+            const category = (row.category_code ?? '').toUpperCase();
+            const dataset = (row.dataset_code ?? '').toUpperCase();
+            if (category === 'DETER' || dataset.startsWith('DETER')) {
+              return false;
+            }
+            if (
+              dataset.startsWith('CAR_') &&
+              !this.isBaseSicarIntersection(row)
+            ) {
+              return false;
+            }
+            return true;
+          })
         : [];
 
       if (intersections.length === 0) {
@@ -126,7 +162,7 @@ export class AnalysisRunnerService implements OnModuleInit, OnModuleDestroy {
         snapshotDate: row.snapshot_date ? new Date(row.snapshot_date) : null,
         featureId: this.normalizeFeatureId(row.feature_id),
         geomId: this.normalizeFeatureId(row.geom_id),
-        isSicar: row.category_code === 'SICAR',
+        isSicar: this.isBaseSicarIntersection(row),
         sicarAreaM2: row.sicar_area_m2 ?? null,
         featureAreaM2: row.feature_area_m2 ?? null,
         overlapAreaM2: row.overlap_area_m2 ?? null,
@@ -155,6 +191,7 @@ export class AnalysisRunnerService implements OnModuleInit, OnModuleDestroy {
           },
         });
       });
+      await this.writeCache(analysisId);
       this.logEvent('analysis.completed', {
         analysisId,
         intersectionCount,
@@ -234,6 +271,32 @@ export class AnalysisRunnerService implements OnModuleInit, OnModuleDestroy {
     return Prisma.sql`SELECT * FROM ${fn}(${carKey})`;
   }
 
+  private isCurrentAnalysisDate(analysisDate: string): boolean {
+    const today = this.nowProvider().toISOString().slice(0, 10);
+    return analysisDate === today;
+  }
+
+  private async writeCache(analysisId: string) {
+    try {
+      const detail = await this.detail.getById(analysisId);
+      const map = await this.detail.getMapById(analysisId, 0.0001);
+      await this.cache.set(analysisId, {
+        cacheVersion: ANALYSIS_CACHE_VERSION,
+        detail,
+        map: { tolerance: 0.0001, rows: map },
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.warn(
+        JSON.stringify({
+          event: 'analysis.cache.failed',
+          analysisId,
+          error: message,
+        }),
+      );
+    }
+  }
+
   private normalizeFeatureId(
     value: string | number | bigint | null,
   ): bigint | null {
@@ -255,5 +318,11 @@ export class AnalysisRunnerService implements OnModuleInit, OnModuleDestroy {
 
   private elapsedMs(startedAt: bigint): number {
     return Number(process.hrtime.bigint() - startedAt) / 1_000_000;
+  }
+
+  private isBaseSicarIntersection(row: IntersectionRow): boolean {
+    const category = (row.category_code ?? '').toUpperCase();
+    if (category !== 'SICAR') return false;
+    return row.feature_area_m2 == null && row.overlap_area_m2 == null;
   }
 }

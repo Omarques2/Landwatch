@@ -1,7 +1,11 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
+import { ref } from "vue";
 import NewAnalysisView from "@/views/NewAnalysisView.vue";
 import { http } from "@/api/http";
+import { mvBusy } from "@/state/landwatch-status";
+
+let routePath = "/analyses/new";
 
 vi.mock("@/api/http", () => ({
   http: {
@@ -12,10 +16,63 @@ vi.mock("@/api/http", () => ({
 
 vi.mock("vue-router", () => ({
   useRouter: () => ({ push: vi.fn() }),
-  useRoute: () => ({ path: "/analyses/new", query: {} }),
+  useRoute: () => ({ path: routePath, query: {} }),
+}));
+
+vi.mock("@/state/landwatch-status", () => ({
+  mvBusy: ref(false),
 }));
 
 describe("NewAnalysisView", () => {
+  beforeEach(() => {
+    routePath = "/analyses/new";
+  });
+
+  it("preenche coordenadas com GPS na busca de CAR", async () => {
+    routePath = "/analyses/search";
+    const getCurrentPosition = vi.fn((success: PositionCallback) => {
+      success({
+        coords: {
+          latitude: -10.1234567,
+          longitude: -50.7654321,
+          accuracy: 1,
+          altitude: null,
+          altitudeAccuracy: null,
+          heading: null,
+          speed: null,
+        },
+        timestamp: Date.now(),
+      } as GeolocationPosition);
+    });
+
+    Object.defineProperty(globalThis.navigator, "geolocation", {
+      value: { getCurrentPosition },
+      configurable: true,
+    });
+
+    const wrapper = mount(NewAnalysisView);
+    const button = wrapper.find('[data-testid="gps-button"]');
+    await button.trigger("click");
+    await flushPromises();
+
+    const latInput = wrapper.find('[data-testid="gps-lat"]').element as HTMLInputElement;
+    const lngInput = wrapper.find('[data-testid="gps-lng"]').element as HTMLInputElement;
+    expect(latInput.value).toBe("-10.123457");
+    expect(lngInput.value).toBe("-50.765432");
+  });
+
+  it("shows warning and disables submit when MV is refreshing", async () => {
+    mvBusy.value = true;
+    const wrapper = mount(NewAnalysisView);
+
+    const submitButton = wrapper
+      .findAll("button")
+      .find((button) => button.text().includes("Gerar análise"));
+
+    expect(submitButton?.attributes("disabled")).toBeDefined();
+    expect(wrapper.text()).toContain("Base geoespacial em atualização");
+  });
+
   it("blocks submit on invalid CPF", async () => {
     const wrapper = mount(NewAnalysisView);
 

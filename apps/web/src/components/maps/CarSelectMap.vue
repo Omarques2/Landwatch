@@ -1,6 +1,12 @@
 <template>
   <div class="relative h-full w-full">
     <div
+      v-if="disabled"
+      class="absolute left-3 right-3 top-3 z-30 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700 shadow"
+    >
+      Base geoespacial em atualização
+    </div>
+    <div
       v-if="!hasSearch"
       class="flex h-full w-full flex-col items-center justify-center gap-3 rounded-xl border border-border bg-muted/20 p-6 text-center"
     >
@@ -65,6 +71,7 @@ const props = defineProps<{
   center: { lat: number; lng: number };
   selectedCarKey: string;
   searchToken: number;
+  disabled?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -77,6 +84,7 @@ const hasSearch = ref(false);
 const loading = ref(false);
 const lastCount = ref(0);
 const errorMessage = ref("");
+const disabled = computed(() => Boolean(props.disabled));
 const contextMenu = ref({
   open: false,
   x: 0,
@@ -108,6 +116,7 @@ const carPalette = [
 ];
 
 const statusMessage = computed(() => {
+  if (disabled.value) return "Base geoespacial em atualização.";
   if (loading.value) return "Buscando CARs...";
   if (errorMessage.value) return errorMessage.value;
   if (lastCount.value === 0) return "Nenhum CAR encontrado.";
@@ -206,6 +215,7 @@ function ensureMap() {
     contextMenu.value.open = false;
   });
   map.on("contextmenu", (event: L.LeafletMouseEvent) => {
+    if (disabled.value) return;
     if (!map) return;
     const containerPoint = map.latLngToContainerPoint(event.latlng);
     contextMenu.value = {
@@ -340,6 +350,11 @@ async function fetchCars(lat: number, lng: number) {
 }
 
 async function runSearch(lat: number, lng: number, options?: { append?: boolean }) {
+  if (disabled.value) {
+    errorMessage.value = "Base geoespacial em atualização.";
+    loading.value = false;
+    return;
+  }
   await nextTick();
   ensureMap();
   if (map) {
@@ -370,6 +385,10 @@ async function runSearch(lat: number, lng: number, options?: { append?: boolean 
 async function searchFromContext() {
   const { lat, lng } = contextMenu.value;
   contextMenu.value.open = false;
+  if (disabled.value) {
+    errorMessage.value = "Base geoespacial em atualização.";
+    return;
+  }
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
   emit("center-change", { lat, lng });
   hasSearch.value = true;
@@ -381,6 +400,10 @@ watch(
   async (token) => {
     if (token <= 0) return;
     hasSearch.value = true;
+    if (disabled.value) {
+      errorMessage.value = "Base geoespacial em atualização.";
+      return;
+    }
     await runSearch(props.center.lat, props.center.lng);
   },
 );

@@ -56,7 +56,9 @@
     <div class="bg-card" :class="padSection">
       <UiButton
         class="w-full justify-center gap-2"
-        :title="collapsed ? 'Nova análise' : ''"
+        :disabled="newAnalysisDisabled"
+        :class="newAnalysisDisabled ? 'opacity-60' : ''"
+        :title="newAnalysisDisabled ? 'Base geoespacial em atualização' : collapsed ? 'Nova análise' : ''"
         @click="handleNewAnalysis"
       >
         <Plus class="h-4 w-4" />
@@ -136,6 +138,7 @@ const props = defineProps<{
   onLogout: () => void | Promise<void>;
   onSelect: (key: string) => void | Promise<void>;
   onNewAnalysis: () => void | Promise<void>;
+  disableNewAnalysis?: boolean;
 }>();
 
 defineEmits<{
@@ -149,6 +152,7 @@ const padList = computed(() => (props.mode === "mobile" ? "px-2 pb-4" : "px-2 pb
 
 const userNameOrFallback = computed(() => (props.userName ?? "").trim() || "Usuário");
 const userEmailOrFallback = computed(() => (props.userEmail ?? "").trim() || "—");
+const newAnalysisDisabled = computed(() => Boolean(props.disableNewAnalysis));
 
 const userInitials = computed(() => {
   const base = (props.userName ?? props.userEmail ?? "").trim();
@@ -163,6 +167,7 @@ async function handleSelect(key: string) {
 }
 
 async function handleNewAnalysis() {
+  if (newAnalysisDisabled.value) return;
   await props.onNewAnalysis();
 }
 </script>

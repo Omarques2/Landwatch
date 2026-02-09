@@ -78,8 +78,8 @@ Legenda:
   Aceite: status enum + timestamps.
 - [x] Modelo AnalysisResult
   Aceite: results vinculados por analysis_id.
-- [ ] AnalysisBiome (quando BIOMAS entrar no MVP)
-  Aceite: biomas vinculados por analysis_id.
+- [x] AnalysisBiome (bioma exibido na análise via derivação em runtime)
+  Aceite: biomas exibidos sem tabela dedicada (derivação dos resultados BIOMAS).
 - [~] POST /v1/analyses (sincrono no MVP)
   Aceite: cria analysis + results e retorna resumo.
 - [ ] Idempotency-Key em POST /analyses
@@ -114,6 +114,8 @@ Legenda:
   Aceite: evento emitido a cada transicao.
 - [ ] Rooms: user:{id}, analysis:{id}
   Aceite: eventos nao vazam entre usuarios.
+- [ ] MV status via websocket (landwatch mv-status push)
+  Aceite: server notifica inicio/fim de refresh e UI atualiza sem polling.
 
 ## EPIC-08 - PDF server-side (Mapbox)
 - [ ] Modelo PdfArtifact (token + expires_at)
@@ -134,7 +136,7 @@ Legenda:
   Aceite: UI simples permite criar farm, rodar analise e ver resultados.
 - [x] Dashboard (cards + ultimas analises)
   Aceite: cards com dados reais e estados vazios.
-- [~] Lista de analises + filtros
+- [x] Lista de analises + filtros
   Aceite: filtros refletem query backend.
 - [x] Detalhe da analise (mapa + tabela)
   Aceite: mapa e tabela renderizam sem erro.
@@ -152,6 +154,8 @@ Legenda:
   Aceite: edita dados basicos e mostra geometria do CAR + historico de analises.
 - [x] Tela "Buscar por coordenadas"
   Aceite: ponto no mapa retorna CARs que intersectam a coordenada.
+- [x] Botão "Usar minha localização" (GPS)
+  Aceite: navegador preenche coordenadas atuais com permissão do usuário (mobile/desktop).
 - [x] Suporte a DD/DMM/DMS na busca por coordenadas
   Aceite: campos aceitam formatos com hemisferio (N/S/E/W/O) e convertem para decimal.
 - [x] Mapa de CARs com cores variadas e ordenacao por area
@@ -184,5 +188,7 @@ Legenda:
   Aceite: erro nao dispara KeyError 'code' e stack/saida do container aparece no log.
 - [ ] Auditoria de indices DB (app + landwatch)
   Aceite: filtros/joins criticos com indices revisados.
-- [ ] Cache de analises (TTL 2 meses)
-  Aceite: cache grava na geracao; leitura do detalhe prioriza cache.
+- [~] Cache de analises (TTL 2 meses)
+  Aceite: cache grava na geracao; leitura do detalhe prioriza cache; limpeza automática por expiração. Pendente validar em ambiente com MVs estáveis.
+- [x] Detectar lock de MVs e sinalizar no sistema
+  Aceite: API detecta refresh/lock de MV e UI informa "base em atualizacao" e bloqueia ações dependentes durante ingestao.

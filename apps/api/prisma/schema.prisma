@@ -171,6 +171,7 @@ model Analysis {
   intersectionCount Int         @default(0) @map("intersection_count")
 
   results AnalysisResult[]
+  cache AnalysisCache?
   createdBy User @relation("UserAnalyses", fields: [createdByUserId], references: [id], onDelete: Restrict)
   org Org? @relation(fields: [orgId], references: [id], onDelete: SetNull)
   farm Farm? @relation(fields: [farmId], references: [id], onDelete: SetNull)
@@ -204,6 +205,19 @@ model AnalysisResult {
   @@index([analysisId], map: "analysis_result_analysis_id_idx")
   @@index([categoryCode], map: "analysis_result_category_idx")
   @@map("analysis_result")
+  @@schema("app")
+}
+
+model AnalysisCache {
+  analysisId String   @id @map("analysis_id") @db.Uuid
+  payload    Json
+  cachedAt   DateTime @default(now()) @map("cached_at") @db.Timestamptz(6)
+  expiresAt  DateTime @map("expires_at") @db.Timestamptz(6)
+
+  analysis Analysis @relation(fields: [analysisId], references: [id], onDelete: Cascade)
+
+  @@index([expiresAt], map: "analysis_cache_expires_idx")
+  @@map("analysis_cache")
   @@schema("app")
 }
 

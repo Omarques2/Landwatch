@@ -1,5 +1,5 @@
 <template>
-  <div class="analysis-print-root mx-auto flex max-w-6xl flex-col gap-6 px-6 py-6">
+  <div class="analysis-print-root relative mx-auto flex max-w-6xl flex-col gap-6 px-6 py-6 overflow-hidden">
     <Teleport to="body">
       <div v-if="isPrintMode" class="analysis-print-teleport">
         <AnalysisPrintLayout
@@ -13,6 +13,7 @@
         />
       </div>
     </Teleport>
+    <div class="relative z-10">
     <template v-if="!isPrintMode">
     <header class="screen-only flex flex-wrap items-center justify-between gap-4">
       <div>
@@ -20,6 +21,9 @@
         <div v-if="isLoading" class="mt-2 space-y-2">
           <div class="h-4 w-72 animate-pulse rounded-full bg-muted"></div>
           <div class="h-3 w-52 animate-pulse rounded-full bg-muted"></div>
+        </div>
+        <div v-else-if="loadError" class="mt-2 text-sm text-destructive">
+          {{ loadError }}
         </div>
         <div v-else class="text-sm text-muted-foreground">
           <span>Estabelecimento {{ analysis?.farmName ?? "Fazenda sem cadastro" }}</span>
@@ -230,6 +234,7 @@
       </div>
     </section>
     </template>
+    </div>
   </div>
 </template>
 
@@ -295,6 +300,7 @@ const analysis = ref<AnalysisDetail | null>(null);
 const mapFeatures = ref<MapFeature[]>([]);
 const mapLoading = ref(false);
 const isLoading = ref(false);
+const loadError = ref<string | null>(null);
 let pollTimer: number | null = null;
 const printRequested = ref(route.query.print === "1");
 const analysisMapRef = ref<InstanceType<typeof AnalysisMap> | null>(null);
@@ -558,7 +564,14 @@ function formatDatasetLabelForMode(item: { datasetCode: string; label?: string }
 async function loadAnalysis() {
   const id = route.params.id as string;
   isLoading.value = true;
+  loadError.value = null;
   try {
+    if (!id) {
+      loadError.value = "ID da análise inválido.";
+      analysis.value = null;
+      mapFeatures.value = [];
+      return;
+    }
     const res = await http.get<ApiEnvelope<AnalysisDetail>>(`/v1/analyses/${id}`);
     analysis.value = unwrapData(res.data);
     if (analysis.value?.status === "completed") {
@@ -566,6 +579,14 @@ async function loadAnalysis() {
     } else {
       mapFeatures.value = [];
     }
+  } catch (err: any) {
+    analysis.value = null;
+    mapFeatures.value = [];
+    const apiMessage =
+      err?.response?.data?.error?.message ??
+      err?.response?.data?.message ??
+      "Não foi possível carregar a análise.";
+    loadError.value = apiMessage;
   } finally {
     isLoading.value = false;
   }

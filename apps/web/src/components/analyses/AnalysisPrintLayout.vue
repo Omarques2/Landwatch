@@ -1,6 +1,7 @@
 <template>
   <div class="analysis-print-page">
     <section class="print-page print-page-1">
+      <AnalysisWatermark/>
       <header class="print-header">
         <div class="print-title-row">
           <img :src="logoSrc" alt="SigFarm" class="print-logo" />
@@ -97,6 +98,7 @@
     </section>
 
     <section class="print-page print-page-2">
+      <AnalysisWatermark />
       <section class="print-card print-breakable">
         <div class="print-section-title">Interseções</div>
         <div v-if="isLoading" class="print-loading">Carregando interseções…</div>
@@ -133,6 +135,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import { colorForDataset, formatDatasetLabel } from "@/features/analyses/analysis-colors";
 import { buildIndigenaLegendItems, buildLegendCodes } from "@/features/analyses/analysis-legend";
 import AnalysisMap from "@/components/maps/AnalysisMap.vue";
+import AnalysisWatermark from "@/components/analyses/AnalysisWatermark.vue";
 import QRCode from "qrcode";
 
 type AnalysisResult = {
@@ -430,6 +433,8 @@ watch(
 
 .print-page {
   display: block;
+  position: relative;
+  overflow: hidden;
 }
 
 .print-page-1 {

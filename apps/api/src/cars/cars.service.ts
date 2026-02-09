@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { LandwatchStatusService } from '../landwatch-status/landwatch-status.service';
 
 function assertIdentifier(value: string, name: string): string {
   if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(value)) {
@@ -14,7 +15,10 @@ function assertIdentifier(value: string, name: string): string {
 
 @Injectable()
 export class CarsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly landwatchStatus: LandwatchStatusService,
+  ) {}
 
   private getSchema(): string {
     const schema = process.env.LANDWATCH_SCHEMA ?? 'landwatch';
@@ -35,6 +39,11 @@ export class CarsService {
     const raw = process.env.LANDWATCH_CAR_MAX_RESULTS;
     const parsed = raw ? Number(raw) : 25;
     return Number.isFinite(parsed) ? parsed : 25;
+  }
+
+  private async ensureMvReady(useActive: boolean) {
+    if (!useActive) return;
+    await this.landwatchStatus.assertNotRefreshing();
   }
 
   private getTables(schema: string) {
@@ -92,6 +101,7 @@ export class CarsService {
       });
     }
     const analysisDate = params.analysisDate;
+    await this.ensureMvReady(!analysisDate);
     const safeTolerance =
       typeof params.tolerance === 'number' && Number.isFinite(params.tolerance)
         ? Math.min(Math.max(params.tolerance, 0), 0.01)
@@ -174,6 +184,7 @@ export class CarsService {
     const analysisDate =
       params.analysisDate ?? new Date().toISOString().slice(0, 10);
     const useActive = this.isCurrentSnapshot(params.analysisDate);
+    await this.ensureMvReady(useActive);
     const geomSource = useActive ? tables.geomActive : tables.geomHist;
     const geomJoin = useActive
       ? Prisma.sql``
@@ -257,6 +268,7 @@ export class CarsService {
     const analysisDate =
       params.analysisDate ?? new Date().toISOString().slice(0, 10);
     const useActive = this.isCurrentSnapshot(params.analysisDate);
+    await this.ensureMvReady(useActive);
     const geomSource = useActive ? tables.geomActive : tables.geomHist;
     const geomJoin = useActive
       ? Prisma.sql``
@@ -283,6 +295,18 @@ export class CarsService {
         ${geomJoin}
         WHERE c.code = ${categoryCode}
           ${dateFilter}
+      ),
+      bbox AS (
+        SELECT ST_Transform(
+          ST_MakeEnvelope(
+            ${params.minLng},
+            ${params.minLat},
+            ${params.maxLng},
+            ${params.maxLat},
+            4326
+          ),
+          4674
+        ) AS env
       )
       SELECT
         feature_key,
@@ -291,8 +315,9 @@ export class CarsService {
           ST_SimplifyPreserveTopology(ST_Transform(geom, 4326), ${tolerance})
         ) AS geom
       FROM sicar
-      WHERE ST_Transform(geom, 4326)
-        && ST_MakeEnvelope(${params.minLng}, ${params.minLat}, ${params.maxLng}, ${params.maxLat}, 4326)
+      CROSS JOIN bbox
+      WHERE geom && bbox.env
+        AND ST_Intersects(geom, bbox.env)
       LIMIT ${limit}
     `;
 
@@ -340,6 +365,7 @@ export class CarsService {
     const analysisDate =
       params.analysisDate ?? new Date().toISOString().slice(0, 10);
     const useActive = this.isCurrentSnapshot(params.analysisDate);
+    await this.ensureMvReady(useActive);
     const geomSource = useActive ? tables.geomActive : tables.geomHist;
     const geomJoin = useActive
       ? Prisma.sql``
@@ -415,6 +441,7 @@ export class CarsService {
     const analysisDate =
       params.analysisDate ?? new Date().toISOString().slice(0, 10);
     const useActive = this.isCurrentSnapshot(params.analysisDate);
+    await this.ensureMvReady(useActive);
     const geomSource = useActive ? tables.geomActive : tables.geomHist;
     const geomJoin = useActive
       ? Prisma.sql``

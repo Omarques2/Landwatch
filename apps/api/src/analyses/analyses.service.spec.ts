@@ -1,52 +1,64 @@
 import { AnalysesService } from './analyses.service';
 
+function makePrismaMock() {
+  return {
+    user: {
+      findUnique: jest.fn().mockResolvedValue({ id: 'user-1' }),
+    },
+    farm: {
+      findUnique: jest.fn(),
+      findFirst: jest.fn(),
+    },
+    analysis: {
+      create: jest
+        .fn()
+        .mockResolvedValue({ id: 'analysis-1', status: 'pending' }),
+      findUnique: jest.fn(),
+      findMany: jest.fn(),
+      count: jest.fn(),
+    },
+    $queryRaw: jest.fn(),
+    $transaction: jest.fn(async (ops: any[]) => Promise.all(ops)),
+  };
+}
+
 describe('AnalysesService', () => {
   const now = new Date('2026-02-01T00:00:00Z');
 
-  function makePrismaMock() {
+  function makeDeps() {
     return {
-      user: {
-        findUnique: jest.fn().mockResolvedValue({ id: 'user-1' }),
+      runner: { enqueue: jest.fn() },
+      detail: {
+        getById: jest.fn(),
+        getMapById: jest.fn(),
+        listIndigenaPhases: jest.fn(),
       },
-      farm: {
-        findUnique: jest.fn(),
-        findFirst: jest.fn(),
+      cache: {
+        get: jest.fn(),
+        set: jest.fn(),
+        invalidate: jest.fn(),
       },
-      analysis: {
-        create: jest
-          .fn()
-          .mockResolvedValue({ id: 'analysis-1', status: 'pending' }),
-        findUnique: jest.fn(),
-        findMany: jest.fn(),
-        count: jest.fn(),
+      docInfo: {
+        updateCnpjInfoBestEffort: jest.fn(),
       },
-      analysisResult: {
-        createMany: jest.fn().mockResolvedValue({ count: 2 }),
+      landwatchStatus: {
+        assertNotRefreshing: jest.fn().mockResolvedValue(undefined),
       },
-      $queryRaw: jest.fn(),
-      $transaction: jest.fn(async (fn: any) =>
-        fn({
-          analysis: {
-            create: jest
-              .fn()
-              .mockResolvedValue({ id: 'analysis-1', status: 'pending' }),
-          },
-          analysisResult: {
-            createMany: jest.fn().mockResolvedValue({ count: 2 }),
-          },
-        }),
-      ),
     };
   }
 
   it('creates a pending analysis and enqueues async processing', async () => {
     const prisma = makePrismaMock();
     prisma.$queryRaw.mockResolvedValueOnce([{ ok: 1 }]);
-    const runner = { enqueue: jest.fn() };
+    const deps = makeDeps();
 
     const service = new AnalysesService(
       prisma as any,
-      runner as any,
+      deps.runner as any,
+      deps.detail as any,
+      deps.cache as any,
+      deps.docInfo as any,
+      deps.landwatchStatus as any,
       () => now,
     );
     const result = await service.create({ sub: 'entra-1' } as any, {
@@ -59,7 +71,7 @@ describe('AnalysesService', () => {
         data: expect.objectContaining({ status: 'pending' }),
       }),
     );
-    expect(runner.enqueue).toHaveBeenCalledWith('analysis-1');
+    expect(deps.runner.enqueue).toHaveBeenCalledWith('analysis-1');
     expect(result.status).toBe('pending');
   });
 
@@ -70,11 +82,15 @@ describe('AnalysesService', () => {
       cpfCnpj: '52998224725',
     });
     prisma.$queryRaw.mockResolvedValueOnce([{ ok: 1 }]);
-    const runner = { enqueue: jest.fn() };
+    const deps = makeDeps();
 
     const service = new AnalysesService(
       prisma as any,
-      runner as any,
+      deps.runner as any,
+      deps.detail as any,
+      deps.cache as any,
+      deps.docInfo as any,
+      deps.landwatchStatus as any,
       () => now,
     );
     await service.create({ sub: 'entra-1' } as any, {
@@ -94,11 +110,15 @@ describe('AnalysesService', () => {
   it('rejects invalid CPF/CNPJ input', async () => {
     const prisma = makePrismaMock();
     prisma.$queryRaw.mockResolvedValueOnce([{ ok: 1 }]);
-    const runner = { enqueue: jest.fn() };
+    const deps = makeDeps();
 
     const service = new AnalysesService(
       prisma as any,
-      runner as any,
+      deps.runner as any,
+      deps.detail as any,
+      deps.cache as any,
+      deps.docInfo as any,
+      deps.landwatchStatus as any,
       () => now,
     );
 
@@ -115,11 +135,15 @@ describe('AnalysesService', () => {
   it('rejects when CAR is not found', async () => {
     const prisma = makePrismaMock();
     prisma.$queryRaw.mockResolvedValueOnce([]);
-    const runner = { enqueue: jest.fn() };
+    const deps = makeDeps();
 
     const service = new AnalysesService(
       prisma as any,
-      runner as any,
+      deps.runner as any,
+      deps.detail as any,
+      deps.cache as any,
+      deps.docInfo as any,
+      deps.landwatchStatus as any,
       () => now,
     );
 
@@ -132,65 +156,105 @@ describe('AnalysesService', () => {
     });
   });
 
-  it('filters BIOMAS/DETER from map results and stringifies featureId', async () => {
+  it('blocks analysis creation when MV is refreshing for current date', async () => {
     const prisma = makePrismaMock();
-    prisma.analysis.findUnique.mockResolvedValue({
-      id: 'analysis-1',
-      carKey: 'CAR-1',
-      analysisDate: new Date('2026-01-31'),
-    });
-    prisma.$queryRaw.mockResolvedValueOnce([
-      {
-        category_code: 'BIOMAS',
-        dataset_code: 'BIOMAS',
-        snapshot_date: null,
-        feature_id: 1,
-        geom_id: 10,
-        geom: '{"type":"Polygon","coordinates":[[[0,0],[1,0],[1,1],[0,0]]]}',
-      },
-      {
-        category_code: 'DETER',
-        dataset_code: 'DETER_2024',
-        snapshot_date: null,
-        feature_id: 2,
-        geom_id: 20,
-        geom: '{"type":"Polygon","coordinates":[[[0,0],[1,0],[1,1],[0,0]]]}',
-      },
-      {
-        category_code: 'PRODES',
-        dataset_code: 'PRODES_2024',
-        snapshot_date: null,
-        feature_id: 3,
-        geom_id: 30,
-        geom: '{"type":"Polygon","coordinates":[[[0,0],[1,0],[1,1],[0,0]]]}',
-      },
-    ]);
+    prisma.$queryRaw.mockResolvedValueOnce([{ ok: 1 }]);
+    const deps = makeDeps();
+    deps.landwatchStatus.assertNotRefreshing.mockRejectedValue(
+      Object.assign(new Error('busy'), {
+        response: { code: 'MV_REFRESHING' },
+      }),
+    );
 
-    const runner = { enqueue: jest.fn() };
     const service = new AnalysesService(
       prisma as any,
-      runner as any,
+      deps.runner as any,
+      deps.detail as any,
+      deps.cache as any,
+      deps.docInfo as any,
+      deps.landwatchStatus as any,
+      () => now,
+    );
+
+    await expect(
+      service.create({ sub: 'entra-1' } as any, {
+        carKey: 'CAR-1',
+      }),
+    ).rejects.toMatchObject({
+      response: { code: 'MV_REFRESHING' },
+    });
+  });
+
+  it('returns cached detail payload when available', async () => {
+    const prisma = makePrismaMock();
+    const deps = makeDeps();
+    deps.cache.get.mockResolvedValue({
+      cacheVersion: 3,
+      detail: { id: 'analysis-1' },
+    });
+
+    const service = new AnalysesService(
+      prisma as any,
+      deps.runner as any,
+      deps.detail as any,
+      deps.cache as any,
+      deps.docInfo as any,
+      deps.landwatchStatus as any,
+      () => now,
+    );
+
+    const result = await service.getById('analysis-1');
+
+    expect(result).toEqual({ id: 'analysis-1' });
+    expect(deps.detail.getById).not.toHaveBeenCalled();
+  });
+
+  it('returns cached map when tolerance matches', async () => {
+    const prisma = makePrismaMock();
+    const deps = makeDeps();
+    const mapRows = [
+      {
+        categoryCode: 'SICAR',
+        datasetCode: 'SICAR',
+        snapshotDate: null,
+        featureId: '1',
+        geom: { type: 'Point', coordinates: [0, 0] },
+        isSicar: true,
+      },
+    ];
+    deps.cache.get.mockResolvedValue({
+      cacheVersion: 3,
+      map: { tolerance: 0.0001, rows: mapRows },
+    });
+
+    const service = new AnalysesService(
+      prisma as any,
+      deps.runner as any,
+      deps.detail as any,
+      deps.cache as any,
+      deps.docInfo as any,
+      deps.landwatchStatus as any,
       () => now,
     );
 
     const result = await service.getMapById('analysis-1');
 
-    const sqlArg = prisma.$queryRaw.mock.calls[0]?.[0] as { sql?: string };
-    expect(sqlArg?.sql ?? '').toContain('"analysis_result"');
-    expect(result).toHaveLength(1);
-    expect(result[0].datasetCode).toBe('PRODES_2024');
-    expect(result[0].featureId).toBe('3');
+    expect(result).toEqual(mapRows);
+    expect(deps.detail.getMapById).not.toHaveBeenCalled();
   });
 
   it('filters analyses by farmId when provided', async () => {
     const prisma = makePrismaMock();
     prisma.analysis.count.mockResolvedValue(1);
     prisma.analysis.findMany.mockResolvedValue([]);
-    prisma.$transaction = jest.fn(async (ops: any[]) => Promise.all(ops));
-    const runner = { enqueue: jest.fn() };
+    const deps = makeDeps();
     const service = new AnalysesService(
       prisma as any,
-      runner as any,
+      deps.runner as any,
+      deps.detail as any,
+      deps.cache as any,
+      deps.docInfo as any,
+      deps.landwatchStatus as any,
       () => now,
     );
 
@@ -210,154 +274,44 @@ describe('AnalysesService', () => {
     );
   });
 
-  it('splits UCS datasets into a dedicated group without showing the raw UCS dataset', () => {
+  it('filters analyses by date range when provided', async () => {
     const prisma = makePrismaMock();
-    const runner = { enqueue: jest.fn() };
+    prisma.analysis.count.mockResolvedValue(1);
+    prisma.analysis.findMany.mockResolvedValue([]);
+    const deps = makeDeps();
     const service = new AnalysesService(
       prisma as any,
-      runner as any,
+      deps.runner as any,
+      deps.detail as any,
+      deps.cache as any,
+      deps.docInfo as any,
+      deps.landwatchStatus as any,
       () => now,
     );
 
-    const datasets = [
-      {
-        dataset_code: 'UNIDADES_CONSERVACAO',
-        category_code: 'UCS',
-        description: null,
-        is_spatial: true,
+    await service.list({
+      page: 1,
+      pageSize: 10,
+      startDate: '2026-02-01',
+      endDate: '2026-02-10',
+    } as any);
+
+    expect(prisma.analysis.count).toHaveBeenCalledWith({
+      where: {
+        analysisDate: {
+          gte: new Date('2026-02-01T00:00:00.000Z'),
+          lte: new Date('2026-02-10T23:59:59.999Z'),
+        },
       },
-      {
-        dataset_code: 'TERRAS_INDIGENAS_BASE',
-        category_code: 'INDIGENAS',
-        description: null,
-        is_spatial: true,
-      },
-    ];
-
-    const groups = (service as any).buildDatasetGroups(
-      datasets,
-      new Set<string>(),
-      new Set<string>(),
-      {
-        indigenaPhases: ['Declarada'],
-        indigenaHits: new Set<string>(),
-        ucsCategories: ['APA'],
-        ucsHits: new Set<string>(),
-      },
-    );
-
-    const environmental = groups.find(
-      (group: { title: string }) => group.title === 'Análise Ambiental',
-    );
-    const ucsGroup = groups.find(
-      (group: { title: string }) => group.title === 'Unidades de conservação',
-    );
-
-    expect(ucsGroup?.items).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          label: 'Área de Proteção Ambiental',
-        }),
-      ]),
-    );
-    expect(
-      environmental?.items.some(
-        (item: { datasetCode: string }) =>
-          item.datasetCode === 'UNIDADES_CONSERVACAO',
-      ),
-    ).toBe(false);
-  });
-
-  it('fetches indigenous phases even when dataset list is empty', async () => {
-    const prisma = makePrismaMock();
-    prisma.$queryRaw.mockResolvedValueOnce([]);
-    const runner = { enqueue: jest.fn() };
-    const service = new AnalysesService(
-      prisma as any,
-      runner as any,
-      () => now,
-    );
-
-    await (service as any).fetchIndigenaPhases('landwatch', '2026-02-01', []);
-
-    expect(prisma.$queryRaw).toHaveBeenCalled();
-  });
-
-  it('recognizes indigenous datasets with TI codes when building groups', () => {
-    const prisma = makePrismaMock();
-    const runner = { enqueue: jest.fn() };
-    const service = new AnalysesService(
-      prisma as any,
-      runner as any,
-      () => now,
-    );
-
-    const datasets = [
-      {
-        dataset_code: 'TI_2024',
-        category_code: 'TI',
-        description: null,
-        is_spatial: true,
-      },
-    ];
-
-    const groups = (service as any).buildDatasetGroups(
-      datasets,
-      new Set<string>(),
-      new Set<string>(),
-      {
-        indigenaPhases: ['Declarada'],
-        indigenaHits: new Set<string>(['Declarada']),
-        ucsCategories: [],
-        ucsHits: new Set<string>(),
-      },
-    );
-
-    const environmental = groups.find(
-      (group: { title: string }) => group.title === 'Análise Ambiental',
-    );
-
-    expect(
-      environmental?.items.some((item: { label?: string }) =>
-        item.label?.includes('Terra Indigena'),
-      ),
-    ).toBe(true);
-  });
-
-  it('treats TI category codes as indigenous datasets', () => {
-    const prisma = makePrismaMock();
-    const runner = { enqueue: jest.fn() };
-    const service = new AnalysesService(
-      prisma as any,
-      runner as any,
-      () => now,
-    );
-
-    const isIndigena = (service as any).isIndigenaDataset('TI', 'TI_2024');
-
-    expect(isIndigena).toBe(true);
-  });
-
-  it('requests fase_ti when fetching indigenous phases', async () => {
-    const prisma = makePrismaMock();
-    const runner = { enqueue: jest.fn() };
-    const service = new AnalysesService(
-      prisma as any,
-      runner as any,
-      () => now,
-    );
-
-    const spy = jest
-      .spyOn(service as any, 'fetchDistinctAttrValues')
-      .mockResolvedValue([]);
-
-    await (service as any).fetchIndigenaPhases('landwatch', '2026-01-31');
-
-    expect(spy).toHaveBeenCalledWith(
-      'landwatch',
-      '2026-01-31',
+    });
+    expect(prisma.analysis.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        keys: expect.arrayContaining(['fase_ti']),
+        where: {
+          analysisDate: {
+            gte: new Date('2026-02-01T00:00:00.000Z'),
+            lte: new Date('2026-02-10T23:59:59.999Z'),
+          },
+        },
       }),
     );
   });

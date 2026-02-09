@@ -421,7 +421,9 @@ async function loadMe() {
 }
 
 async function loadFarms() {
-  const res = await http.get<ApiEnvelope<Farm[]>>("/v1/farms");
+  const res = await http.get<ApiEnvelope<Farm[]>>("/v1/farms", {
+    params: { page: 1, pageSize: 100 },
+  });
   farms.value = unwrapPaged(res.data).rows;
 }
 

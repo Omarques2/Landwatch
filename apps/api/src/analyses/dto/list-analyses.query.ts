@@ -1,5 +1,13 @@
 import { Type } from 'class-transformer';
-import { IsInt, IsOptional, IsString, IsUUID, Max, Min } from 'class-validator';
+import {
+  IsDateString,
+  IsInt,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Max,
+  Min,
+} from 'class-validator';
 
 export class ListAnalysesQuery {
   @IsOptional()
@@ -9,6 +17,14 @@ export class ListAnalysesQuery {
   @IsOptional()
   @IsUUID()
   farmId?: string;
+
+  @IsOptional()
+  @IsDateString()
+  startDate?: string;
+
+  @IsOptional()
+  @IsDateString()
+  endDate?: string;
 
   @IsOptional()
   @Type(() => Number)
