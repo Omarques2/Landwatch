@@ -12,6 +12,48 @@ function makePrismaMock() {
 describe('AnalysisDetailService', () => {
   const now = new Date('2026-02-01T00:00:00Z');
 
+  it('builds doc infos for multiple documents', async () => {
+    const prisma = makePrismaMock();
+    const docInfo = {
+      buildDocInfo: jest
+        .fn()
+        .mockResolvedValueOnce({
+          type: 'CPF',
+          cpf: '52998224725',
+          isValid: true,
+        })
+        .mockResolvedValueOnce({
+          type: 'CNPJ',
+          cnpj: '04252011000110',
+          nome: 'Empresa',
+          fantasia: null,
+          situacao: 'ATIVA',
+        }),
+    };
+    const service = new AnalysisDetailService(
+      prisma as any,
+      docInfo as any,
+      () => now,
+    );
+
+    const result = await (service as any).buildDocInfos([
+      '52998224725',
+      '04252011000110',
+    ]);
+
+    expect(result).toEqual([
+      { type: 'CPF', cpf: '52998224725', isValid: true },
+      {
+        type: 'CNPJ',
+        cnpj: '04252011000110',
+        nome: 'Empresa',
+        fantasia: null,
+        situacao: 'ATIVA',
+      },
+    ]);
+    expect(docInfo.buildDocInfo).toHaveBeenCalledTimes(2);
+  });
+
   it('filters BIOMAS/DETER from map results and stringifies featureId', async () => {
     const prisma = makePrismaMock();
     prisma.analysis.findUnique.mockResolvedValue({

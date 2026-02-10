@@ -8,6 +8,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { NOW_PROVIDER } from './analysis-runner.service';
 import { DocInfoService } from './doc-info.service';
+import { sanitizeDoc } from '../common/validators/cpf-cnpj';
 
 type DatasetRow = {
   dataset_code: string;
@@ -20,6 +21,8 @@ type DocRow = {
   dataset_code: string;
   category_code: string;
 };
+
+type DocInfo = Awaited<ReturnType<DocInfoService['buildDocInfo']>>;
 
 type DatasetItem = {
   datasetCode: string;
@@ -141,8 +144,9 @@ export class AnalysisDetailService {
       analysis.carKey,
       analysisDate,
     );
-    const docMatches = analysis.cpfCnpj
-      ? await this.fetchDocMatches(schema, analysis.cpfCnpj, analysisDate)
+    const analysisDocs = this.normalizeAnalysisDocs(analysis.analysisDocs);
+    const docMatches = analysisDocs.length
+      ? await this.fetchDocMatches(schema, analysisDocs, analysisDate)
       : [];
     const datasets = await this.fetchDatasets(schema);
 
@@ -210,9 +214,9 @@ export class AnalysisDetailService {
         ucsHits,
       },
     );
-    const docInfo = analysis.cpfCnpj
-      ? await this.docInfo.buildDocInfo(analysis.cpfCnpj)
-      : null;
+    const docInfos = analysisDocs.length
+      ? await this.buildDocInfos(analysisDocs)
+      : [];
 
     return {
       ...rest,
@@ -224,7 +228,7 @@ export class AnalysisDetailService {
       sicarCoordinates,
       biomas,
       datasetGroups,
-      docInfo,
+      docInfos,
       results: filteredResults.map((row) => ({
         ...row,
         isSicar: isBaseSicarResult(row),
@@ -559,17 +563,55 @@ export class AnalysisDetailService {
     return Array.isArray(rows) ? rows : [];
   }
 
+  private normalizeAnalysisDocs(
+    value: Prisma.JsonValue | null | undefined,
+  ): string[] {
+    if (!value) return [];
+    const rawList = Array.isArray(value) ? value : [value];
+    const normalized: string[] = [];
+    const seen = new Set<string>();
+
+    for (const item of rawList) {
+      let raw: string | null = null;
+      if (typeof item === 'string') {
+        raw = item;
+      } else if (item && typeof item === 'object') {
+        const record = item as Record<string, unknown>;
+        if (typeof record.docNormalized === 'string') {
+          raw = record.docNormalized;
+        } else if (typeof record.doc_normalized === 'string') {
+          raw = record.doc_normalized;
+        }
+      }
+      const digits = raw ? sanitizeDoc(raw) : null;
+      if (!digits || seen.has(digits)) continue;
+      seen.add(digits);
+      normalized.push(digits);
+    }
+
+    return normalized;
+  }
+
+  private async buildDocInfos(documents: string[]): Promise<DocInfo[]> {
+    const infos: DocInfo[] = [];
+    for (const doc of documents) {
+      infos.push(await this.docInfo.buildDocInfo(doc));
+    }
+    return infos;
+  }
+
   private async fetchDocMatches(
     schema: string,
-    docNormalized: string,
+    docNormalized: string[],
     analysisDate: string,
   ): Promise<DocRow[]> {
+    if (!docNormalized.length) return [];
     const rows = await this.prisma.$queryRaw<DocRow[]>(Prisma.sql`
       SELECT d.code AS dataset_code, c.code AS category_code
       FROM ${Prisma.raw(`"${schema}"."lw_doc_index"`)} di
       JOIN ${Prisma.raw(`"${schema}"."lw_dataset"`)} d ON d.dataset_id = di.dataset_id
       JOIN ${Prisma.raw(`"${schema}"."lw_category"`)} c ON c.category_id = d.category_id
-      WHERE di.doc_normalized = ${docNormalized}
+      WHERE di.doc_normalized IN (${Prisma.join(docNormalized)})
         AND di.valid_from <= ${analysisDate}::date
         AND (di.valid_to IS NULL OR di.valid_to > ${analysisDate}::date)
         AND (di.date_closed IS NULL OR di.date_closed > ${analysisDate}::date)

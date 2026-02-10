@@ -466,7 +466,7 @@ async function createAnalysis() {
   }
   const payload = {
     carKey: analysisForm.carKey,
-    cpfCnpj: analysisForm.cpfCnpj || undefined,
+    documents: analysisForm.cpfCnpj ? [analysisForm.cpfCnpj] : undefined,
     analysisDate: analysisForm.analysisDate || undefined,
   };
   const res = await http.post<ApiEnvelope<any>>("/v1/analyses", payload);

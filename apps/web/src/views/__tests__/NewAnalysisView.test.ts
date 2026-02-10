@@ -26,6 +26,7 @@ vi.mock("@/state/landwatch-status", () => ({
 describe("NewAnalysisView", () => {
   beforeEach(() => {
     routePath = "/analyses/new";
+    mvBusy.value = false;
   });
 
   it("preenche coordenadas com GPS na busca de CAR", async () => {
@@ -78,6 +79,7 @@ describe("NewAnalysisView", () => {
 
     await wrapper.find("#analysis-car").setValue("SP-1234567-0000000000000000000000000000000000");
     await wrapper.find("#analysis-doc").setValue("111.111.111-11");
+    await wrapper.find("#analysis-doc").trigger("keydown.enter");
 
     await wrapper.find("button").trigger("click");
 
@@ -138,5 +140,31 @@ describe("NewAnalysisView", () => {
 
     const nameInput = wrapper.find("#analysis-name").element as HTMLInputElement;
     expect(nameInput.value).toBe("Fazenda CPF");
+  });
+
+  it("submits selected documents in the payload", async () => {
+    (http.post as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      data: { data: { analysisId: "analysis-1" } },
+    });
+
+    const wrapper = mount(NewAnalysisView);
+
+    await wrapper
+      .find("#analysis-car")
+      .setValue("SP-1234567-0000000000000000000000000000000000");
+    await wrapper.find("#analysis-doc").setValue("529.982.247-25");
+    await wrapper.find("#analysis-doc").trigger("keydown.enter");
+    await wrapper.find("#analysis-doc").setValue("04.252.011/0001-10");
+    await wrapper.find("#analysis-doc").trigger("keydown.enter");
+
+    await wrapper.find('[data-testid="analysis-submit"]').trigger("click");
+    await flushPromises();
+
+    expect(http.post).toHaveBeenCalledWith(
+      "/v1/analyses",
+      expect.objectContaining({
+        documents: ["52998224725", "04252011000110"],
+      }),
+    );
   });
 });

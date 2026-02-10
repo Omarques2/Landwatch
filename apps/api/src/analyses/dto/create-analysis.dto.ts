@@ -1,4 +1,5 @@
 import {
+  IsArray,
   IsISO8601,
   IsOptional,
   IsString,
@@ -12,9 +13,10 @@ export class CreateAnalysisDto {
   carKey!: string;
 
   @IsOptional()
-  @IsString()
-  @Length(11, 18)
-  cpfCnpj?: string;
+  @IsArray()
+  @IsString({ each: true })
+  @Length(11, 18, { each: true })
+  documents?: string[];
 
   @IsOptional()
   @IsUUID()

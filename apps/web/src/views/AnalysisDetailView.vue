@@ -42,25 +42,28 @@
             </span>
           </template>
         </div>
-        <div v-if="!isLoading && docBadgeText" class="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-          <template v-if="docInfoType === 'CNPJ'">
-            <span class="whitespace-nowrap">CNPJ {{ docLineLabel }}</span>
-            <span class="text-muted-foreground/70">-</span>
-          </template>
-          <template v-else-if="docInfoType === 'CPF'">
-            <span class="whitespace-nowrap">CPF</span>
-          </template>
-          <span
-            class="inline-flex items-center gap-2 rounded-full px-2 py-0.5 text-[11px] font-semibold whitespace-nowrap"
-            :class="
-              badgeOk
-                ? 'bg-emerald-500/15 text-emerald-700'
-                : 'bg-destructive/15 text-destructive'
-            "
+        <div
+          v-if="!isLoading && docInfos.length"
+          class="mt-1 flex flex-col gap-2 text-xs text-muted-foreground"
+        >
+          <div
+            v-for="info in docInfos"
+            :key="docKey(info)"
+            class="flex items-center gap-2"
           >
-            {{ docBadgeText }}
-            <span class="text-[10px]">{{ badgeOk ? "✓" : "!" }}</span>
-          </span>
+            <span class="whitespace-nowrap">{{ docPrefix(info) }}</span>
+            <span
+              class="inline-flex items-center gap-2 rounded-full border px-2 py-0.5 text-[11px] font-semibold whitespace-nowrap"
+              :class="
+                docBadgeOk(info)
+                  ? 'border-emerald-300 text-emerald-700 bg-emerald-500/5'
+                  : 'border-destructive/50 text-destructive bg-destructive/5'
+              "
+            >
+              {{ docBadgeText(info) }}
+              <span class="text-[10px]">{{ docBadgeOk(info) ? "✓" : "!" }}</span>
+            </span>
+          </div>
         </div>
       </div>
       <div class="flex gap-2">
@@ -260,6 +263,16 @@ type AnalysisResult = {
   overlapAreaM2: string | number | null;
 };
 
+type DocInfo = {
+  type: "CNPJ" | "CPF";
+  cnpj?: string;
+  cpf?: string;
+  nome?: string | null;
+  fantasia?: string | null;
+  situacao?: string | null;
+  isValid?: boolean;
+};
+
 type AnalysisDetail = {
   id: string;
   carKey: string;
@@ -273,15 +286,7 @@ type AnalysisDetail = {
     title: string;
     items: Array<{ datasetCode: string; hit: boolean; label?: string }>;
   }>;
-  docInfo?: {
-    type: "CNPJ" | "CPF";
-    cnpj?: string;
-    cpf?: string;
-    nome?: string | null;
-    fantasia?: string | null;
-    situacao?: string | null;
-    isValid?: boolean;
-  } | null;
+  docInfos?: DocInfo[];
   analysisDate: string;
   status: string;
   intersectionCount?: number;
@@ -326,12 +331,7 @@ const sicarStatusOk = computed(() => {
   return status.toUpperCase() === "AT";
 });
 
-const cnpjStatusOk = computed(() => {
-  const info = analysis.value?.docInfo;
-  if (!info || info.type !== "CNPJ") return true;
-  const status = info.situacao ?? "";
-  return status.toUpperCase() === "ATIVA";
-});
+const docInfos = computed(() => analysis.value?.docInfos ?? []);
 
 const showMetaSkeleton = computed(() => {
   if (isLoading.value) return true;
@@ -353,49 +353,44 @@ const displayStatus = computed(() => {
   return null;
 });
 
-const docLineLabel = computed(() => {
-  const info = analysis.value?.docInfo;
-  if (!info) return "";
-  if (info.type === "CNPJ") {
-    return info.fantasia || info.nome || "Sem nome";
-  }
-  if (info.type === "CPF") {
-    return "CPF";
-  }
-  return "";
-});
+const docKey = (info: DocInfo) => {
+  return `${info.type}:${info.cnpj ?? info.cpf ?? ""}`;
+};
 
-const docBadgeText = computed(() => {
-  const info = analysis.value?.docInfo;
-  if (!info) return "";
+const docPrefix = (info: DocInfo) => {
+  return info.type === "CNPJ" ? "CNPJ - " : "CPF - ";
+};
+
+const docBadgeText = (info: DocInfo) => {
   if (info.type === "CNPJ") {
-    const cnpj = formatCnpj(info.cnpj ?? "") || info.cnpj?.trim() || "";
-    const status = info.situacao ? info.situacao.toUpperCase() : "";
-    return ["CNPJ", cnpj, status].filter(Boolean).join(" ");
+    const identifier = formatCnpj(info.cnpj ?? "") || info.cnpj?.trim() || "";
+    const situacao = (info.situacao ?? "").toUpperCase();
+    const status = situacao === "ATIVA" ? "Ativo" : "Inativo";
+    return `${identifier} ${status}`.trim();
   }
   if (info.type === "CPF") {
-    if (info.isValid === false) return "CPF inválido";
-    const cpf = formatCpf(info.cpf ?? "");
-    return cpf || "CPF inválido";
+    const identifier = formatCpf(info.cpf ?? "") || info.cpf?.trim() || "";
+    const status = info.isValid === false ? "Invalido" : "Valido";
+    return `${identifier} ${status}`.trim();
   }
   return "";
-});
+};
+
+const docBadgeOk = (info: DocInfo) => {
+  if (info.type === "CNPJ") {
+    return (info.situacao ?? "").toUpperCase() === "ATIVA";
+  }
+  if (info.type === "CPF") {
+    return info.isValid !== false;
+  }
+  return true;
+};
 
 const sicarBadgeText = computed(() => {
   if (!analysis.value?.sicarStatus) return "";
   const carKey = analysis.value?.carKey ?? "-";
   const status = formatStatusLabel(analysis.value?.sicarStatus).toUpperCase();
   return ["SICAR", carKey, status].filter(Boolean).join(" ");
-});
-
-const docInfoType = computed(() => analysis.value?.docInfo?.type ?? null);
-
-const badgeOk = computed(() => {
-  const info = analysis.value?.docInfo;
-  if (!info) return true;
-  if (info.type === "CNPJ") return cnpjStatusOk.value;
-  if (info.type === "CPF") return info.isValid !== false;
-  return true;
 });
 
 const analysisPublicUrl = computed(() => {

@@ -178,7 +178,7 @@ model FarmDocument {
 model Analysis {
   id             String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   carKey         String         @map("car_key")
-  cpfCnpj        String?        @map("cpf_cnpj")
+  analysisDocs   Json           @map("analysis_docs") @default("[]")
   analysisDate   DateTime       @map("analysis_date") @db.Date
   status         AnalysisStatus @default(pending)
   createdByUserId String        @map("created_by_user_id") @db.Uuid

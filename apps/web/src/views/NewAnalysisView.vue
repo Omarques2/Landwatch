@@ -33,11 +33,11 @@
           @keydown.enter.prevent="onCarCommit"
         />
 
-        <UiLabel for="analysis-doc">CPF/CNPJ (opcional)</UiLabel>
+        <UiLabel for="analysis-doc">Documentos (CPF/CNPJ, opcional)</UiLabel>
         <UiInput
           id="analysis-doc"
-          :model-value="analysisForm.cpfCnpj"
-          placeholder="CPF/CNPJ"
+          :model-value="docInput"
+          placeholder="Digite um CPF/CNPJ e pressione Enter"
           inputmode="numeric"
           maxlength="18"
           :class="docError ? 'border-red-500 focus-visible:ring-red-500/40' : ''"
@@ -46,6 +46,22 @@
           @keydown.enter.prevent="onDocCommit"
         />
         <div v-if="docError" class="text-xs text-red-500">{{ docError }}</div>
+        <div v-if="analysisForm.documents.length" class="flex flex-wrap gap-2 text-xs">
+          <div
+            v-for="doc in analysisForm.documents"
+            :key="doc"
+            class="inline-flex items-center gap-2 rounded-full border border-border bg-background px-3 py-1"
+          >
+            <span class="font-semibold">{{ formatDoc(doc) }}</span>
+            <button
+              type="button"
+              class="text-muted-foreground transition hover:text-foreground"
+              @click="removeDoc(doc)"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
         <div v-if="farmDocuments.length" class="grid gap-2">
           <div class="text-xs text-muted-foreground">Documentos cadastrados</div>
           <div class="flex flex-wrap gap-2">
@@ -55,11 +71,11 @@
               size="sm"
               variant="outline"
               :class="
-                selectedDocNormalized === doc.docNormalized
+                isDocSelected(doc.docNormalized)
                   ? 'border-emerald-200 text-emerald-700'
                   : ''
               "
-              @click="selectFarmDoc(doc)"
+              @click="toggleFarmDoc(doc)"
             >
               {{ doc.docType }} · {{ formatDoc(doc.docNormalized) }}
             </UiButton>
@@ -86,6 +102,7 @@
 
         <UiButton
           class="mt-2 inline-flex items-center gap-2"
+          data-testid="analysis-submit"
           :disabled="isSubmitting || mvBusy"
           @click="submitAnalysis"
         >
@@ -170,12 +187,12 @@
     </section>
 
     <UiDialog :open="confirmMissingOpen" @close="confirmMissingOpen = false">
-      <UiDialogHeader>
-        <UiDialogTitle>Continuar sem dados?</UiDialogTitle>
-        <UiDialogDescription>
-          Você não preencheu Nome da fazenda e CPF/CNPJ. Deseja continuar mesmo assim?
-        </UiDialogDescription>
-      </UiDialogHeader>
+        <UiDialogHeader>
+          <UiDialogTitle>Continuar sem dados?</UiDialogTitle>
+          <UiDialogDescription>
+          Você não preencheu Nome da fazenda nem documentos. Deseja continuar mesmo assim?
+          </UiDialogDescription>
+        </UiDialogHeader>
       <UiDialogFooter class="flex items-center justify-end gap-2 p-4">
         <UiButton variant="outline" :disabled="isSubmitting" @click="confirmMissingOpen = false">
           Voltar
@@ -239,17 +256,17 @@ const analysisForm = reactive({
   farmId: "",
   farmName: "",
   carKey: "",
-  cpfCnpj: "",
+  documents: [] as string[],
   analysisDate: "",
 });
+const docInput = ref("");
 const message = ref("");
 const autoFillLoading = ref(false);
 const autoFillMessage = ref("");
 const farmDocuments = ref<FarmDocument[]>([]);
-const selectedDocNormalized = computed(() => {
-  const digits = sanitizeDoc(analysisForm.cpfCnpj ?? "");
-  return digits || null;
-});
+const isDocSelected = (digits: string) => {
+  return analysisForm.documents.includes(digits);
+};
 
 const viewMode = computed<"analysis" | "search">(() => {
   return route.path.startsWith("/analyses/search") ? "search" : "analysis";
@@ -257,7 +274,7 @@ const viewMode = computed<"analysis" | "search">(() => {
 
 const missingOptionalInfo = computed(() => {
   if (analysisForm.farmId) return false;
-  return !analysisForm.farmName.trim() && !analysisForm.cpfCnpj.trim();
+  return !analysisForm.farmName.trim() && analysisForm.documents.length === 0;
 });
 
 async function loadFarm(id: string) {
@@ -271,13 +288,24 @@ async function loadFarm(id: string) {
 
 let autoFillRequestId = 0;
 
+function getAutoFillState() {
+  const hasCar = Boolean(analysisForm.carKey.trim());
+  const docDigits = sanitizeDoc(docInput.value ?? "");
+  const hasDoc = analysisForm.documents.length > 0 || Boolean(docDigits);
+  const hasName = Boolean(analysisForm.farmName.trim());
+  const filledCount = [hasCar, hasDoc, hasName].filter(Boolean).length;
+  return { hasCar, hasDoc, hasName, filledCount };
+}
+
 function isCarKeyComplete(value: string) {
   const cleaned = value.replace(/[^A-Z0-9]/gi, "");
   return cleaned.length === 41;
 }
 
 function resolveAutoFillQuery(): { type: "car" | "doc"; value: string } | null {
-  const digits = sanitizeDoc(analysisForm.cpfCnpj ?? "");
+  const state = getAutoFillState();
+  if (state.filledCount !== 1) return null;
+  const digits = sanitizeDoc(docInput.value ?? "");
   if (digits && isValidCpfCnpj(digits)) return { type: "doc", value: digits };
   if (isCarKeyComplete(analysisForm.carKey)) {
     return { type: "car", value: analysisForm.carKey.trim() };
@@ -331,12 +359,23 @@ async function autoFillFarm(query: { type: "car" | "doc"; value: string }) {
   }
 }
 
-async function triggerAutoFill() {
+async function triggerAutoFill(
+  forced?: { type: "car" | "doc"; value: string },
+) {
   if (analysisForm.farmId) return;
-  const query = resolveAutoFillQuery();
-  if (!query) {
+  const state = getAutoFillState();
+  if (state.filledCount === 0) {
     autoFillMessage.value = "";
     farmDocuments.value = [];
+    return;
+  }
+  if (state.filledCount !== 1) {
+    autoFillMessage.value = "";
+    return;
+  }
+  const query = forced ?? resolveAutoFillQuery();
+  if (!query) {
+    autoFillMessage.value = "";
     return;
   }
   await autoFillFarm(query);
@@ -345,6 +384,7 @@ async function triggerAutoFill() {
 async function submitAnalysis() {
   message.value = "";
   if (isSubmitting.value) return;
+  commitDocIfValid();
   if (mvBusy.value) {
     message.value = "Base geoespacial em atualização. Aguarde para continuar.";
     return;
@@ -373,9 +413,12 @@ async function performSubmit() {
   isSubmitting.value = true;
   message.value = "Criando análise...";
   const normalizedDate = normalizeAnalysisDate(analysisForm.analysisDate);
+  const documents = analysisForm.documents.length
+    ? [...analysisForm.documents]
+    : undefined;
   const payload = {
     carKey: analysisForm.carKey.trim(),
-    cpfCnpj: analysisForm.cpfCnpj?.trim() || undefined,
+    documents,
     analysisDate: normalizedDate,
     farmId: analysisForm.farmId || undefined,
     farmName: analysisForm.farmId ? undefined : analysisForm.farmName?.trim() || undefined,
@@ -485,13 +528,20 @@ function onCarCommit() {
 
 function onDocInput(value: string) {
   const digits = (value ?? "").replace(/\D/g, "").slice(0, 14);
-  analysisForm.cpfCnpj = maskCpfCnpj(digits);
+  docInput.value = maskCpfCnpj(digits);
 }
 
 function onDocCommit() {
-  const digits = (analysisForm.cpfCnpj ?? "").replace(/\D/g, "");
-  analysisForm.cpfCnpj = maskCpfCnpj(digits);
-  void triggerAutoFill();
+  const digits = (docInput.value ?? "").replace(/\D/g, "");
+  if (!digits) {
+    docInput.value = "";
+    return;
+  }
+  if ((digits.length === 11 || digits.length === 14) && isValidCpfCnpj(digits)) {
+    addDocument(digits);
+    docInput.value = "";
+    void triggerAutoFill({ type: "doc", value: digits });
+  }
 }
 
 function onDateInput(value: string) {
@@ -559,10 +609,6 @@ function maskCpfCnpj(digits: string) {
   return out;
 }
 
-function selectFarmDoc(doc: FarmDocument) {
-  analysisForm.cpfCnpj = maskCpfCnpj(doc.docNormalized);
-}
-
 function formatDoc(doc: string) {
   return maskCpfCnpj(doc ?? "");
 }
@@ -623,11 +669,39 @@ const dateError = computed(() => {
 });
 
 const docError = computed(() => {
-  const digits = sanitizeDoc(analysisForm.cpfCnpj ?? "");
+  const digits = sanitizeDoc(docInput.value ?? "");
   if (!digits) return "";
   if (digits.length !== 11 && digits.length !== 14) return "";
   return isValidCpfCnpj(digits) ? "" : "CPF/CNPJ inválido";
 });
+
+function addDocument(digits: string) {
+  if (!analysisForm.documents.includes(digits)) {
+    analysisForm.documents.push(digits);
+  }
+}
+
+function removeDoc(doc: string) {
+  const index = analysisForm.documents.indexOf(doc);
+  if (index >= 0) analysisForm.documents.splice(index, 1);
+}
+
+function toggleFarmDoc(doc: FarmDocument) {
+  if (analysisForm.documents.includes(doc.docNormalized)) {
+    removeDoc(doc.docNormalized);
+  } else {
+    addDocument(doc.docNormalized);
+  }
+}
+
+function commitDocIfValid() {
+  const digits = sanitizeDoc(docInput.value ?? "");
+  if (!digits) return;
+  if ((digits.length === 11 || digits.length === 14) && isValidCpfCnpj(digits)) {
+    addDocument(digits);
+    docInput.value = "";
+  }
+}
 
 function updateCenter(payload: { lat: number; lng: number }) {
   center.lat = payload.lat.toFixed(6);

@@ -51,7 +51,7 @@ describe('AnalysisRunnerService', () => {
       carKey: 'CAR-1',
       analysisDate: new Date('2026-01-31'),
       status: 'pending',
-      cpfCnpj: null,
+      analysisDocs: [],
     });
     prisma.$queryRaw.mockResolvedValueOnce([]);
     const deps = makeDeps();
@@ -82,7 +82,7 @@ describe('AnalysisRunnerService', () => {
       carKey: 'CAR-1',
       analysisDate: new Date('2026-01-31'),
       status: 'pending',
-      cpfCnpj: null,
+      analysisDocs: [],
     });
     prisma.$queryRaw.mockResolvedValueOnce([
       {
@@ -175,7 +175,7 @@ describe('AnalysisRunnerService', () => {
       carKey: 'CAR-1',
       analysisDate: new Date('2026-02-01'),
       status: 'pending',
-      cpfCnpj: null,
+      analysisDocs: [],
     });
     const deps = makeDeps();
     deps.landwatchStatus.assertNotRefreshing.mockRejectedValue(
@@ -209,7 +209,7 @@ describe('AnalysisRunnerService', () => {
       carKey: 'CAR-1',
       analysisDate: new Date('2026-01-31'),
       status: 'pending',
-      cpfCnpj: null,
+      analysisDocs: [],
     });
     prisma.$queryRaw.mockResolvedValueOnce([
       {
@@ -254,7 +254,7 @@ describe('AnalysisRunnerService', () => {
       carKey: 'CAR-1',
       analysisDate: new Date('2026-01-31'),
       status: 'pending',
-      cpfCnpj: null,
+      analysisDocs: [],
     });
     prisma.$queryRaw.mockResolvedValueOnce([
       {

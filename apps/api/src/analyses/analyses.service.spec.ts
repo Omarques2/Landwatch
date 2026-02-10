@@ -74,16 +74,25 @@ describe('AnalysesService', () => {
     );
     const result = await service.create({ sub: 'entra-1' } as any, {
       carKey: 'CAR-1',
-      cpfCnpj: '52998224725',
+      documents: ['52998224725', '04252011000110'],
     });
 
     expect(prisma.analysis.create).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({ status: 'pending' }),
+        data: expect.objectContaining({
+          status: 'pending',
+          analysisDocs: [
+            { docType: 'CPF', docNormalized: '52998224725' },
+            { docType: 'CNPJ', docNormalized: '04252011000110' },
+          ],
+        }),
       }),
     );
     expect(deps.runner.enqueue).toHaveBeenCalledWith('analysis-1');
     expect(result.status).toBe('pending');
+    expect(deps.docInfo.updateCnpjInfoBestEffort).toHaveBeenCalledWith(
+      '04252011000110',
+    );
     expect(prisma.farmDocument.upsert).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
@@ -94,9 +103,19 @@ describe('AnalysesService', () => {
         }),
       }),
     );
+    expect(prisma.farmDocument.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          farmId_docNormalized: {
+            farmId: 'farm-1',
+            docNormalized: '04252011000110',
+          },
+        }),
+      }),
+    );
   });
 
-  it('does not inject farm documents when input does not provide CPF/CNPJ', async () => {
+  it('does not inject farm documents when input does not provide documents', async () => {
     const prisma = makePrismaMock();
     prisma.farm.findFirst.mockResolvedValue({ id: 'farm-1' });
     prisma.$queryRaw.mockResolvedValueOnce([{ ok: 1 }]);
@@ -116,11 +135,12 @@ describe('AnalysesService', () => {
     expect(prisma.analysis.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
-          cpfCnpj: null,
+          analysisDocs: [],
           farmId: 'farm-1',
         }),
       }),
     );
+    expect(prisma.farmDocument.upsert).not.toHaveBeenCalled();
   });
 
   it('rejects invalid CPF/CNPJ input', async () => {
@@ -141,7 +161,7 @@ describe('AnalysesService', () => {
     await expect(
       service.create({ sub: 'entra-1' } as any, {
         carKey: 'CAR-1',
-        cpfCnpj: '52998224724',
+        documents: ['52998224724'],
       }),
     ).rejects.toMatchObject({
       response: { code: 'INVALID_CPF_CNPJ' },

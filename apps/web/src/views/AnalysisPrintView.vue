@@ -41,7 +41,7 @@ type AnalysisDetail = {
     title: string;
     items: Array<{ datasetCode: string; hit: boolean; label?: string }>;
   }>;
-  docInfo?: {
+  docInfos?: Array<{
     type: "CNPJ" | "CPF";
     cnpj?: string;
     cpf?: string;
@@ -49,7 +49,7 @@ type AnalysisDetail = {
     fantasia?: string | null;
     situacao?: string | null;
     isValid?: boolean;
-  } | null;
+  }>;
   analysisDate: string;
   status: string;
   intersectionCount?: number;

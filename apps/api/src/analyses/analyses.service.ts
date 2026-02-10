@@ -18,7 +18,7 @@ import { ANALYSIS_CACHE_VERSION } from './analysis-cache.constants';
 
 type CreateAnalysisInput = {
   carKey: string;
-  cpfCnpj?: string;
+  documents?: string[];
   analysisDate?: string;
   farmId?: string;
   farmName?: string;
@@ -70,16 +70,28 @@ export class AnalysesService {
     return assertIdentifier(schema, 'LANDWATCH_SCHEMA');
   }
 
-  private normalizeCpfCnpj(input?: string | null): string | null {
-    const digits = sanitizeDoc(input);
-    if (!digits) return null;
-    if (!isValidCpfCnpj(digits)) {
-      throw new BadRequestException({
-        code: 'INVALID_CPF_CNPJ',
-        message: 'CPF/CNPJ inválido',
-      });
+  private normalizeDocuments(
+    input?: string[] | null,
+  ): Array<{ docNormalized: string; docType: FarmDocType }> {
+    if (!Array.isArray(input) || input.length === 0) return [];
+    const docs: Array<{ docNormalized: string; docType: FarmDocType }> = [];
+    const seen = new Set<string>();
+
+    for (const raw of input) {
+      const digits = sanitizeDoc(raw);
+      if (!digits) continue;
+      if (!isValidCpfCnpj(digits)) {
+        throw new BadRequestException({
+          code: 'INVALID_CPF_CNPJ',
+          message: 'CPF/CNPJ inválido',
+        });
+      }
+      if (seen.has(digits)) continue;
+      seen.add(digits);
+      docs.push(this.buildFarmDoc(digits));
     }
-    return digits;
+
+    return docs;
   }
 
   private buildFarmDoc(digits: string) {
@@ -169,7 +181,7 @@ export class AnalysesService {
     const userId = await this.resolveUserId(claims);
     const carKey = this.normalizeCarKey(input.carKey);
     const analysisDate = this.normalizeDate(input.analysisDate);
-    const inputCpf = this.normalizeCpfCnpj(input.cpfCnpj);
+    const documents = this.normalizeDocuments(input.documents);
 
     if (this.isCurrentAnalysisDate(analysisDate)) {
       await this.landwatchStatus.assertNotRefreshing();
@@ -188,9 +200,11 @@ export class AnalysesService {
       });
     }
 
-    const cpfCnpj = inputCpf ?? null;
-    if (cpfCnpj && cpfCnpj.length === 14) {
-      await this.docInfo.updateCnpjInfoBestEffort(cpfCnpj);
+    const cnpjDocs = documents
+      .filter((doc) => doc.docType === FarmDocType.CNPJ)
+      .map((doc) => doc.docNormalized);
+    for (const cnpj of cnpjDocs) {
+      await this.docInfo.updateCnpjInfoBestEffort(cnpj);
     }
 
     let farmId = farm?.id ?? null;
@@ -207,28 +221,29 @@ export class AnalysesService {
         farmId = createdFarm.id;
       }
 
-      if (farmId && cpfCnpj) {
-        const doc = this.buildFarmDoc(cpfCnpj);
-        await tx.farmDocument.upsert({
-          where: {
-            farmId_docNormalized: {
+      if (farmId && documents.length) {
+        for (const doc of documents) {
+          await tx.farmDocument.upsert({
+            where: {
+              farmId_docNormalized: {
+                farmId,
+                docNormalized: doc.docNormalized,
+              },
+            },
+            create: {
               farmId,
               docNormalized: doc.docNormalized,
+              docType: doc.docType,
             },
-          },
-          create: {
-            farmId,
-            docNormalized: doc.docNormalized,
-            docType: doc.docType,
-          },
-          update: {},
-        });
+            update: {},
+          });
+        }
       }
 
       return tx.analysis.create({
         data: {
           carKey,
-          cpfCnpj,
+          analysisDocs: documents as Prisma.InputJsonValue,
           analysisDate: new Date(analysisDate),
           status: 'pending',
           createdByUserId: userId,

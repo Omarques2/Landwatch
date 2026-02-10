@@ -84,7 +84,6 @@ export class AnalysisRunnerService implements OnModuleInit, OnModuleDestroy {
           id: true,
           carKey: true,
           analysisDate: true,
-          cpfCnpj: true,
         },
       });
       if (!analysis) return;
