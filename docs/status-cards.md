@@ -82,7 +82,7 @@ Legenda:
   Aceite: biomas exibidos sem tabela dedicada (derivação dos resultados BIOMAS).
 - [~] POST /v1/analyses (sincrono no MVP)
   Aceite: cria analysis + results e retorna resumo.
-- [~] Analise com multiplos documentos (JSONB) + sync com fazenda
+- [x] Analise com multiplos documentos (JSONB) + sync com fazenda
   Aceite: analysis_docs armazena lista de CPF/CNPJ; criacao da analise upserta docs em farm_document; analise permanece imutavel (requer reset do schema app + migrate deploy).
 - [ ] Idempotency-Key em POST /analyses
   Aceite: mesma key nao cria duplicado.
@@ -144,7 +144,7 @@ Legenda:
   Aceite: mapa e tabela renderizam sem erro.
 - [x] Nova analise (form + validacoes)
   Aceite: validacoes e POST /analyses funcionam.
-- [~] Nova analise com multiplos documentos (chips + selecao)
+- [x] Nova analise com multiplos documentos (chips + selecao)
   Aceite: usuario adiciona varios docs, seleciona docs da fazenda e payload envia array `documents`.
 - [x] Abas no sidebar (Nova analise / Buscar CAR) + confirmacao de campos opcionais
   Aceite: CAR selecionado no mapa preenche form; se nome/CPF-CNPJ vazios, confirma antes de criar.

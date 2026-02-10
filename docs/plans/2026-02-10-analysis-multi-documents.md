@@ -2,6 +2,8 @@
 
 **Goal:** Support multiple CPF/CNPJ per analysis, keep analyses immutable, and sync entered documents to the farm when applicable. No backwards compatibility; `app` schema reset is expected.
 
+**Status:** Implemented.
+
 **Scope:**
 - Replace `analysis.cpf_cnpj` with `analysis.analysis_docs` (JSONB array).
 - Allow selecting multiple documents in **New Analysis** (UI).
@@ -56,6 +58,8 @@ npx prisma migrate deploy
   - Chips list + remove.
   - Toggle existing farm documents (multi-select).
   - Submit payload includes `documents`.
+- **Auto-fill guardrails**
+  - Só dispara busca quando apenas 1 campo está preenchido (CAR ou documento ou nome).
 - **AnalysisDetail / Public / Print**
   - Display multiple documents (and CNPJ validation results).
 
@@ -76,3 +80,4 @@ npx prisma migrate deploy
 - Create analysis with 2+ docs → detail shows all docs.
 - New doc typed in analysis → appears in farm documents list.
 - PDFs include all documents (immutably from analysis).
+- Auto-fill não sobrescreve quando há mais de um campo preenchido.

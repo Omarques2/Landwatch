@@ -51,6 +51,16 @@
               <span class="public-badge-icon">{{ docBadgeOk(info) ? "✓" : "!" }}</span>
               {{ docBadgeText(info) }}
             </span>
+            <div v-if="docFlagBadges(info).length" class="public-doc-flags">
+              <span
+                v-for="flag in docFlagBadges(info)"
+                :key="flag"
+                class="public-badge public-badge-warn"
+              >
+                <span class="public-badge-icon">!</span>
+                {{ flag }}
+              </span>
+            </div>
           </div>
         </div>
       </template>
@@ -143,15 +153,15 @@
             <div
               v-for="item in group.items"
               :key="item.datasetCode"
-              class="print-intersection-item flex items-center gap-3 rounded-lg border border-border px-3 py-2 text-sm"
+              class="print-intersection-item flex items-start gap-3 rounded-lg border border-border px-3 py-2 text-sm"
             >
-              <div class="flex items-center gap-3">
-                <span
-                  class="inline-flex h-5 w-5 items-center justify-center rounded-full text-xs font-semibold"
-                  :class="item.hit ? 'bg-red-500/15 text-red-600' : 'bg-emerald-500/15 text-emerald-600'"
-                >
-                  {{ item.hit ? "✕" : "✓" }}
-                </span>
+              <span
+                class="inline-flex h-5 w-5 items-center justify-center rounded-full text-xs font-semibold"
+                :class="item.hit ? 'bg-red-500/15 text-red-600' : 'bg-emerald-500/15 text-emerald-600'"
+              >
+                {{ item.hit ? "✕" : "✓" }}
+              </span>
+              <div class="flex flex-col gap-1">
                 <span class="font-semibold">{{ formatDatasetLabelForItem(item) }}</span>
               </div>
             </div>
@@ -193,6 +203,7 @@ type DocInfo = {
   fantasia?: string | null;
   situacao?: string | null;
   isValid?: boolean;
+  docFlags?: { mte: boolean; ibama: boolean };
 };
 
 type AnalysisDetail = {
@@ -206,7 +217,11 @@ type AnalysisDetail = {
   sicarStatus?: string | null;
   datasetGroups?: Array<{
     title: string;
-    items: Array<{ datasetCode: string; hit: boolean; label?: string }>;
+    items: Array<{
+      datasetCode: string;
+      hit: boolean;
+      label?: string;
+    }>;
   }>;
   docInfos?: DocInfo[];
   analysisDate: string;
@@ -244,6 +259,12 @@ const sicarStatusOk = computed(() => {
 });
 
 const docInfos = computed(() => analysis.value?.docInfos ?? []);
+const docFlagBadges = (info: DocInfo) => {
+  const flags: string[] = [];
+  if (info.docFlags?.mte) flags.push("MTE");
+  if (info.docFlags?.ibama) flags.push("Ibama");
+  return flags;
+};
 
 const docKey = (info: DocInfo) => `${info.type}:${info.cnpj ?? info.cpf ?? ""}`;
 
@@ -256,7 +277,9 @@ const docBadgeText = (info: DocInfo) => {
     const identifier = formatCnpj(info.cnpj ?? "") || info.cnpj?.trim() || "";
     const situacao = (info.situacao ?? "").toUpperCase();
     const status = situacao === "ATIVA" ? "Ativo" : "Inativo";
-    return `${identifier} ${status}`.trim();
+    const name = (info.nome ?? info.fantasia ?? "").trim();
+    const base = [name, identifier].filter(Boolean).join(" - ");
+    return [base, status].filter(Boolean).join(" ").trim();
   }
   if (info.type === "CPF") {
     const identifier = formatCpf(info.cpf ?? "") || info.cpf?.trim() || "";

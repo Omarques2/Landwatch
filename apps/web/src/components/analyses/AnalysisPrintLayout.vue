@@ -34,6 +34,16 @@
               {{ docBadgeText(info) }}
               <span class="print-badge-icon">{{ docBadgeOk(info) ? "✓" : "!" }}</span>
             </span>
+            <div v-if="docFlagBadges(info).length" class="print-doc-flags">
+              <span
+                v-for="flag in docFlagBadges(info)"
+                :key="flag"
+                class="print-badge print-badge-warn"
+              >
+                {{ flag }}
+                <span class="print-badge-icon">!</span>
+              </span>
+            </div>
           </div>
         </div>
       </header>
@@ -120,7 +130,9 @@
                 >
                   {{ item.hit ? "✕" : "✓" }}
                 </span>
-                <span class="print-chip-text">{{ formatDatasetLabelPrint(item) }}</span>
+                <div class="print-chip-body">
+                  <span class="print-chip-text">{{ formatDatasetLabelPrint(item) }}</span>
+                </div>
               </div>
             </div>
           </div>
@@ -155,6 +167,7 @@ type DocInfo = {
   fantasia?: string | null;
   situacao?: string | null;
   isValid?: boolean;
+  docFlags?: { mte: boolean; ibama: boolean };
 };
 
 type AnalysisDetail = {
@@ -204,6 +217,12 @@ const sicarStatusOk = computed(() => {
 });
 
 const docInfos = computed(() => props.analysis?.docInfos ?? []);
+const docFlagBadges = (info: DocInfo) => {
+  const flags: string[] = [];
+  if (info.docFlags?.mte) flags.push("MTE");
+  if (info.docFlags?.ibama) flags.push("Ibama");
+  return flags;
+};
 
 const docKey = (info: DocInfo) => `${info.type}:${info.cnpj ?? info.cpf ?? ""}`;
 
@@ -216,7 +235,9 @@ const docBadgeText = (info: DocInfo) => {
     const identifier = formatCnpj(info.cnpj ?? "") || info.cnpj?.trim() || "";
     const situacao = (info.situacao ?? "").toUpperCase();
     const status = situacao === "ATIVA" ? "Ativo" : "Inativo";
-    return `${identifier} ${status}`.trim();
+    const name = (info.nome ?? info.fantasia ?? "").trim();
+    const base = [name, identifier].filter(Boolean).join(" - ");
+    return [base, status].filter(Boolean).join(" ").trim();
   }
   if (info.type === "CPF") {
     const identifier = formatCpf(info.cpf ?? "") || info.cpf?.trim() || "";
@@ -617,7 +638,7 @@ watch(
 
 .print-chip {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 6px;
   border: 1px solid #e2e8f0;
   border-radius: 8px;
@@ -625,6 +646,18 @@ watch(
   font-size: 8px;
   break-inside: avoid;
   page-break-inside: avoid;
+}
+
+.print-chip-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.print-doc-matches {
+  font-size: 7px;
+  color: #64748b;
+  line-height: 1.2;
 }
 
 .print-chip-icon {

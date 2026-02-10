@@ -20,9 +20,19 @@ type DatasetRow = {
 type DocRow = {
   dataset_code: string;
   category_code: string;
+  doc_normalized: string;
 };
 
-type DocInfo = Awaited<ReturnType<DocInfoService['buildDocInfo']>>;
+type BaseDocInfo = Awaited<ReturnType<DocInfoService['buildDocInfo']>>;
+
+type DocFlags = {
+  mte: boolean;
+  ibama: boolean;
+};
+
+type DocInfo = BaseDocInfo & {
+  docFlags?: DocFlags;
+};
 
 type DatasetItem = {
   datasetCode: string;
@@ -176,6 +186,7 @@ export class AnalysisDetailService {
         .map((row) => row.datasetCode),
     );
     const docHits = new Set(docMatches.map((row) => row.dataset_code));
+    const docFlagsByDoc = this.buildDocFlags(docMatches);
     const indigenaPhases = await this.fetchIndigenaPhases(
       schema,
       analysisDate,
@@ -215,7 +226,7 @@ export class AnalysisDetailService {
       },
     );
     const docInfos = analysisDocs.length
-      ? await this.buildDocInfos(analysisDocs)
+      ? await this.buildDocInfos(analysisDocs, docFlagsByDoc)
       : [];
 
     return {
@@ -592,12 +603,50 @@ export class AnalysisDetailService {
     return normalized;
   }
 
-  private async buildDocInfos(documents: string[]): Promise<DocInfo[]> {
+  private async buildDocInfos(
+    documents: string[],
+    flagsByDoc?: Map<string, DocFlags>,
+  ): Promise<DocInfo[]> {
     const infos: DocInfo[] = [];
     for (const doc of documents) {
-      infos.push(await this.docInfo.buildDocInfo(doc));
+      const info = await this.docInfo.buildDocInfo(doc);
+      const normalized = sanitizeDoc(doc) ?? '';
+      const flags = flagsByDoc?.get(normalized) ?? {
+        mte: false,
+        ibama: false,
+      };
+      infos.push({ ...info, docFlags: flags });
     }
     return infos;
+  }
+
+  private buildDocFlags(rows: DocRow[]): Map<string, DocFlags> {
+    const map = new Map<string, DocFlags>();
+    for (const row of rows ?? []) {
+      const normalized = sanitizeDoc(row.doc_normalized ?? '');
+      if (!normalized) continue;
+      const flags = map.get(normalized) ?? { mte: false, ibama: false };
+      const dataset = (row.dataset_code ?? '').toUpperCase();
+      const category = (row.category_code ?? '').toUpperCase();
+      const datasetOrCategory = `${dataset} ${category}`;
+      if (
+        datasetOrCategory.includes('CADASTRO_EMPREGADORES') ||
+        datasetOrCategory.includes('CADASTRO_DE_EMPREGADORES') ||
+        (datasetOrCategory.includes('CADASTRO') &&
+          datasetOrCategory.includes('EMPREGADOR'))
+      ) {
+        flags.mte = true;
+      }
+      if (
+        datasetOrCategory.includes('LISTA_EMBARGOS_IBAMA') ||
+        (datasetOrCategory.includes('IBAMA') &&
+          datasetOrCategory.includes('EMBARGO'))
+      ) {
+        flags.ibama = true;
+      }
+      map.set(normalized, flags);
+    }
+    return map;
   }
 
   private async fetchDocMatches(
@@ -607,7 +656,10 @@ export class AnalysisDetailService {
   ): Promise<DocRow[]> {
     if (!docNormalized.length) return [];
     const rows = await this.prisma.$queryRaw<DocRow[]>(Prisma.sql`
-      SELECT d.code AS dataset_code, c.code AS category_code
+      SELECT
+        d.code AS dataset_code,
+        c.code AS category_code,
+        di.doc_normalized
       FROM ${Prisma.raw(`"${schema}"."lw_doc_index"`)} di
       JOIN ${Prisma.raw(`"${schema}"."lw_dataset"`)} d ON d.dataset_id = di.dataset_id
       JOIN ${Prisma.raw(`"${schema}"."lw_category"`)} c ON c.category_id = d.category_id
