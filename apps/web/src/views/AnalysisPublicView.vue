@@ -516,15 +516,17 @@ function restoreTitle() {
   margin-top: 6px;
   display: flex;
   flex-wrap: wrap;
-  justify-content: center;
+  justify-content: flex-start;
   gap: 8px;
   font-size: 12px;
   color: #475569;
+  width: 100%;
 }
 
 .public-doc-list {
   flex-direction: column;
-  align-items: center;
+  align-items: flex-start;
+  width: 100%;
 }
 
 .public-subtitle.muted {
@@ -535,6 +537,7 @@ function restoreTitle() {
   display: flex;
   align-items: center;
   gap: 8px;
+  justify-content: flex-start;
 }
 
 .public-doc-prefix {

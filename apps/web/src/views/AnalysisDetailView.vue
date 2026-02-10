@@ -30,7 +30,7 @@
           <template v-if="analysis?.sicarStatus">
             <span class="mx-1 text-muted-foreground/70">-</span>
             <span
-              class="ml-2 inline-flex items-center gap-2 rounded-full px-2 py-0.5 text-[11px] font-semibold whitespace-nowrap"
+              class="inline-flex items-center gap-2 rounded-full px-2 py-0.5 text-[11px] font-semibold whitespace-nowrap"
               :class="
                 sicarStatusOk
                   ? 'bg-emerald-500/15 text-emerald-700'
