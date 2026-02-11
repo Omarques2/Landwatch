@@ -27,7 +27,7 @@
           placeholder="Selecione no mapa ou digite"
           inputmode="text"
           autocapitalize="characters"
-          maxlength="43"
+          maxlength="64"
           @update:model-value="onCarInput"
           @blur="onCarCommit"
           @keydown.enter.prevent="onCarCommit"

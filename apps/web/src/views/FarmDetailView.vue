@@ -53,7 +53,7 @@
                 :model-value="editForm.carKey"
                 inputmode="text"
                 autocapitalize="characters"
-                maxlength="43"
+                maxlength="64"
                 @update:model-value="onEditCarInput"
               />
             </div>

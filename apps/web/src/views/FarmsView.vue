@@ -120,7 +120,7 @@
                       :model-value="editForm.carKey"
                       inputmode="text"
                       autocapitalize="characters"
-                      maxlength="43"
+                      maxlength="64"
                       @update:model-value="onEditCarInput"
                     />
                   </div>
@@ -199,7 +199,7 @@
             placeholder="CAR (cod_imovel)"
             inputmode="text"
             autocapitalize="characters"
-            maxlength="43"
+            maxlength="64"
             @update:model-value="onFarmCarInput"
           />
         </div>

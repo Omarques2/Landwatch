@@ -87,6 +87,29 @@ describe("NewAnalysisView", () => {
     expect(http.post).not.toHaveBeenCalled();
   });
 
+  it("preserves full CAR key when pasting dotted value", async () => {
+    (http.post as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      data: { data: { analysisId: "analysis-1" } },
+    });
+
+    const rawCar = "SP-3534005-9F26.1A42.DEE3.433D.BFEA.5D81.891B.6121";
+    const normalizedCar = "SP-3534005-9F261A42DEE3433DBFEA5D81891B6121";
+
+    const wrapper = mount(NewAnalysisView);
+    const carInput = wrapper.find("#analysis-car");
+    expect(Number(carInput.attributes("maxlength"))).toBeGreaterThanOrEqual(rawCar.length);
+
+    await wrapper.find("#analysis-name").setValue("Fazenda SP");
+    await carInput.setValue(rawCar);
+    await wrapper.find('[data-testid="analysis-submit"]').trigger("click");
+    await flushPromises();
+
+    expect(http.post).toHaveBeenCalledWith(
+      "/v1/analyses",
+      expect.objectContaining({ carKey: normalizedCar }),
+    );
+  });
+
   it("auto-fills farm data on blur when carKey is complete", async () => {
     (http.get as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       data: {
