@@ -5,6 +5,7 @@ import type { Claims } from './claims.type';
 @Injectable()
 export class EntraJwtService {
   private jwks: ReturnType<typeof createRemoteJWKSet>;
+  private readonly authorityHost: string;
 
   constructor() {
     /**
@@ -13,6 +14,7 @@ export class EntraJwtService {
      */
     const authorityHost =
       process.env.ENTRA_AUTHORITY_HOST ?? 'login.microsoftonline.com';
+    this.authorityHost = authorityHost.toLowerCase();
     const jwksTenant = process.env.ENTRA_JWKS_TENANT ?? 'common';
 
     const jwksUrl = new URL(
@@ -27,7 +29,7 @@ export class EntraJwtService {
     // v2 issuers esperados no Entra (multi-tenant e consumers)
     // Ex.: https://login.microsoftonline.com/{tenant}/v2.0
     //      https://login.microsoftonline.com/consumers/v2.0
-    if (!iss.startsWith('https://login.microsoftonline.com/')) return false;
+    if (!iss.startsWith(`https://${this.authorityHost}/`)) return false;
 
     return iss.endsWith('/v2.0') || iss.endsWith('/v2.0/');
   }

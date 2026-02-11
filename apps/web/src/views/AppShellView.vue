@@ -104,9 +104,8 @@ import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { Button as UiButton, Sheet as UiSheet } from "@/components/ui";
 import { LayoutDashboard, MapPin, FileText, ClipboardPlus, LocateFixed } from "lucide-vue-next";
-import { http } from "@/api/http";
-import { unwrapData, type ApiEnvelope } from "@/api/envelope";
 import { logout } from "@/auth/auth";
+import { getMeCached, type MeResponse } from "@/auth/me";
 import {
   fetchLandwatchStatus,
   mvBusy,
@@ -116,20 +115,12 @@ import {
 import SidebarNav from "@/components/SidebarNav.vue";
 import HamburgerIcon from "@/components/icons/HamburgerIcon.vue";
 
-type Me = {
-  id: string;
-  entraSub: string;
-  email: string | null;
-  displayName: string | null;
-  status: string;
-};
-
 const router = useRouter();
 const route = useRoute();
 
 const sidebarOpen = ref(true);
 const drawerOpen = ref(false);
-const me = ref<Me | null>(null);
+const me = ref<MeResponse | null>(null);
 const meLoading = ref(true);
 
 const navItems = [
@@ -162,8 +153,9 @@ const pageSubtitle = computed(() => {
 async function loadMe() {
   meLoading.value = true;
   try {
-    const res = await http.get<ApiEnvelope<Me>>("/v1/users/me");
-    me.value = unwrapData(res.data);
+    me.value = await getMeCached(true);
+  } catch {
+    me.value = null;
   } finally {
     meLoading.value = false;
   }

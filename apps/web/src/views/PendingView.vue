@@ -50,7 +50,8 @@ import { onBeforeUnmount, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import { http } from "@/api/http";
 import { unwrapData, type ApiEnvelope } from "@/api/envelope";
-import { logout } from "../auth/auth";
+import { hardResetAuthState, logout } from "../auth/auth";
+import { isRetryableHttpError, runWithRetryBackoff } from "../auth/resilience";
 import { Button as UiButton } from "@/components/ui";
 
 type MeResponse = {
@@ -58,6 +59,11 @@ type MeResponse = {
   rawStatus?: string;
   memberships?: any[];
 };
+
+type FetchMeResult =
+  | { kind: "ok"; me: MeResponse | null }
+  | { kind: "unauthorized"; me: null }
+  | { kind: "transient"; me: null };
 
 const router = useRouter();
 
@@ -67,29 +73,53 @@ const currentStatus = ref<MeResponse["status"] | null>(null);
 
 let timer: number | null = null;
 
-async function fetchMe(): Promise<MeResponse | null> {
+async function fetchMe(): Promise<FetchMeResult> {
   try {
-    const res = await http.get("/users/me");
-    return unwrapData(res.data as ApiEnvelope<MeResponse>);
+    const res = await runWithRetryBackoff(
+      () => http.get("/v1/users/me"),
+      {
+        attempts: 3,
+        baseDelayMs: 150,
+        maxDelayMs: 1_000,
+        jitterMs: 80,
+        shouldRetry: (error) => isRetryableHttpError(error),
+      },
+    );
+    return { kind: "ok", me: unwrapData(res.data as ApiEnvelope<MeResponse>) };
   } catch (e: any) {
     const status = e?.response?.status;
 
     // Se perdeu sessão / token inválido, volta para login
-    if (status === 401) {
-      await logout();
-      return null;
+    if (status === 401 || status === 403) {
+      await hardResetAuthState();
+      if (typeof window !== "undefined") {
+        window.location.assign("/login");
+      } else {
+        await logout();
+      }
+      return { kind: "unauthorized", me: null };
     }
 
-    return null;
+    return { kind: "transient", me: null };
   }
 }
 
 async function checkNow() {
   checking.value = true;
   try {
-    const me = await fetchMe();
-    if (!me) {
+    const result = await fetchMe();
+    if (result.kind === "unauthorized") {
       statusMessage.value = "Sessão expirada. Redirecionando para login...";
+      return;
+    }
+    if (result.kind === "transient") {
+      statusMessage.value = "Instabilidade temporária de rede. Vamos tentar novamente automaticamente.";
+      return;
+    }
+
+    const me = result.me;
+    if (!me) {
+      statusMessage.value = "Aguardando confirmação de acesso.";
       return;
     }
     const st = me?.status;
@@ -97,7 +127,7 @@ async function checkNow() {
 
     if (st === "active") {
       // liberado -> volta para o app
-      router.replace("/app");
+      router.replace("/");
       return;
     }
 

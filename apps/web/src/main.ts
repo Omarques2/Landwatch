@@ -3,19 +3,24 @@ import App from "./App.vue";
 import router from "./router";
 import "./assets/main.css";
 import "leaflet/dist/leaflet.css";
-import { initAuthOnce } from "./auth/auth";
+import { initAuthSafe, startAuthLifecycleRecovery } from "./auth/auth";
 import { setupLeafletDefaultIcons } from "./lib/leaflet-icons";
 
 setupLeafletDefaultIcons();
 
-async function bootstrap() {
-  await initAuthOnce();
+function bootstrap() {
+  const isCallbackRoute =
+    typeof window !== "undefined" && window.location.pathname === "/auth/callback";
 
   const app = createApp(App);
   app.use(router);
-
-  await router.isReady();
   app.mount("#app");
+
+  startAuthLifecycleRecovery();
+
+  if (!isCallbackRoute) {
+    void initAuthSafe();
+  }
 }
 
 bootstrap();

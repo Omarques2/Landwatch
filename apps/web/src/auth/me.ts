@@ -1,8 +1,11 @@
 // apps/web/src/auth/me.ts
 import { http } from "@/api/http";
 import { unwrapData, type ApiEnvelope } from "@/api/envelope";
+import { isRetryableHttpError, runWithRetryBackoff } from "./resilience";
 
 export type MeResponse = {
+  id?: string;
+  entraSub?: string;
   email: string | null;
   displayName: string | null;
   status: "pending" | "active" | "disabled";
@@ -42,13 +45,31 @@ export async function getMeCached(force = false): Promise<MeResponse | null> {
 
   const inflight = (async () => {
     try {
-      const res = await http.get("/v1/users/me");
+      const res = await runWithRetryBackoff(
+        () => http.get("/v1/users/me"),
+        {
+          attempts: 3,
+          baseDelayMs: 150,
+          maxDelayMs: 1_000,
+          jitterMs: 80,
+          shouldRetry: (error) => isRetryableHttpError(error),
+        },
+      );
       const me = unwrapData(res.data as ApiEnvelope<MeResponse>);
       cache = { value: me, fetchedAt: Date.now() };
       return me;
-    } catch {
-      cache = { value: null, fetchedAt: Date.now() };
-      return null;
+    } catch (error: any) {
+      const status = error?.response?.status;
+
+      // 401/403 invalidam identidade. Erro transitório preserva último estado.
+      if (status === 401 || status === 403) {
+        cache = { value: null, fetchedAt: Date.now() };
+        return null;
+      }
+
+      const fallback = cache?.value ?? null;
+      cache = { value: fallback, fetchedAt: Date.now() };
+      return fallback;
     } finally {
       if (cache) delete cache.inflight;
     }

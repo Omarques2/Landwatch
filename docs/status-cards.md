@@ -198,3 +198,35 @@ Legenda:
   Aceite: cache grava na geracao; leitura do detalhe prioriza cache; limpeza automática por expiração. Pendente validar em ambiente com MVs estáveis.
 - [x] Detectar lock de MVs e sinalizar no sistema
   Aceite: API detecta refresh/lock de MV e UI informa "base em atualizacao" e bloqueia ações dependentes durante ingestao.
+
+## EPIC-11 - Hardening de autenticação e sessão (UX + resiliencia)
+- [x] Evitar logout agressivo em erro transitório de token
+  Problema: falhas transitórias de rede/timeouts derrubavam sessão válida sem necessidade.
+  Aceite: token silent usa retry/backoff para erros transitórios e só redireciona para interação quando realmente necessário.
+- [x] Reset de auth não-destrutivo
+  Problema: limpeza ampla de storage pode apagar estado útil da aplicação e piorar UX.
+  Aceite: reset limpa apenas estado de autenticação (MSAL/chaves correlatas) sem `localStorage.clear()` global.
+- [x] Boot não-bloqueante no startup
+  Problema: inicialização síncrona de auth bloqueia primeiro paint e aumenta percepção de travamento.
+  Aceite: app monta imediatamente e init auth roda em warm-up assíncrono com timeout.
+- [x] Mutex/serialização de aquisição de token
+  Problema: requests paralelos competem por token e elevam erro de interação em lote.
+  Aceite: aquisição de token usa single-flight/serialização com reaproveitamento de promessa em voo.
+- [x] Retry/backoff para `/v1/users/me` com fallback seguro
+  Problema: instabilidade temporária era tratada como sessão inválida.
+  Aceite: `/v1/users/me` aplica retry; apenas 401/403 invalidam sessão imediatamente.
+- [x] Recuperação automática após background/aba suspensa
+  Problema: retomada após longo período em segundo plano podia quebrar fluxo sem recuperação silenciosa.
+  Aceite: listeners de `focus`, `visibilitychange`, `pageshow` e `online` disparam recuperação com throttle.
+- [x] Retry inteligente no client HTTP após 401
+  Problema: primeiro 401 forçava logout sem tentativa de refresh.
+  Aceite: interceptor tenta uma repetição com `forceRefresh` antes de reset/logout.
+- [x] Mensagens de UX mais corretas no Pending
+  Problema: erros transitórios apareciam como "sessão expirada" e confundiam usuário.
+  Aceite: Pending diferencia erro transitório de não autorizado e orienta sem pedir limpeza manual.
+- [x] Validação de issuer alinhada ao `ENTRA_AUTHORITY_HOST`
+  Problema: issuer fixo em `login.microsoftonline.com` quebrava cenários com host de autoridade customizado/soberano.
+  Aceite: backend valida issuer pelo host configurado em env.
+- [x] Política anti-stale para rotas SPA de auth
+  Problema: HTML stale em borda/cache pode gerar callback/login inconsistente após deploy.
+  Aceite: rotas críticas (`/`, `/login`, `/auth/callback`, `/dashboard`, `/farms*`, `/analyses*`) com `Cache-Control: no-store`.

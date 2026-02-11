@@ -2,17 +2,15 @@ import { describe, expect, it, vi } from "vitest";
 import { mount } from "@vue/test-utils";
 import { ref } from "vue";
 import AppShellView from "@/views/AppShellView.vue";
-import { http } from "@/api/http";
+import { getMeCached } from "@/auth/me";
 import { mvBusy } from "@/state/landwatch-status";
-
-vi.mock("@/api/http", () => ({
-  http: {
-    get: vi.fn(),
-  },
-}));
 
 vi.mock("@/auth/auth", () => ({
   logout: vi.fn(),
+}));
+
+vi.mock("@/auth/me", () => ({
+  getMeCached: vi.fn().mockResolvedValue(null),
 }));
 
 vi.mock("@/state/landwatch-status", () => ({
@@ -29,7 +27,7 @@ vi.mock("vue-router", () => ({
 
 describe("AppShellView", () => {
   it("shows sidebar user skeleton while profile is loading", () => {
-    (http.get as unknown as ReturnType<typeof vi.fn>).mockReturnValue(
+    (getMeCached as unknown as ReturnType<typeof vi.fn>).mockReturnValue(
       new Promise(() => {}),
     );
 
@@ -57,5 +55,25 @@ describe("AppShellView", () => {
     });
 
     expect(wrapper.text()).toContain("Base geoespacial em atualização");
+  });
+
+  it("loads profile through getMeCached with retry-capable path", async () => {
+    (getMeCached as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      email: "user@example.com",
+      displayName: "User",
+      status: "active",
+    });
+
+    mount(AppShellView, {
+      global: {
+        stubs: {
+          RouterView: true,
+          UiSheet: { template: "<div><slot /></div>" },
+        },
+      },
+    });
+
+    await Promise.resolve();
+    expect(getMeCached).toHaveBeenCalledWith(true);
   });
 });

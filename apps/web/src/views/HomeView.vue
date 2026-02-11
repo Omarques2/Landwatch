@@ -325,13 +325,14 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from "vue";
 import { logout } from "../auth/auth";
+import { getMeCached } from "../auth/me";
 import { http } from "../api/http";
 import { unwrapData, unwrapPaged, type ApiEnvelope } from "../api/envelope";
 import { isValidCpfCnpj, sanitizeDoc } from "../lib/doc-utils";
 
 type Me = {
-  id: string;
-  entraSub: string;
+  id?: string;
+  entraSub?: string;
   email: string | null;
   displayName: string | null;
   status: string;
@@ -419,8 +420,16 @@ const overlapPct = computed(() => {
 });
 
 async function loadMe() {
-  const res = await http.get<ApiEnvelope<Me>>("/v1/users/me");
-  me.value = unwrapData(res.data);
+  const profile = await getMeCached(true);
+  me.value = profile
+    ? {
+        id: profile.id,
+        entraSub: profile.entraSub,
+        email: profile.email,
+        displayName: profile.displayName,
+        status: profile.rawStatus ?? profile.status,
+      }
+    : null;
 }
 
 async function loadFarms() {

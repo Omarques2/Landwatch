@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from "vue-router";
-import { getActiveAccount, initAuthOnce } from "../auth/auth";
+import { getActiveAccount, initAuthSafe } from "../auth/auth";
+import { createAuthNavigationGuard } from "./auth-guard";
 
 import LoginView from "../views/LoginView.vue";
 import CallbackView from "../views/CallbackView.vue";
@@ -63,14 +64,17 @@ const router = createRouter({
   ],
 });
 
-router.beforeEach(async (to) => {
-  await initAuthOnce();
-  const acc = getActiveAccount();
-
-  if (to.path === "/login" && acc) return "/";
-  if (!to.meta.requiresAuth) return true;
-  if (!acc) return "/login";
-  return true;
-});
+router.beforeEach(
+  createAuthNavigationGuard({
+    getActiveAccount,
+    initAuthSafe,
+    navigateToLogin: () => {
+      const path = router.currentRoute.value.path;
+      if (path !== "/login" && path !== "/auth/callback") {
+        void router.replace("/login");
+      }
+    },
+  }),
+);
 
 export default router;
