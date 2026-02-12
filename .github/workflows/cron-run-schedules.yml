@@ -13,7 +13,7 @@ jobs:
       - name: Trigger staging due schedules
         env:
           API_BASE_URL: ${{ secrets.STAGING_API_BASE_URL }}
-          JOB_TOKEN: ${{ secrets.SCHEDULES_JOB_TOKEN_STAGING }}
+          JOB_TOKEN: ${{ secrets.SCHEDULES_JOB_TOKEN }}
         run: |
           if [ -z "$API_BASE_URL" ] || [ -z "$JOB_TOKEN" ]; then
             echo "Missing staging API base URL or job token"
@@ -47,7 +47,7 @@ jobs:
       - name: Trigger prod due schedules
         env:
           API_BASE_URL: ${{ secrets.PROD_API_BASE_URL }}
-          JOB_TOKEN: ${{ secrets.SCHEDULES_JOB_TOKEN_PROD }}
+          JOB_TOKEN: ${{ secrets.SCHEDULES_JOB_TOKEN }}
         run: |
           if [ -z "$API_BASE_URL" ] || [ -z "$JOB_TOKEN" ]; then
             echo "Missing prod API base URL or job token"
