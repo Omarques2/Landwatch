@@ -29,6 +29,15 @@ function makePrismaMock() {
 describe('AnalysisRunnerService', () => {
   const now = new Date('2026-02-01T00:00:00Z');
 
+  function extractSqlText(query: any): string {
+    if (!query) return '';
+    if (typeof query.sql === 'string') return query.sql;
+    if (Array.isArray(query.strings)) {
+      return query.strings.join(' ');
+    }
+    return '';
+  }
+
   function makeDeps() {
     return {
       landwatchStatus: {
@@ -407,5 +416,55 @@ describe('AnalysisRunnerService', () => {
         scheduleId: 'schedule-1',
       }),
     );
+  });
+
+  it('builds DETER current query using mv_feature_geom_active for current date', () => {
+    const prisma = makePrismaMock();
+    const deps = makeDeps();
+    const runner = new AnalysisRunnerService(
+      prisma as any,
+      deps.landwatchStatus as any,
+      deps.detail as any,
+      deps.cache as any,
+      deps.alerts as any,
+      () => now,
+    );
+
+    const query = (runner as any).buildIntersectionsQuery(
+      'landwatch',
+      'CAR-1',
+      '2026-02-01',
+      AnalysisKind.DETER,
+    );
+    const sqlText = extractSqlText(query);
+
+    expect(sqlText).toContain('"mv_feature_geom_active"');
+    expect(sqlText).toContain("c.code = 'DETER'");
+    expect(sqlText).not.toContain('"fn_intersections_asof_area"');
+  });
+
+  it('builds DETER as-of query using lw_feature_geom_hist for past date', () => {
+    const prisma = makePrismaMock();
+    const deps = makeDeps();
+    const runner = new AnalysisRunnerService(
+      prisma as any,
+      deps.landwatchStatus as any,
+      deps.detail as any,
+      deps.cache as any,
+      deps.alerts as any,
+      () => now,
+    );
+
+    const query = (runner as any).buildIntersectionsQuery(
+      'landwatch',
+      'CAR-1',
+      '2026-01-31',
+      AnalysisKind.DETER,
+    );
+    const sqlText = extractSqlText(query);
+
+    expect(sqlText).toContain('"lw_feature_geom_hist"');
+    expect(sqlText).toContain("c.code = 'DETER'");
+    expect(sqlText).not.toContain('"fn_intersections_asof_area"');
   });
 });

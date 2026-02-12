@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { mount } from "@vue/test-utils";
+import { flushPromises, mount } from "@vue/test-utils";
 import CallbackView from "@/views/CallbackView.vue";
 import { getActiveAccount, hardResetAuthState, initAuthSafe } from "@/auth/auth";
 import { getMeCached } from "@/auth/me";
@@ -23,13 +23,14 @@ vi.mock("@/auth/me", () => ({
 }));
 
 async function flushTick() {
-  await Promise.resolve();
-  await Promise.resolve();
+  await flushPromises();
+  await flushPromises();
 }
 
 describe("CallbackView", () => {
   beforeEach(() => {
     replaceMock.mockReset();
+    replaceMock.mockResolvedValue(undefined);
     (initAuthSafe as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(true);
     (hardResetAuthState as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
     (getActiveAccount as unknown as ReturnType<typeof vi.fn>).mockReturnValue(null);
@@ -68,5 +69,20 @@ describe("CallbackView", () => {
     await flushTick();
 
     expect(replaceMock).toHaveBeenCalledWith("/");
+  });
+
+  it("falls back to /login when callback flow throws unexpectedly", async () => {
+    (getActiveAccount as unknown as ReturnType<typeof vi.fn>).mockReturnValue({
+      homeAccountId: "acc-1",
+    });
+    (getMeCached as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error("stalled"),
+    );
+
+    mount(CallbackView);
+    await flushTick();
+
+    expect(hardResetAuthState).toHaveBeenCalled();
+    expect(replaceMock).toHaveBeenCalledWith("/login");
   });
 });

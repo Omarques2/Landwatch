@@ -19,7 +19,10 @@
     <header class="public-header">
       <div class="public-title-row">
         <img :src="printLogo" alt="SigFarm" class="public-logo" />
-        <div class="public-title">Sigfarm LandWatch - Análise Socioambiental</div>
+        <div class="public-title">Sigfarm LandWatch - {{ reportTitle }}</div>
+      </div>
+      <div v-if="isPreventiveDeter" class="public-preventive-note">
+        Análise preventiva DETER. Este relatório é de prevenção e não substitui a análise socioambiental completa.
       </div>
       <template v-if="isLoading">
         <div class="mt-3 flex flex-col items-center gap-2">
@@ -67,7 +70,7 @@
     </header>
 
     <section class="public-card">
-      <div class="text-lg font-semibold">Mapa da análise</div>
+      <div class="text-lg font-semibold">{{ mapSectionTitle }}</div>
       <div v-if="isLoading" class="mt-4 grid gap-3 text-sm sm:grid-cols-2">
         <div class="skeleton-line h-4 w-36 rounded-full"></div>
         <div class="skeleton-line h-4 w-44 rounded-full"></div>
@@ -134,7 +137,7 @@
     </section>
 
     <section class="public-card">
-      <div class="text-lg font-semibold">Interseções</div>
+      <div class="text-lg font-semibold">{{ intersectionsSectionTitle }}</div>
       <div v-if="isLoading" class="mt-4 grid gap-3">
         <div class="skeleton-line h-4 w-40 rounded-full"></div>
         <div class="intersections-grid grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
@@ -209,6 +212,7 @@ type DocInfo = {
 type AnalysisDetail = {
   id: string;
   carKey: string;
+  analysisKind?: "STANDARD" | "DETER";
   farmName?: string | null;
   municipio?: string | null;
   uf?: string | null;
@@ -246,6 +250,22 @@ const analysisMapRef = ref<InstanceType<typeof AnalysisMap> | null>(null);
 const printLayoutRef = ref<InstanceType<typeof AnalysisPrintLayout> | null>(null);
 const isPrintMode = ref(false);
 const originalTitle = ref<string | null>(null);
+
+const isPreventiveDeter = computed(
+  () => analysis.value?.analysisKind === "DETER",
+);
+
+const reportTitle = computed(() =>
+  isPreventiveDeter.value ? "Análise Preventiva DETER" : "Análise Socioambiental",
+);
+
+const mapSectionTitle = computed(() =>
+  isPreventiveDeter.value ? "Mapa da análise preventiva DETER" : "Mapa da análise",
+);
+
+const intersectionsSectionTitle = computed(() =>
+  isPreventiveDeter.value ? "Alertas DETER (preventivo)" : "Interseções",
+);
 
 const analysisPublicUrl = computed(() => {
   if (typeof window === "undefined") return "";
@@ -510,6 +530,17 @@ function restoreTitle() {
 .public-title {
   font-size: 20px;
   font-weight: 700;
+}
+
+.public-preventive-note {
+  margin-top: 8px;
+  border: 1px solid rgba(245, 158, 11, 0.45);
+  background: rgba(254, 243, 199, 0.8);
+  border-radius: 10px;
+  padding: 6px 10px;
+  font-size: 11px;
+  color: #92400e;
+  text-align: left;
 }
 
 .public-subtitle {

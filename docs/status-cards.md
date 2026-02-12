@@ -243,7 +243,7 @@ Legenda:
   Problema: usuário não consegue configurar recorrência por fazenda.
   Aceite:
   - Endpoints para criar/listar/editar/pausar/reativar agendamentos.
-  - Frequências suportadas: semanal, quinzenal e mensal.
+  - Frequências suportadas: diária, semanal, quinzenal e mensal.
   - Cada schedule aponta explicitamente para tipo de análise (`STANDARD` ou `DETER`).
 
 - [x] Endpoint interno para execução de schedules vencidos

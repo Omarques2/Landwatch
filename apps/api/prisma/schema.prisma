@@ -389,6 +389,7 @@ enum AnalysisKind {
 }
 
 enum ScheduleFrequency {
+  DAILY
   WEEKLY
   BIWEEKLY
   MONTHLY

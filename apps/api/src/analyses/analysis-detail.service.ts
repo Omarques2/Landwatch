@@ -139,6 +139,11 @@ export class AnalysisDetailService {
       analysis.carKey,
       analysisDate,
     );
+    const biomas = await this.fetchBiomas(
+      schema,
+      analysis.carKey,
+      analysisDate,
+    );
     const sicarRow = filteredResults.find((row) => isBaseSicarResult(row));
     const sicarMeta = await this.fetchSicarMeta(
       schema,
@@ -156,7 +161,7 @@ export class AnalysisDetailService {
         uf: sicarMeta.uf,
         sicarStatus: sicarMeta.status,
         sicarCoordinates,
-        biomas: [],
+        biomas,
         datasetGroups: this.buildDeterDatasetGroups(filteredResults),
         docInfos: [],
         results: filteredResults.map((row) => ({
@@ -172,11 +177,6 @@ export class AnalysisDetailService {
       };
     }
 
-    const biomas = await this.fetchBiomas(
-      schema,
-      analysis.carKey,
-      analysisDate,
-    );
     const analysisDocs = this.normalizeAnalysisDocs(analysis.analysisDocs);
     const docMatches = analysisDocs.length
       ? await this.fetchDocMatches(schema, analysisDocs, analysisDate)
@@ -468,7 +468,7 @@ export class AnalysisDetailService {
         items: codes.map((datasetCode) => ({
           datasetCode,
           hit: true,
-          label: 'Alerta DETER',
+          label: datasetCode,
         })),
       },
     ];

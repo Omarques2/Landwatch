@@ -9,7 +9,7 @@ END $$;
 
 DO $$
 BEGIN
-  CREATE TYPE app.schedule_frequency AS ENUM ('WEEKLY', 'BIWEEKLY', 'MONTHLY');
+  CREATE TYPE app.schedule_frequency AS ENUM ('DAILY', 'WEEKLY', 'BIWEEKLY', 'MONTHLY');
 EXCEPTION
   WHEN duplicate_object THEN NULL;
 END $$;

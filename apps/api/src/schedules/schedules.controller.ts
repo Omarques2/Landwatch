@@ -55,4 +55,9 @@ export class SchedulesController {
   async resume(@Param('id') id: string) {
     return this.schedules.resume(id);
   }
+
+  @Post(':id/run-now')
+  async runNow(@Param('id') id: string) {
+    return this.schedules.runNow(id);
+  }
 }

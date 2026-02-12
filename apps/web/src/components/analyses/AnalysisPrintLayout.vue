@@ -5,7 +5,10 @@
       <header class="print-header">
         <div class="print-title-row">
           <img :src="logoSrc" alt="SigFarm" class="print-logo" />
-          <div class="print-title">Sigfarm LandWatch - Análise Socioambiental</div>
+          <div class="print-title">Sigfarm LandWatch - {{ reportTitle }}</div>
+        </div>
+        <div v-if="isPreventiveDeter" class="print-preventive-note">
+          Análise preventiva DETER. Este material é destinado à prevenção e não substitui a análise socioambiental completa.
         </div>
         <div class="print-subtitle">
           <span>Estabelecimento {{ analysis?.farmName ?? "Fazenda sem cadastro" }}</span>
@@ -99,6 +102,9 @@
         <div class="print-footer-meta">
           <div class="print-footer-label">ID da análise</div>
           <div class="print-footer-value">{{ analysis?.id ?? "-" }}</div>
+          <div v-if="isPreventiveDeter" class="print-footer-warning">
+            Uso preventivo DETER para alerta de possível desmatamento.
+          </div>
           <div v-if="analysisPublicUrl" class="print-footer-url">{{ analysisPublicUrl }}</div>
         </div>
         <div v-if="qrCodeDataUrl" class="print-footer-qr">
@@ -173,6 +179,7 @@ type DocInfo = {
 type AnalysisDetail = {
   id: string;
   carKey: string;
+  analysisKind?: "STANDARD" | "DETER";
   farmName?: string | null;
   municipio?: string | null;
   uf?: string | null;
@@ -205,6 +212,14 @@ const props = defineProps<{
   analysisPublicUrl: string;
   logoSrc: string;
 }>();
+
+const isPreventiveDeter = computed(
+  () => props.analysis?.analysisKind === "DETER",
+);
+
+const reportTitle = computed(() =>
+  isPreventiveDeter.value ? "Análise Preventiva DETER" : "Análise Socioambiental",
+);
 
 const analysisMapRef = ref<InstanceType<typeof AnalysisMap> | null>(null);
 const mapFrameRef = ref<HTMLDivElement | null>(null);
@@ -479,6 +494,17 @@ watch(
   font-weight: 700;
 }
 
+.print-preventive-note {
+  margin-top: 8px;
+  border: 1px solid rgba(245, 158, 11, 0.45);
+  background: rgba(254, 243, 199, 0.8);
+  border-radius: 10px;
+  padding: 6px 10px;
+  font-size: 11px;
+  color: #92400e;
+  text-align: left;
+}
+
 .print-subtitle {
   margin-top: 6px;
   display: flex;
@@ -701,6 +727,12 @@ watch(
 .print-footer-url {
   font-size: 10px;
   color: #64748b;
+}
+
+.print-footer-warning {
+  margin-top: 4px;
+  font-size: 10px;
+  color: #92400e;
 }
 
 .print-footer-qr img {

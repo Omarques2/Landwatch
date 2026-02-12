@@ -17,7 +17,7 @@
     <template v-if="!isPrintMode">
     <header class="screen-only flex flex-wrap items-center justify-between gap-4">
       <div>
-        <div class="text-2xl font-semibold">Detalhe da análise</div>
+        <div class="text-2xl font-semibold">{{ pageTitle }}</div>
         <div v-if="isLoading" class="mt-2 space-y-2">
           <div class="h-4 w-72 animate-pulse rounded-full bg-muted"></div>
           <div class="h-3 w-52 animate-pulse rounded-full bg-muted"></div>
@@ -75,6 +75,12 @@
             </div>
           </div>
         </div>
+        <div
+          v-if="!isLoading && isPreventiveDeter"
+          class="mt-3 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900"
+        >
+          Análise preventiva DETER. Esta visão é voltada para prevenção e não substitui a análise socioambiental completa.
+        </div>
       </div>
       <div class="flex gap-2">
         <UiButton variant="outline" size="sm" @click="loadAnalysis">Atualizar</UiButton>
@@ -93,7 +99,7 @@
     </header>
 
     <section class="print-card print-page-1 rounded-2xl border border-border bg-card p-6 shadow-sm">
-      <div class="text-lg font-semibold">Mapa da análise</div>
+      <div class="text-lg font-semibold">{{ mapSectionTitle }}</div>
       <div
         v-if="displayStatus && displayStatus !== 'completed'"
         class="mt-2 text-sm text-muted-foreground"
@@ -211,7 +217,7 @@
     </section>
 
     <section class="print-card print-page-2 rounded-2xl border border-border bg-card p-6 shadow-sm">
-      <div class="text-lg font-semibold">Interseções</div>
+      <div class="text-lg font-semibold">{{ intersectionsSectionTitle }}</div>
       <div v-if="showIntersectionsSkeleton" class="mt-4 grid gap-4">
         <div class="h-4 w-40 animate-pulse rounded-full bg-muted"></div>
         <div class="intersections-grid grid gap-1.5 sm:grid-cols-3 xl:grid-cols-4">
@@ -246,6 +252,12 @@
         </div>
       </div>
     </section>
+    <footer
+      v-if="isPreventiveDeter"
+      class="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-xs text-amber-900"
+    >
+      Esta análise preventiva usa alertas DETER para prevenção de possíveis desmatamentos no CAR. Use a análise completa para avaliação socioambiental oficial.
+    </footer>
     </template>
     </div>
   </div>
@@ -287,6 +299,7 @@ type DocInfo = {
 type AnalysisDetail = {
   id: string;
   carKey: string;
+  analysisKind?: "STANDARD" | "DETER";
   farmName?: string | null;
   municipio?: string | null;
   uf?: string | null;
@@ -369,6 +382,22 @@ const displayStatus = computed(() => {
   if (isLoading.value) return "pending";
   return null;
 });
+
+const isPreventiveDeter = computed(
+  () => analysis.value?.analysisKind === "DETER",
+);
+
+const pageTitle = computed(() =>
+  isPreventiveDeter.value ? "Análise preventiva DETER" : "Detalhe da análise",
+);
+
+const mapSectionTitle = computed(() =>
+  isPreventiveDeter.value ? "Mapa da análise preventiva DETER" : "Mapa da análise",
+);
+
+const intersectionsSectionTitle = computed(() =>
+  isPreventiveDeter.value ? "Alertas DETER (preventivo)" : "Interseções",
+);
 
 const docKey = (info: DocInfo) => {
   return `${info.type}:${info.cnpj ?? info.cpf ?? ""}`;

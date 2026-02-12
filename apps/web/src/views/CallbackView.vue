@@ -30,18 +30,37 @@ import { getMeCached } from "../auth/me";
 
 const router = useRouter();
 
-onMounted(async () => {
-  const initialized = await initAuthSafe();
-  if (!initialized) {
-    await hardResetAuthState();
-  }
-  const acc = getActiveAccount();
-  if (!acc) {
-    router.replace("/login");
-    return;
-  }
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer: number | null = null;
+  const timeout = new Promise<T>((_, reject) => {
+    timer = window.setTimeout(() => {
+      reject(new Error(`${label} timed out after ${ms}ms`));
+    }, ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timer) window.clearTimeout(timer);
+  });
+}
 
-  const me = await getMeCached(true);
-  router.replace(me?.status === "active" ? "/" : "/pending");
+onMounted(async () => {
+  try {
+    const initialized = await withTimeout(initAuthSafe(), 6_000, "MSAL init");
+    if (!initialized) {
+      await hardResetAuthState();
+      await router.replace("/login");
+      return;
+    }
+    const acc = getActiveAccount();
+    if (!acc) {
+      await router.replace("/login");
+      return;
+    }
+
+    const me = await withTimeout(getMeCached(true), 8_000, "/users/me");
+    await router.replace(me?.status === "active" ? "/" : "/pending");
+  } catch {
+    await hardResetAuthState();
+    await router.replace("/login");
+  }
 });
 </script>

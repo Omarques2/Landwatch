@@ -97,4 +97,39 @@ describe("AnalysesView", () => {
       pageSize: 100,
     });
   });
+
+  it("highlights DETER preventive analyses in the list", async () => {
+    const mockGet = http.get as unknown as ReturnType<typeof vi.fn>;
+    mockGet.mockImplementation((url: string) => {
+      if (url === "/v1/farms") {
+        return Promise.resolve({
+          data: { data: [], meta: { page: 1, pageSize: 100, total: 0 } },
+        });
+      }
+      if (url === "/v1/analyses") {
+        return Promise.resolve({
+          data: {
+            data: [
+              {
+                id: "analysis-deter-1",
+                carKey: "MT-123",
+                analysisDate: "2026-02-12",
+                status: "completed",
+                farmName: "Fazenda DETER",
+                hasIntersections: true,
+                analysisKind: "DETER",
+              },
+            ],
+            meta: { page: 1, pageSize: 20, total: 1 },
+          },
+        });
+      }
+      return Promise.reject(new Error("unexpected request"));
+    });
+
+    const wrapper = mount(AnalysesView);
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("DETER preventiva");
+  });
 });

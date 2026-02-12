@@ -1,6 +1,15 @@
-import { Injectable, NotFoundException, Optional } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+  Optional,
+} from '@nestjs/common';
 import { Inject } from '@nestjs/common';
-import { AnalysisKind, ScheduleFrequency } from '@prisma/client';
+import {
+  AnalysisKind,
+  AnalysisStatus,
+  ScheduleFrequency,
+} from '@prisma/client';
 import type { Claims } from '../auth/claims.type';
 import { PrismaService } from '../prisma/prisma.service';
 import { AnalysesService } from '../analyses/analyses.service';
@@ -39,7 +48,7 @@ export class SchedulesService {
         frequency: input.frequency,
         timezone: input.timezone?.trim() || 'UTC',
         isActive: input.isActive ?? true,
-        nextRunAt: this.calculateNextRunAt(now, input.frequency),
+        nextRunAt: this.calculateInitialNextRunAt(now, input.frequency),
         createdByUserId: userId,
       },
       include: { farm: { select: { name: true } } },
@@ -75,6 +84,23 @@ export class SchedulesService {
         include: { farm: { select: { name: true } } },
       }),
     ]);
+    const scheduleIds = rows.map((row) => row.id);
+    const inFlightRows = scheduleIds.length
+      ? await this.prisma.analysis.findMany({
+          where: {
+            scheduleId: { in: scheduleIds },
+            status: {
+              in: [AnalysisStatus.pending, AnalysisStatus.running],
+            },
+          },
+          select: { scheduleId: true },
+        })
+      : [];
+    const inFlightBySchedule = new Set(
+      inFlightRows
+        .map((row) => row.scheduleId)
+        .filter((value): value is string => typeof value === 'string'),
+    );
 
     return {
       page: params.page,
@@ -83,6 +109,7 @@ export class SchedulesService {
       rows: rows.map((row) => ({
         ...this.shapeSchedule(row),
         farmName: row.farm?.name ?? null,
+        hasInFlightAnalysis: inFlightBySchedule.has(row.id),
       })),
     };
   }
@@ -110,7 +137,7 @@ export class SchedulesService {
     const now = this.nowProvider();
     const nextRunAt =
       input.frequency !== undefined
-        ? this.calculateNextRunAt(now, input.frequency)
+        ? this.calculateInitialNextRunAt(now, input.frequency)
         : current.nextRunAt;
 
     const updated = await this.prisma.analysisSchedule.update({
@@ -210,8 +237,74 @@ export class SchedulesService {
     return { processed, created, failed };
   }
 
+  async runNow(id: string) {
+    const schedule = await this.prisma.analysisSchedule.findUnique({
+      where: { id },
+    });
+    if (!schedule) {
+      throw new NotFoundException({
+        code: 'SCHEDULE_NOT_FOUND',
+        message: 'Schedule not found',
+      });
+    }
+    const inFlight = await this.prisma.analysis.findFirst({
+      where: {
+        scheduleId: id,
+        status: {
+          in: [AnalysisStatus.pending, AnalysisStatus.running],
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true },
+    });
+    if (inFlight) {
+      throw new ConflictException({
+        code: 'SCHEDULE_ALREADY_RUNNING',
+        message: 'Schedule already has a processing analysis',
+        analysisId: inFlight.id,
+      });
+    }
+
+    const now = this.nowProvider();
+    const nextRunAt = this.calculateNextRunAt(now, schedule.frequency);
+    const updated = await this.prisma.analysisSchedule.updateMany({
+      where: {
+        id,
+        updatedAt: schedule.updatedAt,
+      },
+      data: {
+        lastRunAt: now,
+        nextRunAt,
+      },
+    });
+    if (!updated.count) {
+      throw new ConflictException({
+        code: 'SCHEDULE_CONCURRENT_UPDATE',
+        message: 'Schedule was updated by another request',
+      });
+    }
+
+    const analysis = await this.analyses.createScheduled({
+      farmId: schedule.farmId,
+      createdByUserId: schedule.createdByUserId,
+      analysisKind: schedule.analysisKind,
+      scheduleId: schedule.id,
+    });
+
+    return {
+      scheduleId: schedule.id,
+      created: 1,
+      analysisId: analysis.id,
+      nextRunAt,
+    };
+  }
+
   private calculateNextRunAt(from: Date, frequency: ScheduleFrequency) {
     const next = new Date(from);
+    if (frequency === ScheduleFrequency.DAILY) {
+      next.setUTCDate(next.getUTCDate() + 1);
+      return next;
+    }
     if (frequency === ScheduleFrequency.WEEKLY) {
       next.setUTCDate(next.getUTCDate() + 7);
       return next;
@@ -222,6 +315,11 @@ export class SchedulesService {
     }
     next.setUTCMonth(next.getUTCMonth() + 1);
     return next;
+  }
+
+  private calculateInitialNextRunAt(from: Date, frequency: ScheduleFrequency) {
+    if (frequency === ScheduleFrequency.DAILY) return from;
+    return this.calculateNextRunAt(from, frequency);
   }
 
   private async ensureFarm(farmId: string) {

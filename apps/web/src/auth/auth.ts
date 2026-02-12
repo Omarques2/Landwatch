@@ -13,6 +13,7 @@ const envRedirectUri = import.meta.env.VITE_ENTRA_REDIRECT_URI as string | undef
 const envPostLogoutRedirectUri = import.meta.env.VITE_ENTRA_POST_LOGOUT_REDIRECT_URI as string | undefined;
 
 const apiScope = import.meta.env.VITE_ENTRA_API_SCOPE as string;
+const SILENT_TOKEN_TIMEOUT_MS = 7_000;
 
 // Opcional (somente CIAM/B2C/custom domains)
 const knownAuthority = (import.meta.env.VITE_ENTRA_KNOWN_AUTHORITY as string | undefined) ?? undefined;
@@ -270,11 +271,15 @@ async function acquireApiTokenInternal(
   try {
     const res: AuthenticationResult = await runWithRetryBackoff(
       async () =>
-        msal.acquireTokenSilent({
-          account,
-          scopes: [apiScope],
-          forceRefresh: options.forceRefresh === true,
-        }),
+        withTimeout(
+          msal.acquireTokenSilent({
+            account,
+            scopes: [apiScope],
+            forceRefresh: options.forceRefresh === true,
+          }),
+          SILENT_TOKEN_TIMEOUT_MS,
+          "MSAL acquireTokenSilent",
+        ),
       {
         attempts: 3,
         baseDelayMs: 200,

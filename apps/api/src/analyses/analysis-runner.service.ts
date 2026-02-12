@@ -99,6 +99,7 @@ export class AnalysisRunnerService implements OnModuleInit, OnModuleDestroy {
       const analysisDate = analysis.analysisDate
         ? analysis.analysisDate.toISOString().slice(0, 10)
         : undefined;
+      const kind = analysis.analysisKind ?? AnalysisKind.STANDARD;
 
       if (analysisDate && this.isCurrentAnalysisDate(analysisDate)) {
         try {
@@ -120,11 +121,11 @@ export class AnalysisRunnerService implements OnModuleInit, OnModuleDestroy {
         schema,
         analysis.carKey,
         analysisDate,
+        kind,
       );
 
       const rawIntersections =
         await this.prisma.$queryRaw<IntersectionRow[]>(intersectionsSql);
-      const kind = analysis.analysisKind ?? AnalysisKind.STANDARD;
       const intersections = Array.isArray(rawIntersections)
         ? rawIntersections.filter((row) => this.shouldKeepRow(row, kind))
         : [];
@@ -285,13 +286,158 @@ export class AnalysisRunnerService implements OnModuleInit, OnModuleDestroy {
     schema: string,
     carKey: string,
     analysisDate?: string,
+    kind: AnalysisKind = AnalysisKind.STANDARD,
   ) {
+    if (kind === AnalysisKind.DETER) {
+      if (analysisDate && !this.isCurrentAnalysisDate(analysisDate)) {
+        return this.buildDeterAsOfQuery(schema, carKey, analysisDate);
+      }
+      return this.buildDeterCurrentQuery(schema, carKey);
+    }
     if (analysisDate) {
       const fn = Prisma.raw(`"${schema}"."fn_intersections_asof_area"`);
       return Prisma.sql`SELECT * FROM ${fn}(${carKey}, ${analysisDate}::date)`;
     }
     const fn = Prisma.raw(`"${schema}"."fn_intersections_current_area"`);
     return Prisma.sql`SELECT * FROM ${fn}(${carKey})`;
+  }
+
+  private buildDeterCurrentQuery(schema: string, carKey: string) {
+    return Prisma.sql`
+      WITH sicar_feature AS (
+        SELECT
+          f.dataset_id,
+          f.feature_id,
+          a.geom_id AS sicar_geom_id,
+          a.geom AS sicar_geom
+        FROM ${Prisma.raw(`"${schema}"."lw_feature"`)} f
+        JOIN ${Prisma.raw(`"${schema}"."lw_dataset"`)} d ON d.dataset_id = f.dataset_id
+        JOIN ${Prisma.raw(`"${schema}"."lw_category"`)} c ON c.category_id = d.category_id
+        JOIN ${Prisma.raw(`"${schema}"."mv_feature_geom_active"`)} a
+          ON a.dataset_id = f.dataset_id
+         AND a.feature_id = f.feature_id
+        WHERE c.code = 'SICAR'
+          AND f.feature_key = ${carKey}
+      )
+      SELECT
+        'SICAR' AS category_code,
+        d.code AS dataset_code,
+        NULL::date AS snapshot_date,
+        f.feature_id,
+        s.sicar_geom_id AS geom_id,
+        ST_Area(s.sicar_geom::geography) AS sicar_area_m2,
+        NULL::numeric AS feature_area_m2,
+        NULL::numeric AS overlap_area_m2,
+        NULL::numeric AS overlap_pct_of_sicar
+      FROM sicar_feature s
+      JOIN ${Prisma.raw(`"${schema}"."lw_feature"`)} f
+        ON f.dataset_id = s.dataset_id
+       AND f.feature_id = s.feature_id
+      JOIN ${Prisma.raw(`"${schema}"."lw_dataset"`)} d ON d.dataset_id = f.dataset_id
+
+      UNION ALL
+
+      SELECT
+        c.code AS category_code,
+        d.code AS dataset_code,
+        v.snapshot_date AS snapshot_date,
+        f.feature_id,
+        a.geom_id AS geom_id,
+        ST_Area(s.sicar_geom::geography) AS sicar_area_m2,
+        ST_Area(a.geom::geography) AS feature_area_m2,
+        ST_Area(ST_Intersection(s.sicar_geom, a.geom)::geography) AS overlap_area_m2,
+        CASE
+          WHEN ST_Area(s.sicar_geom::geography) = 0 THEN 0
+          ELSE ST_Area(ST_Intersection(s.sicar_geom, a.geom)::geography)
+               / ST_Area(s.sicar_geom::geography) * 100
+        END AS overlap_pct_of_sicar
+      FROM sicar_feature s
+      JOIN ${Prisma.raw(`"${schema}"."mv_feature_geom_active"`)} a ON TRUE
+      JOIN ${Prisma.raw(`"${schema}"."lw_feature"`)} f
+        ON f.dataset_id = a.dataset_id
+       AND f.feature_id = a.feature_id
+      JOIN ${Prisma.raw(`"${schema}"."lw_dataset"`)} d ON d.dataset_id = f.dataset_id
+      JOIN ${Prisma.raw(`"${schema}"."lw_category"`)} c ON c.category_id = d.category_id
+      JOIN ${Prisma.raw(`"${schema}"."lw_dataset_version"`)} v ON v.version_id = a.version_id
+      WHERE c.code = 'DETER'
+        AND a.geom && s.sicar_geom
+        AND ST_Intersects(s.sicar_geom, a.geom)
+      ORDER BY dataset_code, feature_id
+    `;
+  }
+
+  private buildDeterAsOfQuery(
+    schema: string,
+    carKey: string,
+    analysisDate: string,
+  ) {
+    return Prisma.sql`
+      WITH sicar_feature AS (
+        SELECT
+          f.dataset_id,
+          f.feature_id,
+          h.geom_id AS sicar_geom_id,
+          g.geom AS sicar_geom
+        FROM ${Prisma.raw(`"${schema}"."lw_feature"`)} f
+        JOIN ${Prisma.raw(`"${schema}"."lw_dataset"`)} d ON d.dataset_id = f.dataset_id
+        JOIN ${Prisma.raw(`"${schema}"."lw_category"`)} c ON c.category_id = d.category_id
+        JOIN ${Prisma.raw(`"${schema}"."lw_feature_geom_hist"`)} h
+          ON h.dataset_id = f.dataset_id
+         AND h.feature_id = f.feature_id
+         AND h.valid_from <= ${analysisDate}::date
+         AND (h.valid_to IS NULL OR h.valid_to > ${analysisDate}::date)
+        JOIN ${Prisma.raw(`"${schema}"."lw_geom_store"`)} g ON g.geom_id = h.geom_id
+        WHERE c.code = 'SICAR'
+          AND f.feature_key = ${carKey}
+      )
+      SELECT
+        'SICAR' AS category_code,
+        d.code AS dataset_code,
+        NULL::date AS snapshot_date,
+        f.feature_id,
+        s.sicar_geom_id AS geom_id,
+        ST_Area(s.sicar_geom::geography) AS sicar_area_m2,
+        NULL::numeric AS feature_area_m2,
+        NULL::numeric AS overlap_area_m2,
+        NULL::numeric AS overlap_pct_of_sicar
+      FROM sicar_feature s
+      JOIN ${Prisma.raw(`"${schema}"."lw_feature"`)} f
+        ON f.dataset_id = s.dataset_id
+       AND f.feature_id = s.feature_id
+      JOIN ${Prisma.raw(`"${schema}"."lw_dataset"`)} d ON d.dataset_id = f.dataset_id
+
+      UNION ALL
+
+      SELECT
+        c.code AS category_code,
+        d.code AS dataset_code,
+        v.snapshot_date AS snapshot_date,
+        f.feature_id,
+        h.geom_id AS geom_id,
+        ST_Area(s.sicar_geom::geography) AS sicar_area_m2,
+        ST_Area(g.geom::geography) AS feature_area_m2,
+        ST_Area(ST_Intersection(s.sicar_geom, g.geom)::geography) AS overlap_area_m2,
+        CASE
+          WHEN ST_Area(s.sicar_geom::geography) = 0 THEN 0
+          ELSE ST_Area(ST_Intersection(s.sicar_geom, g.geom)::geography)
+               / ST_Area(s.sicar_geom::geography) * 100
+        END AS overlap_pct_of_sicar
+      FROM sicar_feature s
+      JOIN ${Prisma.raw(`"${schema}"."lw_feature_geom_hist"`)} h
+        ON h.valid_from <= ${analysisDate}::date
+       AND (h.valid_to IS NULL OR h.valid_to > ${analysisDate}::date)
+      JOIN ${Prisma.raw(`"${schema}"."lw_geom_store"`)} g ON g.geom_id = h.geom_id
+      JOIN ${Prisma.raw(`"${schema}"."lw_feature"`)} f
+        ON f.dataset_id = h.dataset_id
+       AND f.feature_id = h.feature_id
+      JOIN ${Prisma.raw(`"${schema}"."lw_dataset"`)} d ON d.dataset_id = f.dataset_id
+      JOIN ${Prisma.raw(`"${schema}"."lw_category"`)} c ON c.category_id = d.category_id
+      JOIN ${Prisma.raw(`"${schema}"."lw_dataset_version"`)} v ON v.version_id = h.version_id
+      WHERE c.code = 'DETER'
+        AND g.geom && s.sicar_geom
+        AND ST_Intersects(s.sicar_geom, g.geom)
+      ORDER BY dataset_code, feature_id
+    `;
   }
 
   private isCurrentAnalysisDate(analysisDate: string): boolean {

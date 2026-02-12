@@ -438,4 +438,92 @@ describe('AnalysisDetailService', () => {
       }),
     );
   });
+
+  it('returns biomas for DETER preventive analysis detail', async () => {
+    const prisma = makePrismaMock();
+    prisma.analysis.findUnique.mockResolvedValue({
+      id: 'analysis-deter-1',
+      carKey: 'CAR-1',
+      analysisDate: new Date('2026-01-31'),
+      analysisKind: AnalysisKind.DETER,
+      analysisDocs: [],
+      status: 'completed',
+      farm: { name: 'Farm 1' },
+      results: [
+        {
+          id: 'result-sicar',
+          categoryCode: 'SICAR',
+          datasetCode: 'CAR_MT',
+          featureId: BigInt(1),
+          geomId: BigInt(10),
+          isSicar: true,
+          sicarAreaM2: null,
+          featureAreaM2: null,
+          overlapAreaM2: null,
+          overlapPctOfSicar: null,
+        },
+        {
+          id: 'result-deter',
+          categoryCode: 'DETER',
+          datasetCode: 'DETER_MT',
+          featureId: BigInt(2),
+          geomId: BigInt(11),
+          isSicar: false,
+          sicarAreaM2: null,
+          featureAreaM2: null,
+          overlapAreaM2: null,
+          overlapPctOfSicar: null,
+        },
+      ],
+    });
+    const docInfo = { buildDocInfo: jest.fn() };
+    const service = new AnalysisDetailService(
+      prisma as any,
+      docInfo as any,
+      () => now,
+    );
+
+    jest
+      .spyOn(service as any, 'fetchSicarCoordinates')
+      .mockResolvedValue({ lat: -15.7, lng: -47.9 });
+    jest.spyOn(service as any, 'fetchSicarMeta').mockResolvedValue({
+      municipio: 'Brasilia',
+      uf: 'DF',
+      status: 'AT',
+    });
+    jest
+      .spyOn(service as any, 'fetchBiomas')
+      .mockResolvedValue(['Cerrado', 'Amazonia']);
+
+    const detail = await service.getById('analysis-deter-1');
+
+    expect(detail.analysisKind).toBe(AnalysisKind.DETER);
+    expect(detail.biomas).toEqual(['Cerrado', 'Amazonia']);
+  });
+
+  it('keeps DETER dataset labels distinct by dataset code', () => {
+    const prisma = makePrismaMock();
+    const docInfo = { buildDocInfo: jest.fn() };
+    const service = new AnalysisDetailService(
+      prisma as any,
+      docInfo as any,
+      () => now,
+    );
+
+    const groups = (service as any).buildDeterDatasetGroups([
+      { datasetCode: 'DETER-AMZ_ALLYEARS', categoryCode: 'DETER' },
+      { datasetCode: 'DETER-CERRADO-NB_ALLYEARS', categoryCode: 'DETER' },
+    ]);
+
+    const labels = (groups[0]?.items ?? []).map(
+      (item: { label?: string }) => item.label,
+    );
+
+    expect(labels).toEqual(
+      expect.arrayContaining([
+        'DETER-AMZ_ALLYEARS',
+        'DETER-CERRADO-NB_ALLYEARS',
+      ]),
+    );
+  });
 });
