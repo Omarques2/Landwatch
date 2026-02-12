@@ -1,9 +1,11 @@
 import { createRouter, createWebHistory } from "vue-router";
 import { getActiveAccount, initAuthSafe } from "../auth/auth";
+import { getMeCached } from "../auth/me";
 import { createAuthNavigationGuard } from "./auth-guard";
 
 import LoginView from "../views/LoginView.vue";
 import CallbackView from "../views/CallbackView.vue";
+import PendingView from "../views/PendingView.vue";
 import AppShellView from "../views/AppShellView.vue";
 import DashboardView from "../views/DashboardView.vue";
 import FarmsView from "../views/FarmsView.vue";
@@ -19,6 +21,7 @@ const router = createRouter({
   routes: [
     { path: "/login", component: LoginView },
     { path: "/auth/callback", component: CallbackView },
+    { path: "/pending", component: PendingView, meta: { requiresAuth: true } },
     {
       path: "/",
       component: AppShellView,
@@ -68,12 +71,7 @@ router.beforeEach(
   createAuthNavigationGuard({
     getActiveAccount,
     initAuthSafe,
-    navigateToLogin: () => {
-      const path = router.currentRoute.value.path;
-      if (path !== "/login" && path !== "/auth/callback") {
-        void router.replace("/login");
-      }
-    },
+    getMeCached,
   }),
 );
 

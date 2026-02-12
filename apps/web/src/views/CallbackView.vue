@@ -26,6 +26,7 @@
 import { onMounted } from "vue";
 import { useRouter } from "vue-router";
 import { getActiveAccount, hardResetAuthState, initAuthSafe } from "../auth/auth";
+import { getMeCached } from "../auth/me";
 
 const router = useRouter();
 
@@ -35,6 +36,12 @@ onMounted(async () => {
     await hardResetAuthState();
   }
   const acc = getActiveAccount();
-  router.replace(acc ? "/" : "/login");
+  if (!acc) {
+    router.replace("/login");
+    return;
+  }
+
+  const me = await getMeCached(true);
+  router.replace(me?.status === "active" ? "/" : "/pending");
 });
 </script>

@@ -13,39 +13,66 @@ function route(path: string, requiresAuth = true): MockRoute {
 }
 
 describe("createAuthNavigationGuard", () => {
-  it("does not block first protected navigation while warm-up runs", async () => {
-    const initAuthSafe = vi.fn(() => new Promise<boolean>(() => {}));
-    const getActiveAccount = vi.fn(() => null);
-    const navigateToLogin = vi.fn();
+  it("redirects protected route to pending when session exists but profile is unavailable", async () => {
+    const initAuthSafe = vi.fn().mockResolvedValue(true);
+    const getActiveAccount = vi.fn(() => ({ homeAccountId: "acc-1" }));
+    const getMeCached = vi.fn().mockResolvedValue(null);
 
     const guard = createAuthNavigationGuard({
       initAuthSafe,
       getActiveAccount,
-      navigateToLogin,
+      getMeCached,
     });
 
     const result = await guard(route("/dashboard") as any);
-    expect(result).toBe(true);
+    expect(result).toBe("/pending");
     expect(initAuthSafe).toHaveBeenCalledWith(4_000);
-    expect(navigateToLogin).not.toHaveBeenCalled();
+    expect(getMeCached).toHaveBeenCalledWith(false);
   });
 
-  it("redirects to login on subsequent protected navigation when init fails", async () => {
-    const initAuthSafe = vi
-      .fn()
-      .mockResolvedValueOnce(true)
-      .mockResolvedValueOnce(false);
-    const getActiveAccount = vi.fn(() => null);
-    const navigateToLogin = vi.fn();
+  it("allows /pending once session is initialized", async () => {
+    const initAuthSafe = vi.fn().mockResolvedValue(true);
+    const getActiveAccount = vi.fn(() => ({ homeAccountId: "acc-1" }));
+    const getMeCached = vi.fn();
 
     const guard = createAuthNavigationGuard({
       initAuthSafe,
       getActiveAccount,
-      navigateToLogin,
+      getMeCached,
     });
 
-    await guard(route("/dashboard") as any);
-    const second = await guard(route("/analyses") as any);
-    expect(second).toBe("/login");
+    const result = await guard(route("/pending") as any);
+    expect(result).toBe(true);
+    expect(getMeCached).not.toHaveBeenCalled();
+  });
+
+  it("redirects /login to app root when active profile already exists", async () => {
+    const initAuthSafe = vi.fn().mockResolvedValue(true);
+    const getActiveAccount = vi.fn(() => ({ homeAccountId: "acc-1" }));
+    const getMeCached = vi.fn().mockResolvedValue({ status: "active" });
+
+    const guard = createAuthNavigationGuard({
+      initAuthSafe,
+      getActiveAccount,
+      getMeCached,
+    });
+
+    const result = await guard(route("/login", false) as any);
+    expect(result).toBe("/");
+  });
+
+  it("keeps /login accessible when there is no session", async () => {
+    const initAuthSafe = vi.fn().mockResolvedValue(true);
+    const getActiveAccount = vi.fn(() => null);
+    const getMeCached = vi.fn();
+
+    const guard = createAuthNavigationGuard({
+      initAuthSafe,
+      getActiveAccount,
+      getMeCached,
+    });
+
+    const result = await guard(route("/login", false) as any);
+    expect(result).toBe(true);
   });
 });
