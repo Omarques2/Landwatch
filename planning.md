@@ -238,9 +238,70 @@ Card P1 — Pagina publica /verify/{token}
 Card P2 — Upload + link a features/farms
 - Aceite: docs aparecem no PDF quando intersectados.
 
-### EPIC-07: Schedules + Alerts (P2)
-Card P2 — Tick jobs e policies
-- Aceite: alertas so quando nova interseccao.
+### EPIC-07: Schedules + Alerts (P1/P2)
+Card P1 — Schema app para agendamentos e alertas
+- Objetivo: criar modelos persistentes para recorrencia e notificacoes.
+- Aceite:
+  - tabela `analysis_schedule` com `farm_id`, `analysis_kind`, `frequency`, `next_run_at`, `is_active`.
+  - tabela `analysis_alert` com `schedule_id`, `analysis_id`, `analysis_kind`, `new_intersection_count`, `status`.
+  - enum `analysis_kind` no dominio de analise (`STANDARD`, `DETER`).
+
+Card P1 — Endpoint interno de execucao diaria (interim sem worker completo)
+- Objetivo: rodar schedules vencidos via chamada HTTP interna protegida.
+- Aceite:
+  - endpoint `POST /internal/schedules/run-due` existe e valida `x-job-token`.
+  - processa somente schedules ativos com `next_run_at <= now`.
+  - retorno inclui resumo (`processed`, `created`, `failed`) para observabilidade.
+
+Card P1 — Cron diario no GitHub Actions para schedules
+- Objetivo: disparar execucao uma vez por dia em staging/prod sem depender do worker BullMQ completo.
+- Aceite:
+  - workflow com `schedule` diario + `workflow_dispatch`.
+  - chamada para staging e prod com secrets de `API_BASE_URL` e `SCHEDULES_JOB_TOKEN`.
+  - falhas retornam erro explicito no job (sem silencios).
+
+Card P1 — Agendamento por fazenda para analise comum
+- Objetivo: permitir periodicidade semanal, quinzenal e mensal para analise completa.
+- Aceite:
+  - CRUD basico de schedules (`create/list/pause/resume/update`).
+  - frequencias `WEEKLY|BIWEEKLY|MONTHLY`.
+  - cada execucao gera analise `STANDARD`.
+
+Card P1 — Agendamento por fazenda para analise DETER preventiva
+- Objetivo: separar fluxo de monitoramento preventivo com menor complexidade de resultado.
+- Aceite:
+  - schedule com `analysis_kind = DETER`.
+  - execucao DETER usa apenas camada DETER no CAR (sem CNPJ/CPF, sem grupos sociais/bioma).
+  - detalhe da analise DETER exibe mapa + legenda simplificada.
+
+Card P1 — Motor de deteccao de novidade e geracao de alerta
+- Objetivo: gerar alerta apenas quando houver interseccao nova em relacao a ultima execucao do mesmo tipo.
+- Aceite:
+  - comparacao por chave estavel (`dataset_code + feature_id`).
+  - alerta criado somente para delta positivo (novidades).
+  - payload do alerta guarda contexto minimo (analise anterior, analise atual, quantidade nova).
+
+Card P1 — Dashboard com alertas de novidade
+- Objetivo: dar visibilidade imediata do que mudou desde a ultima execucao.
+- Aceite:
+  - card `Alertas novos` no resumo do dashboard.
+  - lista curta de novidades com CTA para abrir a analise.
+  - estado vazio amigavel quando nao houver alertas.
+
+Card P1 — UI/UX da aba Agendamento no sidebar
+- Objetivo: fluxo simples e amigavel para criar e gerenciar recorrencias.
+- Aceite:
+  - novo item `Agendamento` no sidebar.
+  - tela com lista de schedules ativos, proxima execucao, tipo e frequencia.
+  - formulario curto com fazenda + tipo (`Completa`/`DETER preventiva`) + frequencia.
+  - UX com skeleton/loading e mensagens claras de erro/sucesso.
+
+Card P2 — Evolucao para worker dedicado (BullMQ)
+- Objetivo: migrar execucao diaria de cron HTTP para fila dedicada quando o worker completo estiver pronto.
+- Aceite:
+  - endpoint interno vira publicador de jobs (nao executor direto).
+  - politicas de retry/backoff/DLQ aplicadas ao dominio de schedules.
+  - sem regressao funcional na criacao de analises e alertas.
 
 ### EPIC-08: Admin/Support (P2)
 Card P2 — Admin basico (orgs/users/grants)
@@ -283,6 +344,10 @@ Card P1 — Detectar lock de MVs e sinalizar no sistema
 
 Card P2 — Tests e2e + factories
 - Aceite: test:e2e isolado de prod/staging.
+
+## Plano detalhado ativo
+- EPIC-12 (Agendamentos + Alertas): `docs/plans/2026-02-12-epic12-scheduled-analyses-alerts.md`
+- Estrategia interim aprovada: cron diario no GitHub Actions chamando endpoint interno protegido por token, enquanto o worker completo nao entra.
 
 ## Decisoes pendentes (precisam de resposta)
 - Performance: estrategias de cache e views materializadas.

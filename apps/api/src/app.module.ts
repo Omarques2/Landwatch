@@ -13,6 +13,8 @@ import { CarsModule } from './cars/cars.module';
 import { AnalysesModule } from './analyses/analyses.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { LandwatchStatusModule } from './landwatch-status/landwatch-status.module';
+import { AlertsModule } from './alerts/alerts.module';
+import { SchedulesModule } from './schedules/schedules.module';
 
 @Module({
   imports: [
@@ -29,6 +31,8 @@ import { LandwatchStatusModule } from './landwatch-status/landwatch-status.modul
     FarmsModule,
     CarsModule,
     AnalysesModule,
+    AlertsModule,
+    SchedulesModule,
     DashboardModule,
     LandwatchStatusModule,
   ],

@@ -7,9 +7,10 @@ import { AnalysisDetailService } from './analysis-detail.service';
 import { AnalysisCacheService } from './analysis-cache.service';
 import { DocInfoService } from './doc-info.service';
 import { LandwatchStatusModule } from '../landwatch-status/landwatch-status.module';
+import { AlertsModule } from '../alerts/alerts.module';
 
 @Module({
-  imports: [LandwatchStatusModule],
+  imports: [LandwatchStatusModule, AlertsModule],
   controllers: [AnalysesController, PublicAnalysesController],
   providers: [
     AnalysesService,
@@ -18,5 +19,6 @@ import { LandwatchStatusModule } from '../landwatch-status/landwatch-status.modu
     AnalysisCacheService,
     DocInfoService,
   ],
+  exports: [AnalysesService],
 })
 export class AnalysesModule {}

@@ -5,12 +5,13 @@ import {
   Logger,
 } from '@nestjs/common';
 import { Inject, Optional } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { AnalysisKind, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { LandwatchStatusService } from '../landwatch-status/landwatch-status.service';
 import { AnalysisDetailService } from './analysis-detail.service';
 import { AnalysisCacheService } from './analysis-cache.service';
 import { ANALYSIS_CACHE_VERSION } from './analysis-cache.constants';
+import { AlertsService } from '../alerts/alerts.service';
 
 export const NOW_PROVIDER = 'NOW_PROVIDER';
 
@@ -47,6 +48,7 @@ export class AnalysisRunnerService implements OnModuleInit, OnModuleDestroy {
     private readonly landwatchStatus: LandwatchStatusService,
     private readonly detail: AnalysisDetailService,
     private readonly cache: AnalysisCacheService,
+    private readonly alerts: AlertsService,
     @Optional() @Inject(NOW_PROVIDER) nowProvider?: () => Date,
   ) {
     this.nowProvider = nowProvider ?? (() => new Date());
@@ -84,6 +86,9 @@ export class AnalysisRunnerService implements OnModuleInit, OnModuleDestroy {
           id: true,
           carKey: true,
           analysisDate: true,
+          analysisKind: true,
+          farmId: true,
+          scheduleId: true,
         },
       });
       if (!analysis) return;
@@ -119,21 +124,9 @@ export class AnalysisRunnerService implements OnModuleInit, OnModuleDestroy {
 
       const rawIntersections =
         await this.prisma.$queryRaw<IntersectionRow[]>(intersectionsSql);
+      const kind = analysis.analysisKind ?? AnalysisKind.STANDARD;
       const intersections = Array.isArray(rawIntersections)
-        ? rawIntersections.filter((row) => {
-            const category = (row.category_code ?? '').toUpperCase();
-            const dataset = (row.dataset_code ?? '').toUpperCase();
-            if (category === 'DETER' || dataset.startsWith('DETER')) {
-              return false;
-            }
-            if (
-              dataset.startsWith('CAR_') &&
-              !this.isBaseSicarIntersection(row)
-            ) {
-              return false;
-            }
-            return true;
-          })
+        ? rawIntersections.filter((row) => this.shouldKeepRow(row, kind))
         : [];
 
       if (intersections.length === 0) {
@@ -168,10 +161,21 @@ export class AnalysisRunnerService implements OnModuleInit, OnModuleDestroy {
         overlapPctOfSicar: row.overlap_pct_of_sicar ?? null,
       }));
 
-      const intersectionRows = analysisResultRows.filter(
-        (row) =>
-          !row.isSicar &&
-          !['BIOMAS', 'DETER'].includes(row.categoryCode?.toUpperCase()),
+      const intersectionRows = analysisResultRows.filter((row) =>
+        this.isIntersectionRow(
+          {
+            category_code: row.categoryCode,
+            dataset_code: row.datasetCode,
+            snapshot_date: row.snapshotDate,
+            feature_id: row.featureId,
+            geom_id: row.geomId,
+            sicar_area_m2: null,
+            feature_area_m2: row.featureAreaM2 ?? null,
+            overlap_area_m2: row.overlapAreaM2 ?? null,
+            overlap_pct_of_sicar: row.overlapPctOfSicar ?? null,
+          },
+          kind,
+        ),
       );
 
       const intersectionCount = intersectionRows.length;
@@ -190,6 +194,26 @@ export class AnalysisRunnerService implements OnModuleInit, OnModuleDestroy {
           },
         });
       });
+      if (analysis.scheduleId && analysis.farmId) {
+        try {
+          await this.alerts.createAlertForNovelIntersections({
+            analysisId,
+            farmId: analysis.farmId,
+            scheduleId: analysis.scheduleId,
+            analysisKind: kind,
+          });
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : String(error);
+          this.logger.warn(
+            JSON.stringify({
+              event: 'analysis.alert.failed',
+              analysisId,
+              error: message,
+            }),
+          );
+        }
+      }
       await this.writeCache(analysisId);
       this.logEvent('analysis.completed', {
         analysisId,
@@ -323,5 +347,31 @@ export class AnalysisRunnerService implements OnModuleInit, OnModuleDestroy {
     const category = (row.category_code ?? '').toUpperCase();
     if (category !== 'SICAR') return false;
     return row.feature_area_m2 == null && row.overlap_area_m2 == null;
+  }
+
+  private shouldKeepRow(row: IntersectionRow, kind: AnalysisKind): boolean {
+    const category = (row.category_code ?? '').toUpperCase();
+    const dataset = (row.dataset_code ?? '').toUpperCase();
+    if (dataset.startsWith('CAR_') && !this.isBaseSicarIntersection(row)) {
+      return false;
+    }
+    if (kind === AnalysisKind.DETER) {
+      if (this.isBaseSicarIntersection(row)) return true;
+      return category === 'DETER' || dataset.startsWith('DETER');
+    }
+    if (category === 'DETER' || dataset.startsWith('DETER')) {
+      return false;
+    }
+    return true;
+  }
+
+  private isIntersectionRow(row: IntersectionRow, kind: AnalysisKind): boolean {
+    if (this.isBaseSicarIntersection(row)) return false;
+    const category = (row.category_code ?? '').toUpperCase();
+    const dataset = (row.dataset_code ?? '').toUpperCase();
+    if (kind === AnalysisKind.DETER) {
+      return category === 'DETER' || dataset.startsWith('DETER');
+    }
+    return !['BIOMAS', 'DETER'].includes(category);
   }
 }

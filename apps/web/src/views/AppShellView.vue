@@ -103,7 +103,14 @@
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { Button as UiButton, Sheet as UiSheet } from "@/components/ui";
-import { LayoutDashboard, MapPin, FileText, ClipboardPlus, LocateFixed } from "lucide-vue-next";
+import {
+  LayoutDashboard,
+  MapPin,
+  FileText,
+  ClipboardPlus,
+  LocateFixed,
+  CalendarClock,
+} from "lucide-vue-next";
 import { logout } from "@/auth/auth";
 import { getMeCached, type MeResponse } from "@/auth/me";
 import {
@@ -127,6 +134,7 @@ const navItems = [
   { key: "dashboard", label: "Dashboard", icon: LayoutDashboard },
   { key: "farms", label: "Fazendas", icon: MapPin },
   { key: "analyses", label: "Análises", icon: FileText },
+  { key: "schedules", label: "Agendamento", icon: CalendarClock },
   { key: "new-analysis", label: "Nova análise", icon: ClipboardPlus },
   { key: "car-search", label: "Buscar CAR", icon: LocateFixed },
 ];
@@ -136,6 +144,7 @@ const activeKey = computed(() => {
   if (route.path.startsWith("/analyses/new")) return "new-analysis";
   if (route.path.startsWith("/analyses/search")) return "car-search";
   if (route.path.startsWith("/analyses")) return "analyses";
+  if (route.path.startsWith("/schedules")) return "schedules";
   if (route.path.startsWith("/farms")) return "farms";
   return "dashboard";
 });
@@ -145,6 +154,7 @@ const pageSubtitle = computed(() => {
   if (activeKey.value === "dashboard") return "Visão geral do portfólio";
   if (activeKey.value === "farms") return "Gerencie fazendas e propriedades";
   if (activeKey.value === "analyses") return "Histórico de análises e PDFs";
+  if (activeKey.value === "schedules") return "Configure análises recorrentes";
   if (activeKey.value === "new-analysis") return "Selecione o CAR e rode a análise";
   if (activeKey.value === "car-search") return "Busque CARs por coordenada";
   return "LandWatch";
@@ -169,6 +179,7 @@ async function navigate(key: string) {
   if (key === "dashboard") await router.push("/dashboard");
   if (key === "farms") await router.push("/farms");
   if (key === "analyses") await router.push("/analyses");
+  if (key === "schedules") await router.push("/schedules");
   if (key === "new-analysis") await router.push("/analyses/new");
   if (key === "car-search") await router.push("/analyses/search");
   drawerOpen.value = false;

@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Inject, Optional } from '@nestjs/common';
-import { FarmDocType, Prisma } from '@prisma/client';
+import { AnalysisKind, FarmDocType, Prisma } from '@prisma/client';
 import type { Claims } from '../auth/claims.type';
 import { PrismaService } from '../prisma/prisma.service';
 import { AnalysisRunnerService, NOW_PROVIDER } from './analysis-runner.service';
@@ -22,6 +22,7 @@ type CreateAnalysisInput = {
   analysisDate?: string;
   farmId?: string;
   farmName?: string;
+  analysisKind?: AnalysisKind;
 };
 
 type AnalysisMapRow = {
@@ -104,6 +105,10 @@ export class AnalysesService {
     return input.trim();
   }
 
+  private normalizeAnalysisKind(input?: AnalysisKind): AnalysisKind {
+    return input ?? AnalysisKind.STANDARD;
+  }
+
   private normalizeDate(input?: string): string {
     if (!input) {
       return this.nowProvider().toISOString().slice(0, 10);
@@ -181,7 +186,11 @@ export class AnalysesService {
     const userId = await this.resolveUserId(claims);
     const carKey = this.normalizeCarKey(input.carKey);
     const analysisDate = this.normalizeDate(input.analysisDate);
-    const documents = this.normalizeDocuments(input.documents);
+    const analysisKind = this.normalizeAnalysisKind(input.analysisKind);
+    const documents =
+      analysisKind === AnalysisKind.DETER
+        ? []
+        : this.normalizeDocuments(input.documents);
 
     if (this.isCurrentAnalysisDate(analysisDate)) {
       await this.landwatchStatus.assertNotRefreshing();
@@ -246,12 +255,19 @@ export class AnalysesService {
           analysisDocs: documents as Prisma.InputJsonValue,
           analysisDate: new Date(analysisDate),
           status: 'pending',
+          analysisKind,
           createdByUserId: userId,
           farmId,
           hasIntersections: false,
           intersectionCount: 0,
         },
-        select: { id: true, carKey: true, analysisDate: true, status: true },
+        select: {
+          id: true,
+          carKey: true,
+          analysisDate: true,
+          status: true,
+          analysisKind: true,
+        },
       });
     });
 
@@ -262,7 +278,54 @@ export class AnalysesService {
       carKey: analysis.carKey,
       analysisDate: analysis.analysisDate,
       status: analysis.status,
+      analysisKind: analysis.analysisKind,
     };
+  }
+
+  async createScheduled(input: {
+    farmId: string;
+    createdByUserId: string;
+    analysisKind: AnalysisKind;
+    scheduleId: string;
+  }) {
+    const farm = await this.prisma.farm.findUnique({
+      where: { id: input.farmId },
+      include: { documents: true },
+    });
+    if (!farm) {
+      throw new NotFoundException({
+        code: 'FARM_NOT_FOUND',
+        message: 'Farm not found',
+      });
+    }
+
+    const analysisDate = this.nowProvider().toISOString().slice(0, 10);
+    const docs =
+      input.analysisKind === AnalysisKind.STANDARD
+        ? farm.documents.map((doc) => ({
+            docNormalized: doc.docNormalized,
+            docType: doc.docType,
+          }))
+        : [];
+
+    const analysis = await this.prisma.analysis.create({
+      data: {
+        carKey: farm.carKey,
+        analysisDocs: docs as Prisma.InputJsonValue,
+        analysisDate: new Date(analysisDate),
+        status: 'pending',
+        analysisKind: input.analysisKind,
+        createdByUserId: input.createdByUserId,
+        farmId: farm.id,
+        scheduleId: input.scheduleId,
+        hasIntersections: false,
+        intersectionCount: 0,
+      },
+      select: { id: true },
+    });
+
+    this.runner.enqueue(analysis.id);
+    return analysis;
   }
 
   async list(params: {

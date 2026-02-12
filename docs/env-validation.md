@@ -32,3 +32,8 @@
 - **Nunca** rodar migrations em prod fora do pipeline.
 - **Nunca** apontar local para DB prod.
 - Staging e prod sempre com secrets separados.
+
+## Novos secrets (EPIC-12)
+- `SCHEDULES_JOB_TOKEN` (Container App env): token que protege `POST /internal/schedules/run-due`.
+- `SCHEDULES_JOB_TOKEN_STAGING` (GitHub Actions secret): token enviado no cron para staging.
+- `SCHEDULES_JOB_TOKEN_PROD` (GitHub Actions secret): token enviado no cron para produção.

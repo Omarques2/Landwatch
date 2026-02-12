@@ -1,4 +1,5 @@
 import { Logger } from '@nestjs/common';
+import { AnalysisKind } from '@prisma/client';
 import { ANALYSIS_CACHE_VERSION } from './analysis-cache.constants';
 import { AnalysisRunnerService } from './analysis-runner.service';
 
@@ -40,6 +41,9 @@ describe('AnalysisRunnerService', () => {
       cache: {
         set: jest.fn(),
       },
+      alerts: {
+        createAlertForNovelIntersections: jest.fn(),
+      },
     };
   }
 
@@ -61,6 +65,7 @@ describe('AnalysisRunnerService', () => {
       deps.landwatchStatus as any,
       deps.detail as any,
       deps.cache as any,
+      deps.alerts as any,
       () => now,
     );
 
@@ -115,6 +120,7 @@ describe('AnalysisRunnerService', () => {
       deps.landwatchStatus as any,
       deps.detail as any,
       deps.cache as any,
+      deps.alerts as any,
       () => now,
     );
 
@@ -158,6 +164,7 @@ describe('AnalysisRunnerService', () => {
       deps.landwatchStatus as any,
       deps.detail as any,
       deps.cache as any,
+      deps.alerts as any,
       () => now,
     );
 
@@ -187,6 +194,7 @@ describe('AnalysisRunnerService', () => {
       deps.landwatchStatus as any,
       deps.detail as any,
       deps.cache as any,
+      deps.alerts as any,
       () => now,
     );
 
@@ -231,6 +239,7 @@ describe('AnalysisRunnerService', () => {
       deps.landwatchStatus as any,
       deps.detail as any,
       deps.cache as any,
+      deps.alerts as any,
       () => now,
     );
 
@@ -288,6 +297,7 @@ describe('AnalysisRunnerService', () => {
       deps.landwatchStatus as any,
       deps.detail as any,
       deps.cache as any,
+      deps.alerts as any,
       () => now,
     );
 
@@ -310,5 +320,92 @@ describe('AnalysisRunnerService', () => {
     });
 
     logSpy.mockRestore();
+  });
+
+  it('keeps DETER intersections for DETER analyses and creates novelty alert', async () => {
+    const prisma = makePrismaMock();
+    prisma.analysis.updateMany.mockResolvedValue({ count: 1 });
+    prisma.analysis.findUnique.mockResolvedValue({
+      id: 'analysis-1',
+      carKey: 'CAR-1',
+      analysisDate: new Date('2026-01-31'),
+      analysisKind: AnalysisKind.DETER,
+      farmId: 'farm-1',
+      scheduleId: 'schedule-1',
+    });
+    prisma.$queryRaw.mockResolvedValueOnce([
+      {
+        category_code: 'SICAR',
+        dataset_code: 'SICAR',
+        snapshot_date: null,
+        feature_id: 1n,
+        geom_id: 101n,
+        sicar_area_m2: '100',
+        feature_area_m2: null,
+        overlap_area_m2: null,
+        overlap_pct_of_sicar: null,
+      },
+      {
+        category_code: 'PRODES',
+        dataset_code: 'PRODES_AMZ_2024',
+        snapshot_date: '2026-01-31',
+        feature_id: 2n,
+        geom_id: 202n,
+        sicar_area_m2: '100',
+        feature_area_m2: '20',
+        overlap_area_m2: '5',
+        overlap_pct_of_sicar: '5',
+      },
+      {
+        category_code: 'DETER',
+        dataset_code: 'DETER_AMZ_2024',
+        snapshot_date: '2026-01-31',
+        feature_id: 3n,
+        geom_id: 303n,
+        sicar_area_m2: '100',
+        feature_area_m2: '20',
+        overlap_area_m2: '5',
+        overlap_pct_of_sicar: '5',
+      },
+    ]);
+    const deps = makeDeps();
+
+    const runner = new AnalysisRunnerService(
+      prisma as any,
+      deps.landwatchStatus as any,
+      deps.detail as any,
+      deps.cache as any,
+      deps.alerts as any,
+      () => now,
+    );
+
+    await runner.processAnalysis('analysis-1');
+
+    expect(prisma.analysisResult.createMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.arrayContaining([
+          expect.objectContaining({ datasetCode: 'SICAR' }),
+          expect.objectContaining({ datasetCode: 'DETER_AMZ_2024' }),
+        ]),
+      }),
+    );
+    expect(prisma.analysis.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'analysis-1' },
+        data: expect.objectContaining({
+          status: 'completed',
+          hasIntersections: true,
+          intersectionCount: 1,
+        }),
+      }),
+    );
+    expect(deps.alerts.createAlertForNovelIntersections).toHaveBeenCalledWith(
+      expect.objectContaining({
+        analysisId: 'analysis-1',
+        analysisKind: AnalysisKind.DETER,
+        farmId: 'farm-1',
+        scheduleId: 'schedule-1',
+      }),
+    );
   });
 });

@@ -21,6 +21,7 @@ model User {
   groupMemberships OrgGroupMembership[]
   farms Farm[]
   analyses Analysis[] @relation("UserAnalyses")
+  schedules AnalysisSchedule[] @relation("UserSchedules")
 
   @@index([email], map: "idx_app_user_email")
   @@map("app_user")
@@ -142,6 +143,8 @@ model Farm {
   owner User @relation(fields: [ownerUserId], references: [id], onDelete: Restrict)
   org   Org? @relation(fields: [orgId], references: [id], onDelete: SetNull)
   analyses Analysis[]
+  schedules AnalysisSchedule[]
+  alerts AnalysisAlert[]
   documents FarmDocument[]
 
   @@unique([carKey], map: "farm_car_key_key")
@@ -193,16 +196,22 @@ model Analysis {
   pdfError       String?        @map("pdf_error")
   hasIntersections Boolean      @default(false) @map("has_intersections")
   intersectionCount Int         @default(0) @map("intersection_count")
+  analysisKind   AnalysisKind   @default(STANDARD) @map("analysis_kind")
+  scheduleId     String?        @map("schedule_id") @db.Uuid
 
   results AnalysisResult[]
   cache AnalysisCache?
+  alerts AnalysisAlert[]
   createdBy User @relation("UserAnalyses", fields: [createdByUserId], references: [id], onDelete: Restrict)
   org Org? @relation(fields: [orgId], references: [id], onDelete: SetNull)
   farm Farm? @relation(fields: [farmId], references: [id], onDelete: SetNull)
+  schedule AnalysisSchedule? @relation("ScheduleAnalyses", fields: [scheduleId], references: [id], onDelete: SetNull)
 
   @@index([carKey], map: "analysis_car_key_idx")
   @@index([createdByUserId], map: "analysis_created_by_idx")
   @@index([farmId], map: "analysis_farm_id_idx")
+  @@index([analysisKind], map: "analysis_kind_idx")
+  @@index([scheduleId], map: "analysis_schedule_id_idx")
   @@index([status], map: "analysis_status_idx")
   @@index([pdfStatus], map: "analysis_pdf_status_idx")
   @@map("analysis")
@@ -229,6 +238,56 @@ model AnalysisResult {
   @@index([analysisId], map: "analysis_result_analysis_id_idx")
   @@index([categoryCode], map: "analysis_result_category_idx")
   @@map("analysis_result")
+  @@schema("app")
+}
+
+model AnalysisSchedule {
+  id              String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  farmId          String            @map("farm_id") @db.Uuid
+  analysisKind    AnalysisKind      @map("analysis_kind")
+  frequency       ScheduleFrequency
+  nextRunAt       DateTime          @map("next_run_at") @db.Timestamptz(6)
+  lastRunAt       DateTime?         @map("last_run_at") @db.Timestamptz(6)
+  isActive        Boolean           @default(true) @map("is_active")
+  timezone        String            @default("UTC")
+  createdByUserId String            @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  farm      Farm          @relation(fields: [farmId], references: [id], onDelete: Cascade)
+  createdBy User          @relation("UserSchedules", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  analyses  Analysis[]    @relation("ScheduleAnalyses")
+  alerts    AnalysisAlert[]
+
+  @@index([farmId], map: "analysis_schedule_farm_id_idx")
+  @@index([isActive, nextRunAt], map: "analysis_schedule_due_idx")
+  @@index([createdByUserId], map: "analysis_schedule_user_id_idx")
+  @@map("analysis_schedule")
+  @@schema("app")
+}
+
+model AnalysisAlert {
+  id                   String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  farmId               String            @map("farm_id") @db.Uuid
+  scheduleId           String            @map("schedule_id") @db.Uuid
+  analysisId           String            @map("analysis_id") @db.Uuid
+  analysisKind         AnalysisKind      @map("analysis_kind")
+  alertType            AnalysisAlertType @map("alert_type")
+  newIntersectionCount Int               @map("new_intersection_count")
+  payload              Json              @default("{}")
+  status               AnalysisAlertStatus @default(NEW)
+  createdAt            DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  resolvedAt           DateTime?         @map("resolved_at") @db.Timestamptz(6)
+
+  farm     Farm             @relation(fields: [farmId], references: [id], onDelete: Cascade)
+  schedule AnalysisSchedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+  analysis Analysis         @relation(fields: [analysisId], references: [id], onDelete: Cascade)
+
+  @@index([farmId], map: "analysis_alert_farm_id_idx")
+  @@index([scheduleId], map: "analysis_alert_schedule_id_idx")
+  @@index([analysisId], map: "analysis_alert_analysis_id_idx")
+  @@index([status, createdAt], map: "analysis_alert_status_created_idx")
+  @@map("analysis_alert")
   @@schema("app")
 }
 
@@ -318,5 +377,37 @@ enum AnalysisPdfStatus {
   expired
 
   @@map("analysis_pdf_status")
+  @@schema("app")
+}
+
+enum AnalysisKind {
+  STANDARD
+  DETER
+
+  @@map("analysis_kind")
+  @@schema("app")
+}
+
+enum ScheduleFrequency {
+  WEEKLY
+  BIWEEKLY
+  MONTHLY
+
+  @@map("schedule_frequency")
+  @@schema("app")
+}
+
+enum AnalysisAlertType {
+  NEW_INTERSECTION
+
+  @@map("analysis_alert_type")
+  @@schema("app")
+}
+
+enum AnalysisAlertStatus {
+  NEW
+  ACKNOWLEDGED
+
+  @@map("analysis_alert_status")
   @@schema("app")
 }

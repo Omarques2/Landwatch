@@ -68,6 +68,8 @@ const envBaseSchema = z.object({
   LANDWATCH_PDF_STORAGE_DIR: z.string().optional(),
   LANDWATCH_PDF_TTL_HOURS: numberSchema.default(2),
   LANDWATCH_PDF_TILE_PROVIDERS: z.string().optional(),
+
+  SCHEDULES_JOB_TOKEN: z.string().optional(),
 });
 
 const envSchema = envBaseSchema.superRefine(

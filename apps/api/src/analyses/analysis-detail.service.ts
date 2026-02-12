@@ -4,7 +4,7 @@ import {
   Inject,
   Optional,
 } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { AnalysisKind, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { NOW_PROVIDER } from './analysis-runner.service';
 import { DocInfoService } from './doc-info.service';
@@ -121,18 +121,15 @@ export class AnalysisDetailService {
     };
 
     const { farm, results, ...rest } = analysis;
+    const analysisKind = analysis.analysisKind ?? AnalysisKind.STANDARD;
     const isBaseSicarResult = (row: (typeof results)[number]) => {
       const category = (row.categoryCode ?? '').toUpperCase();
       if (category !== 'SICAR') return false;
       return row.featureAreaM2 == null && row.overlapAreaM2 == null;
     };
-    const filteredResults = results.filter((row) => {
-      const category = (row.categoryCode ?? '').toUpperCase();
-      const dataset = (row.datasetCode ?? '').toUpperCase();
-      if (category === 'DETER' || dataset.startsWith('DETER')) return false;
-      if (dataset.startsWith('CAR_') && !isBaseSicarResult(row)) return false;
-      return true;
-    });
+    const filteredResults = results.filter((row) =>
+      this.shouldIncludeDetailResult(row, analysisKind, isBaseSicarResult),
+    );
     const analysisDate = analysis.analysisDate
       ? analysis.analysisDate.toISOString().slice(0, 10)
       : this.nowProvider().toISOString().slice(0, 10);
@@ -149,6 +146,32 @@ export class AnalysisDetailService {
       sicarRow?.featureId ?? null,
       analysisDate,
     );
+
+    if (analysisKind === AnalysisKind.DETER) {
+      return {
+        ...rest,
+        pdfPath: undefined,
+        farmName: farm?.name ?? null,
+        municipio: sicarMeta.municipio,
+        uf: sicarMeta.uf,
+        sicarStatus: sicarMeta.status,
+        sicarCoordinates,
+        biomas: [],
+        datasetGroups: this.buildDeterDatasetGroups(filteredResults),
+        docInfos: [],
+        results: filteredResults.map((row) => ({
+          ...row,
+          isSicar: isBaseSicarResult(row),
+          featureId: row.featureId !== null ? row.featureId.toString() : null,
+          geomId: row.geomId !== null ? row.geomId.toString() : null,
+          sicarAreaM2: toSafeNumber(row.sicarAreaM2),
+          featureAreaM2: toSafeNumber(row.featureAreaM2),
+          overlapAreaM2: toSafeNumber(row.overlapAreaM2),
+          overlapPctOfSicar: toSafeNumber(row.overlapPctOfSicar),
+        })),
+      };
+    }
+
     const biomas = await this.fetchBiomas(
       schema,
       analysis.carKey,
@@ -255,7 +278,7 @@ export class AnalysisDetailService {
   async getMapById(id: string, tolerance?: number): Promise<AnalysisMapRow[]> {
     const analysis = await this.prisma.analysis.findUnique({
       where: { id },
-      select: { id: true, analysisDate: true },
+      select: { id: true, analysisDate: true, analysisKind: true },
     });
     if (!analysis) {
       throw new BadRequestException({
@@ -272,6 +295,22 @@ export class AnalysisDetailService {
       typeof tolerance === 'number' && Number.isFinite(tolerance)
         ? Math.min(Math.max(tolerance, 0), 0.01)
         : 0.0001;
+    const analysisKind = analysis.analysisKind ?? AnalysisKind.STANDARD;
+    const whereByKind =
+      analysisKind === AnalysisKind.DETER
+        ? Prisma.sql`
+            AND r.category_code <> 'BIOMAS'
+            AND (
+              r.category_code = 'DETER'
+              OR r.dataset_code ILIKE 'DETER%'
+              OR (r.dataset_code ILIKE 'CAR\\_%' AND r.feature_area_m2 IS NULL)
+            )
+          `
+        : Prisma.sql`
+            AND r.category_code NOT IN ('BIOMAS', 'DETER')
+            AND r.dataset_code NOT ILIKE 'DETER%'
+            AND (r.dataset_code NOT ILIKE 'CAR\\_%' OR r.feature_area_m2 IS NULL)
+          `;
 
     const sql = Prisma.sql`
       SELECT
@@ -288,9 +327,7 @@ export class AnalysisDetailService {
         ON g.geom_id = r.geom_id
       WHERE r.analysis_id = ${id}
         AND r.geom_id IS NOT NULL
-        AND r.category_code NOT IN ('BIOMAS', 'DETER')
-        AND r.dataset_code NOT ILIKE 'DETER%'
-        AND (r.dataset_code NOT ILIKE 'CAR\\_%' OR r.feature_area_m2 IS NULL)
+        ${whereByKind}
     `;
 
     type MapRow = {
@@ -335,9 +372,7 @@ export class AnalysisDetailService {
           ON g.geom_id = h.geom_id
         WHERE r.analysis_id = ${id}
           AND r.feature_id IS NOT NULL
-          AND r.category_code NOT IN ('BIOMAS', 'DETER')
-          AND r.dataset_code NOT ILIKE 'DETER%'
-          AND (r.dataset_code NOT ILIKE 'CAR\\_%' OR r.feature_area_m2 IS NULL)
+          ${whereByKind}
           ${dateFilter}
       `;
       try {
@@ -351,12 +386,11 @@ export class AnalysisDetailService {
     const mapped = rows
       .filter((row) => {
         if (!row.geom) return false;
-        if (row.category_code === 'BIOMAS' || row.category_code === 'DETER') {
-          return false;
-        }
-        const dataset = (row.dataset_code ?? '').toUpperCase();
-        if (dataset.startsWith('DETER')) return false;
-        return true;
+        return this.shouldKeepMapRow(
+          row.category_code,
+          row.dataset_code,
+          analysisKind,
+        );
       })
       .map((row) => ({
         categoryCode: row.category_code,
@@ -373,6 +407,71 @@ export class AnalysisDetailService {
     const analysisDate = this.normalizeDate(asOf);
     const schema = this.getSchema();
     return this.fetchIndigenaPhases(schema, analysisDate);
+  }
+
+  private shouldIncludeDetailResult(
+    row: {
+      categoryCode: string;
+      datasetCode: string;
+      featureAreaM2: Prisma.Decimal | null;
+      overlapAreaM2: Prisma.Decimal | null;
+    },
+    kind: AnalysisKind,
+    isBaseSicarResult: (input: {
+      categoryCode: string;
+      datasetCode: string;
+      featureAreaM2: Prisma.Decimal | null;
+      overlapAreaM2: Prisma.Decimal | null;
+    }) => boolean,
+  ) {
+    const category = (row.categoryCode ?? '').toUpperCase();
+    const dataset = (row.datasetCode ?? '').toUpperCase();
+    if (dataset.startsWith('CAR_') && !isBaseSicarResult(row)) return false;
+    if (kind === AnalysisKind.DETER) {
+      if (isBaseSicarResult(row)) return true;
+      return category === 'DETER' || dataset.startsWith('DETER');
+    }
+    if (category === 'DETER' || dataset.startsWith('DETER')) return false;
+    return true;
+  }
+
+  private shouldKeepMapRow(
+    categoryCode: string,
+    datasetCode: string,
+    kind: AnalysisKind,
+  ) {
+    const category = (categoryCode ?? '').toUpperCase();
+    const dataset = (datasetCode ?? '').toUpperCase();
+    if (category === 'BIOMAS') return false;
+    if (kind === AnalysisKind.DETER) {
+      if (category === 'SICAR') return true;
+      return category === 'DETER' || dataset.startsWith('DETER');
+    }
+    if (category === 'DETER' || dataset.startsWith('DETER')) return false;
+    return true;
+  }
+
+  private buildDeterDatasetGroups(
+    results: Array<{ datasetCode: string; categoryCode: string }>,
+  ): DatasetGroup[] {
+    const codes = Array.from(
+      new Set(
+        results
+          .filter((row) => (row.categoryCode ?? '').toUpperCase() !== 'SICAR')
+          .map((row) => row.datasetCode),
+      ),
+    ).sort((a, b) => a.localeCompare(b));
+    if (codes.length === 0) return [];
+    return [
+      {
+        title: 'Monitoramento DETER',
+        items: codes.map((datasetCode) => ({
+          datasetCode,
+          hit: true,
+          label: 'Alerta DETER',
+        })),
+      },
+    ];
   }
 
   private normalizeFeatureId(

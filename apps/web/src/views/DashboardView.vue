@@ -12,7 +12,7 @@
       </UiButton>
     </header>
 
-    <section class="grid gap-4 sm:grid-cols-3">
+    <section class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
       <div class="rounded-2xl border border-border bg-card p-5 shadow-sm">
         <div class="text-xs text-muted-foreground">Fazendas</div>
         <div class="mt-2 text-2xl font-semibold">
@@ -32,6 +32,13 @@
         <div class="mt-2 text-2xl font-semibold">
           <UiSkeleton v-if="loading" class="h-7 w-20" />
           <span v-else>{{ summary?.counts.pendingAnalyses ?? 0 }}</span>
+        </div>
+      </div>
+      <div class="rounded-2xl border border-border bg-card p-5 shadow-sm">
+        <div class="text-xs text-muted-foreground">Alertas novos</div>
+        <div class="mt-2 text-2xl font-semibold text-red-600">
+          <UiSkeleton v-if="loading" class="h-7 w-20" />
+          <span v-else>{{ summary?.counts.newAlerts ?? 0 }}</span>
         </div>
       </div>
     </section>
@@ -89,6 +96,50 @@
         </template>
       </div>
     </section>
+
+    <section class="rounded-2xl border border-border bg-card p-6 shadow-sm">
+      <div class="flex items-center justify-between">
+        <div class="text-lg font-semibold">Novidades detectadas</div>
+        <div class="text-xs text-muted-foreground">
+          {{ summary?.recentAlerts.length ?? 0 }} itens
+        </div>
+      </div>
+
+      <div v-if="loading" class="mt-4 space-y-3">
+        <UiSkeleton class="h-16 w-full rounded-xl" />
+        <UiSkeleton class="h-16 w-full rounded-xl" />
+      </div>
+
+      <div v-else class="mt-4 space-y-3">
+        <div
+          v-if="summary && summary.recentAlerts.length === 0"
+          class="text-sm text-muted-foreground"
+        >
+          Nenhum alerta novo no momento.
+        </div>
+        <template v-else>
+          <div
+            v-for="alert in summary?.recentAlerts ?? []"
+            :key="alert.id"
+            class="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-background p-4"
+          >
+            <div>
+              <div class="font-semibold">
+                {{ alert.farmName ?? "Fazenda sem cadastro" }}
+              </div>
+              <div class="text-xs text-muted-foreground">
+                {{ kindLabel(alert.analysisKind) }} ·
+                {{ alert.newIntersectionCount }} novidade(s) ·
+                {{ formatDate(alert.createdAt) }}
+              </div>
+            </div>
+            <UiButton size="sm" variant="outline" @click="openDetail(alert.analysisId)">
+              Ver análise
+            </UiButton>
+          </div>
+        </template>
+      </div>
+    </section>
   </div>
 </template>
 
@@ -112,8 +163,19 @@ type DashboardSummary = {
     farms: number;
     analyses: number;
     pendingAnalyses: number;
+    newAlerts: number;
   };
   recentAnalyses: RecentAnalysis[];
+  recentAlerts: RecentAlert[];
+};
+
+type RecentAlert = {
+  id: string;
+  analysisId: string;
+  analysisKind: "STANDARD" | "DETER";
+  newIntersectionCount: number;
+  createdAt: string;
+  farmName?: string | null;
 };
 
 const router = useRouter();
@@ -138,6 +200,10 @@ function statusLabel(status: string) {
 function formatDate(value: string) {
   if (!value) return "-";
   return value.slice(0, 10);
+}
+
+function kindLabel(kind: "STANDARD" | "DETER") {
+  return kind === "DETER" ? "DETER preventiva" : "Análise completa";
 }
 
 async function loadSummary() {

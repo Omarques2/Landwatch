@@ -1,0 +1,44 @@
+name: Cron - Run Schedules
+
+on:
+  schedule:
+    - cron: '0 8 * * *'
+  workflow_dispatch:
+
+jobs:
+  run-staging:
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - name: Trigger staging due schedules
+        env:
+          API_BASE_URL: ${{ secrets.STAGING_API_BASE_URL }}
+          JOB_TOKEN: ${{ secrets.SCHEDULES_JOB_TOKEN_STAGING }}
+        run: |
+          if [ -z "$API_BASE_URL" ] || [ -z "$JOB_TOKEN" ]; then
+            echo "Missing staging API base URL or job token"
+            exit 1
+          fi
+
+          curl --fail --show-error --silent \
+            -X POST "$API_BASE_URL/internal/schedules/run-due" \
+            -H "x-job-token: $JOB_TOKEN"
+
+  run-prod:
+    runs-on: ubuntu-latest
+    needs: run-staging
+    environment: production
+    steps:
+      - name: Trigger prod due schedules
+        env:
+          API_BASE_URL: ${{ secrets.PROD_API_BASE_URL }}
+          JOB_TOKEN: ${{ secrets.SCHEDULES_JOB_TOKEN_PROD }}
+        run: |
+          if [ -z "$API_BASE_URL" ] || [ -z "$JOB_TOKEN" ]; then
+            echo "Missing prod API base URL or job token"
+            exit 1
+          fi
+
+          curl --fail --show-error --silent \
+            -X POST "$API_BASE_URL/internal/schedules/run-due" \
+            -H "x-job-token: $JOB_TOKEN"

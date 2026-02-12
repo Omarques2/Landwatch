@@ -230,3 +230,74 @@ Legenda:
 - [x] Política anti-stale para rotas SPA de auth
   Problema: HTML stale em borda/cache pode gerar callback/login inconsistente após deploy.
   Aceite: rotas críticas (`/`, `/login`, `/auth/callback`, `/dashboard`, `/farms*`, `/analyses*`) com `Cache-Control: no-store`.
+
+## EPIC-12 - Agendamento de análises + Alertas de novidade (UX-first)
+- [x] Modelagem de dados para agendamento e alertas
+  Problema: hoje não existe domínio persistente para recorrência nem para histórico de alertas.
+  Aceite:
+  - Prisma com `analysisKind` (`STANDARD`, `DETER`) no modelo de análise.
+  - Nova tabela de schedules com `farmId`, `analysisKind`, `frequency`, `nextRunAt`, `isActive`.
+  - Nova tabela de alerts com `scheduleId`, `analysisId`, `analysisKind`, `newIntersectionCount`, `status`.
+
+- [x] API de agendamentos (CRUD básico)
+  Problema: usuário não consegue configurar recorrência por fazenda.
+  Aceite:
+  - Endpoints para criar/listar/editar/pausar/reativar agendamentos.
+  - Frequências suportadas: semanal, quinzenal e mensal.
+  - Cada schedule aponta explicitamente para tipo de análise (`STANDARD` ou `DETER`).
+
+- [x] Endpoint interno para execução de schedules vencidos
+  Problema: sem worker completo, não há executor automático para agendas.
+  Aceite:
+  - Endpoint `POST /internal/schedules/run-due` protegido por `x-job-token`.
+  - Processa apenas schedules ativos com `nextRunAt <= now`.
+  - Retorna resumo com `processed`, `created`, `failed`.
+
+- [x] Workflow diário no GitHub Actions (interim scheduler)
+  Problema: falta trigger operacional diária para executar o endpoint interno.
+  Aceite:
+  - Workflow com `schedule` diário e `workflow_dispatch`.
+  - Chama staging e prod com tokens separados.
+  - Falha de ambiente/token interrompe job com erro explícito.
+
+- [x] Suporte a análise comum agendada (`STANDARD`)
+  Problema: análises recorrentes comuns ainda dependem de execução manual.
+  Aceite:
+  - Execução automática cria análise `STANDARD` equivalente ao fluxo atual.
+  - Persistência e status seguem pipeline atual de análises.
+  - Sem regressão no comportamento da análise manual.
+
+- [x] Suporte a análise DETER preventiva agendada (`DETER`)
+  Problema: não existe fluxo separado para monitoramento preventivo simplificado.
+  Aceite:
+  - Execução `DETER` consulta exclusivamente camada DETER no CAR.
+  - Detalhe da análise DETER simplificado (mapa + legenda + datasets DETER).
+  - Fluxo deixa explícito que é análise preventiva, não parecer final de compliance.
+
+- [x] Regra de alerta por nova interseção
+  Problema: dashboard não destaca automaticamente novidades detectadas entre execuções.
+  Aceite:
+  - Comparação da análise atual com a última concluída da mesma fazenda + tipo.
+  - Alerta criado apenas para interseção nova (delta positivo).
+  - Payload do alerta inclui contexto mínimo para investigação.
+
+- [x] Dashboard com card/lista de alertas novos
+  Problema: usuário não tem visão rápida de mudanças relevantes detectadas pelos agendamentos.
+  Aceite:
+  - Novo card de contagem de alertas novos no dashboard.
+  - Lista de novidades com CTA para abrir análise.
+  - Estado vazio amigável quando não houver alertas.
+
+- [x] Nova aba de sidebar: Agendamento (UX amigável)
+  Problema: falta ponto único para configurar recorrência sem complexidade.
+  Aceite:
+  - Item `Agendamento` no sidebar desktop/mobile.
+  - Tela com criação rápida (fazenda, tipo, frequência) e lista de agendamentos.
+  - Feedback claro de sucesso, erro e próximo disparo.
+
+- [x] Qualidade e segurança operacional da feature
+  Problema: risco de duplicidade de execução e de endpoint interno sem proteção suficiente.
+  Aceite:
+  - Idempotência mínima por schedule+janela de execução.
+  - Sem execução duplicada na mesma janela por corrida.
+  - Testes unitários cobrindo cálculo de próxima execução e regra de delta.

@@ -1,4 +1,5 @@
 import { AnalysisDetailService } from './analysis-detail.service';
+import { AnalysisKind } from '@prisma/client';
 
 function makePrismaMock() {
   return {
@@ -41,16 +42,22 @@ describe('AnalysisDetailService', () => {
       '04252011000110',
     ]);
 
-    expect(result).toEqual([
-      { type: 'CPF', cpf: '52998224725', isValid: true },
-      {
-        type: 'CNPJ',
-        cnpj: '04252011000110',
-        nome: 'Empresa',
-        fantasia: null,
-        situacao: 'ATIVA',
-      },
-    ]);
+    expect(result).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'CPF',
+          cpf: '52998224725',
+          isValid: true,
+        }),
+        expect.objectContaining({
+          type: 'CNPJ',
+          cnpj: '04252011000110',
+          nome: 'Empresa',
+          fantasia: null,
+          situacao: 'ATIVA',
+        }),
+      ]),
+    );
     expect(docInfo.buildDocInfo).toHaveBeenCalledTimes(2);
   });
 
@@ -102,6 +109,38 @@ describe('AnalysisDetailService', () => {
     expect(result).toHaveLength(1);
     expect(result[0].datasetCode).toBe('PRODES_2024');
     expect(result[0].featureId).toBe('3');
+  });
+
+  it('keeps DETER rows in map for DETER analyses', async () => {
+    const prisma = makePrismaMock();
+    prisma.analysis.findUnique.mockResolvedValue({
+      id: 'analysis-1',
+      carKey: 'CAR-1',
+      analysisDate: new Date('2026-01-31'),
+      analysisKind: AnalysisKind.DETER,
+    });
+    prisma.$queryRaw.mockResolvedValueOnce([
+      {
+        category_code: 'DETER',
+        dataset_code: 'DETER_AMZ_2024',
+        snapshot_date: null,
+        feature_id: 2,
+        geom_id: 20,
+        geom: '{"type":"Polygon","coordinates":[[[0,0],[1,0],[1,1],[0,0]]]}',
+      },
+    ]);
+
+    const docInfo = { buildDocInfo: jest.fn() };
+    const service = new AnalysisDetailService(
+      prisma as any,
+      docInfo as any,
+      () => now,
+    );
+
+    const result = await service.getMapById('analysis-1');
+
+    expect(result).toHaveLength(1);
+    expect(result[0].datasetCode).toBe('DETER_AMZ_2024');
   });
 
   it('splits UCS datasets into a dedicated group without showing the raw UCS dataset', () => {

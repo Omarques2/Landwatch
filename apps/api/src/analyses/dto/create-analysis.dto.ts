@@ -1,4 +1,5 @@
 import {
+  IsEnum,
   IsArray,
   IsISO8601,
   IsOptional,
@@ -6,6 +7,7 @@ import {
   IsUUID,
   Length,
 } from 'class-validator';
+import { AnalysisKind } from '@prisma/client';
 
 export class CreateAnalysisDto {
   @IsString()
@@ -30,4 +32,8 @@ export class CreateAnalysisDto {
   @IsOptional()
   @IsISO8601()
   analysisDate?: string;
+
+  @IsOptional()
+  @IsEnum(AnalysisKind)
+  analysisKind?: AnalysisKind;
 }

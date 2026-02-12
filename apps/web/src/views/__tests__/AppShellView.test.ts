@@ -76,4 +76,17 @@ describe("AppShellView", () => {
     await Promise.resolve();
     expect(getMeCached).toHaveBeenCalledWith(true);
   });
+
+  it("renders the Agendamento item in navigation", () => {
+    const wrapper = mount(AppShellView, {
+      global: {
+        stubs: {
+          RouterView: true,
+          UiSheet: { template: "<div><slot /></div>" },
+        },
+      },
+    });
+
+    expect(wrapper.text()).toContain("Agendamento");
+  });
 });

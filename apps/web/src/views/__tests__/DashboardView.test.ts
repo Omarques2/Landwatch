@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { mount } from "@vue/test-utils";
+import { nextTick } from "vue";
 import DashboardView from "@/views/DashboardView.vue";
 import { http } from "@/api/http";
 
@@ -22,5 +23,40 @@ describe("DashboardView", () => {
     const wrapper = mount(DashboardView);
 
     expect(wrapper.find('[data-testid="dashboard-skeleton"]').exists()).toBe(true);
+  });
+
+  it("shows new alerts indicators from dashboard summary", async () => {
+    (http.get as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      data: {
+        data: {
+          counts: {
+            farms: 1,
+            analyses: 2,
+            pendingAnalyses: 0,
+            newAlerts: 3,
+          },
+          recentAnalyses: [],
+          recentAlerts: [
+            {
+              id: "alert-1",
+              analysisId: "analysis-1",
+              analysisKind: "DETER",
+              newIntersectionCount: 2,
+              createdAt: "2026-02-12T12:00:00.000Z",
+              farmName: "Farm 1",
+            },
+          ],
+        },
+      },
+    });
+
+    const wrapper = mount(DashboardView);
+    await Promise.resolve();
+    await nextTick();
+
+    expect(wrapper.text()).toContain("Alertas novos");
+    expect(wrapper.text()).toContain("3");
+    expect(wrapper.text()).toContain("Novidades detectadas");
+    expect(wrapper.text()).toContain("Farm 1");
   });
 });

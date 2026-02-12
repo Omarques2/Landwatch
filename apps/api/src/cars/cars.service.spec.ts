@@ -1,6 +1,12 @@
 import { CarsService } from './cars.service';
 
 describe('CarsService', () => {
+  function makeLandwatchStatusMock() {
+    return {
+      assertNotRefreshing: jest.fn().mockResolvedValue(undefined),
+    };
+  }
+
   function makePrismaMock() {
     return {
       $queryRaw: jest.fn(),
@@ -17,8 +23,9 @@ describe('CarsService', () => {
         geom: '{"type":"Polygon","coordinates":[[[0,0],[1,0],[1,1],[0,0]]]}',
       },
     ]);
+    const landwatchStatus = makeLandwatchStatusMock();
 
-    const service = new CarsService(prisma as any);
+    const service = new CarsService(prisma as any, landwatchStatus as any);
 
     const result = await service.nearby({
       lat: -10,
@@ -43,13 +50,15 @@ describe('CarsService', () => {
         },
       },
     ]);
+    expect(landwatchStatus.assertNotRefreshing).toHaveBeenCalled();
   });
 
   it('throws when SICAR base is missing', async () => {
     const prisma = makePrismaMock();
     prisma.$queryRaw.mockResolvedValueOnce([]);
+    const landwatchStatus = makeLandwatchStatusMock();
 
-    const service = new CarsService(prisma as any);
+    const service = new CarsService(prisma as any, landwatchStatus as any);
 
     await expect(
       service.nearby({ lat: -10, lng: -50, radiusMeters: 10000 }),
@@ -68,8 +77,9 @@ describe('CarsService', () => {
         geom: '{"type":"Polygon","coordinates":[[[0,0],[1,0],[1,1],[0,0]]]}',
       },
     ]);
+    const landwatchStatus = makeLandwatchStatusMock();
 
-    const service = new CarsService(prisma as any);
+    const service = new CarsService(prisma as any, landwatchStatus as any);
 
     const result = await service.getByKey({
       carKey: 'CAR-1',
@@ -95,8 +105,9 @@ describe('CarsService', () => {
   it('throws when CAR key is not found', async () => {
     const prisma = makePrismaMock();
     prisma.$queryRaw.mockResolvedValueOnce([]);
+    const landwatchStatus = makeLandwatchStatusMock();
 
-    const service = new CarsService(prisma as any);
+    const service = new CarsService(prisma as any, landwatchStatus as any);
 
     await expect(service.getByKey({ carKey: 'CAR-404' })).rejects.toMatchObject(
       {

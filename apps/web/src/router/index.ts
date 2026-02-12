@@ -15,6 +15,7 @@ import NewAnalysisView from "../views/NewAnalysisView.vue";
 import AnalysisDetailView from "../views/AnalysisDetailView.vue";
 import AnalysisPrintView from "../views/AnalysisPrintView.vue";
 import AnalysisPublicView from "../views/AnalysisPublicView.vue";
+import SchedulesView from "../views/SchedulesView.vue";
 
 const router = createRouter({
   history: createWebHistory(),
@@ -50,6 +51,11 @@ const router = createRouter({
           path: "analyses/:id",
           component: AnalysisDetailView,
           meta: { title: "Detalhe da análise" },
+        },
+        {
+          path: "schedules",
+          component: SchedulesView,
+          meta: { title: "Agendamento" },
         },
       ],
     },

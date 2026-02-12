@@ -1,4 +1,5 @@
 import { AnalysesService } from './analyses.service';
+import { AnalysisKind } from '@prisma/client';
 import { ANALYSIS_CACHE_VERSION } from './analysis-cache.constants';
 
 function makePrismaMock() {
@@ -14,9 +15,11 @@ function makePrismaMock() {
       upsert: jest.fn(),
     },
     analysis: {
-      create: jest
-        .fn()
-        .mockResolvedValue({ id: 'analysis-1', status: 'pending' }),
+      create: jest.fn().mockResolvedValue({
+        id: 'analysis-1',
+        status: 'pending',
+        analysisKind: AnalysisKind.STANDARD,
+      }),
       findUnique: jest.fn(),
       findMany: jest.fn(),
       count: jest.fn(),
@@ -81,6 +84,7 @@ describe('AnalysesService', () => {
       expect.objectContaining({
         data: expect.objectContaining({
           status: 'pending',
+          analysisKind: AnalysisKind.STANDARD,
           analysisDocs: [
             { docType: 'CPF', docNormalized: '52998224725' },
             { docType: 'CNPJ', docNormalized: '04252011000110' },
@@ -113,6 +117,38 @@ describe('AnalysesService', () => {
         }),
       }),
     );
+  });
+
+  it('persists DETER analysis kind and skips docs for DETER analyses', async () => {
+    const prisma = makePrismaMock();
+    prisma.$queryRaw.mockResolvedValueOnce([{ ok: 1 }]);
+    prisma.farm.findFirst.mockResolvedValue({ id: 'farm-1' });
+    const deps = makeDeps();
+
+    const service = new AnalysesService(
+      prisma,
+      deps.runner as any,
+      deps.detail as any,
+      deps.cache as any,
+      deps.docInfo as any,
+      deps.landwatchStatus as any,
+      () => now,
+    );
+    await service.create({ sub: 'entra-1' } as any, {
+      carKey: 'CAR-1',
+      documents: ['04252011000110'],
+      analysisKind: AnalysisKind.DETER,
+    });
+
+    expect(prisma.analysis.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          analysisKind: AnalysisKind.DETER,
+          analysisDocs: [],
+        }),
+      }),
+    );
+    expect(deps.docInfo.updateCnpjInfoBestEffort).not.toHaveBeenCalled();
   });
 
   it('does not inject farm documents when input does not provide documents', async () => {
