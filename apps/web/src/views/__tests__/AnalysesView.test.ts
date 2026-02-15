@@ -132,4 +132,42 @@ describe("AnalysesView", () => {
 
     expect(wrapper.text()).toContain("DETER preventiva");
   });
+
+  it("uses fixed desktop columns for badge alignment", async () => {
+    const mockGet = http.get as unknown as ReturnType<typeof vi.fn>;
+    mockGet.mockImplementation((url: string) => {
+      if (url === "/v1/farms") {
+        return Promise.resolve({
+          data: { data: [], meta: { page: 1, pageSize: 100, total: 0 } },
+        });
+      }
+      if (url === "/v1/analyses") {
+        return Promise.resolve({
+          data: {
+            data: [
+              {
+                id: "analysis-standard-1",
+                carKey: "MT-001",
+                analysisDate: "2026-02-12",
+                status: "completed",
+                farmName: "Fazenda A",
+                hasIntersections: false,
+                analysisKind: "STANDARD",
+              },
+            ],
+            meta: { page: 1, pageSize: 20, total: 1 },
+          },
+        });
+      }
+      return Promise.reject(new Error("unexpected request"));
+    });
+
+    const wrapper = mount(AnalysesView);
+    await flushPromises();
+
+    const badges = wrapper.find('[data-testid="analysis-badges"]');
+    expect(badges.exists()).toBe(true);
+    expect(badges.classes()).toContain("md:grid");
+    expect(badges.classes()).toContain("md:grid-cols-[12rem_8.5rem_11rem]");
+  });
 });

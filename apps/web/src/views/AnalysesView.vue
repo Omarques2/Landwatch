@@ -125,9 +125,12 @@
                 {{ formatDate(analysis.analysisDate) }} · {{ analysis.carKey }}
               </div>
             </div>
-            <div class="flex flex-wrap items-center gap-2 text-xs">
+            <div
+              class="flex flex-wrap items-center gap-2 text-xs md:grid md:grid-cols-[12rem_8.5rem_11rem] md:items-center md:justify-end"
+              data-testid="analysis-badges"
+            >
               <span
-                class="rounded-full border px-2 py-1"
+                class="inline-flex items-center justify-center rounded-full border px-2 py-1 text-center md:w-full"
                 :class="
                   analysis.analysisKind === 'DETER'
                     ? 'border-amber-200 bg-amber-50 text-amber-700'
@@ -137,13 +140,13 @@
                 {{ analysisKindLabel(analysis.analysisKind) }}
               </span>
               <span
-                class="rounded-full border px-2 py-1"
+                class="inline-flex items-center justify-center rounded-full border px-2 py-1 text-center md:w-full"
                 :class="statusBadgeClass(analysis.status)"
               >
                 {{ statusLabel(analysis.status) }}
               </span>
               <span
-                class="rounded-full border px-2 py-1"
+                class="inline-flex items-center justify-center rounded-full border px-2 py-1 text-center md:w-full"
                 :class="analysis.hasIntersections ? 'border-red-200 text-red-600' : 'border-emerald-200 text-emerald-600'"
               >
                 {{ analysis.hasIntersections ? "Interseções" : "Sem interseções" }}

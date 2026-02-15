@@ -84,6 +84,16 @@
             <div class="flex flex-wrap items-center gap-2 text-xs">
               <span
                 class="rounded-full border px-2 py-1"
+                :class="
+                  analysis.analysisKind === 'DETER'
+                    ? 'border-amber-200 bg-amber-50 text-amber-700'
+                    : 'border-zinc-200 text-zinc-700'
+                "
+              >
+                {{ kindLabel(analysis.analysisKind ?? "STANDARD") }}
+              </span>
+              <span
+                class="rounded-full border px-2 py-1"
                 :class="statusBadgeClass(analysis.status)"
               >
                 {{ statusLabel(analysis.status) }}
@@ -155,6 +165,7 @@ type RecentAnalysis = {
   carKey: string;
   analysisDate: string;
   status: string;
+  analysisKind?: "STANDARD" | "DETER";
   farmName?: string | null;
 };
 

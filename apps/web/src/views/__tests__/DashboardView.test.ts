@@ -59,4 +59,45 @@ describe("DashboardView", () => {
     expect(wrapper.text()).toContain("Novidades detectadas");
     expect(wrapper.text()).toContain("Farm 1");
   });
+
+  it("differentiates STANDARD and DETER analyses in recent analyses list", async () => {
+    (http.get as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      data: {
+        data: {
+          counts: {
+            farms: 2,
+            analyses: 4,
+            pendingAnalyses: 1,
+            newAlerts: 0,
+          },
+          recentAnalyses: [
+            {
+              id: "analysis-std-1",
+              carKey: "MT-001",
+              analysisDate: "2026-02-12",
+              status: "completed",
+              analysisKind: "STANDARD",
+              farmName: "Fazenda A",
+            },
+            {
+              id: "analysis-deter-1",
+              carKey: "MT-002",
+              analysisDate: "2026-02-13",
+              status: "running",
+              analysisKind: "DETER",
+              farmName: "Fazenda B",
+            },
+          ],
+          recentAlerts: [],
+        },
+      },
+    });
+
+    const wrapper = mount(DashboardView);
+    await Promise.resolve();
+    await nextTick();
+
+    expect(wrapper.text()).toContain("Análise completa");
+    expect(wrapper.text()).toContain("DETER preventiva");
+  });
 });
