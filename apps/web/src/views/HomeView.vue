@@ -12,7 +12,7 @@
         <div class="flex flex-wrap items-center justify-between gap-4">
           <div>
             <div class="text-lg font-semibold">Sessao atual</div>
-            <div class="text-sm text-muted-foreground">Usuario autenticado no Entra</div>
+            <div class="text-sm text-muted-foreground">Usuario autenticado no Sigfarm Auth</div>
           </div>
           <button
             type="button"
@@ -26,7 +26,7 @@
           <div><span class="font-semibold">Email:</span> {{ me?.email ?? "-" }}</div>
           <div><span class="font-semibold">Nome:</span> {{ me?.displayName ?? "-" }}</div>
           <div><span class="font-semibold">Status:</span> {{ me?.status ?? "-" }}</div>
-          <div><span class="font-semibold">Sub:</span> {{ me?.entraSub ?? "-" }}</div>
+          <div><span class="font-semibold">Identity User ID:</span> {{ me?.identityUserId ?? "-" }}</div>
         </div>
       </section>
 
@@ -332,7 +332,7 @@ import { isValidCpfCnpj, sanitizeDoc } from "../lib/doc-utils";
 
 type Me = {
   id?: string;
-  entraSub?: string;
+  identityUserId?: string;
   email: string | null;
   displayName: string | null;
   status: string;
@@ -424,7 +424,7 @@ async function loadMe() {
   me.value = profile
     ? {
         id: profile.id,
-        entraSub: profile.entraSub,
+        identityUserId: profile.identityUserId,
         email: profile.email,
         displayName: profile.displayName,
         status: profile.rawStatus ?? profile.status,

@@ -13,7 +13,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@azure/msal-browser": "^4.27.0",
+    "@sigfarm/auth-client-vue": "file:../../vendor/sigfarm-auth-platform/dist-packages/sigfarm-auth-client-vue-0.1.0.tgz",
+    "@sigfarm/auth-contracts": "file:../../vendor/sigfarm-auth-platform/dist-packages/sigfarm-auth-contracts-0.1.0.tgz",
     "axios": "^1.13.5",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

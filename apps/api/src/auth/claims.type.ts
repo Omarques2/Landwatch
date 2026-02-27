@@ -1,11 +1,3 @@
-import type { JWTPayload } from 'jose';
+import type { AccessTokenClaims } from '@sigfarm/auth-contracts';
 
-export type Claims = JWTPayload & {
-  sub: string;
-  oid?: string;
-  preferred_username?: string;
-  email?: string;
-  upn?: string;
-  name?: string;
-  emails?: string[];
-};
+export type Claims = AccessTokenClaims;

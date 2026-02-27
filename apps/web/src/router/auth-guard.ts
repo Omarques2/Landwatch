@@ -1,20 +1,43 @@
 import type { RouteLocationNormalized } from "vue-router";
 
 type AuthGuardDeps = {
-  getActiveAccount: () => unknown;
-  initAuthSafe: (timeoutMs?: number) => Promise<boolean>;
+  ensureSession: () => Promise<unknown | null>;
+  exchangeSession: () => Promise<unknown>;
   getMeCached: (force?: boolean) => Promise<{ status?: string } | null>;
 };
 
 type AuthGuardResult = true | string;
 
+const EXCHANGE_RETRY_ATTEMPTS = 2;
+
 export function createAuthNavigationGuard(deps: AuthGuardDeps) {
+  async function ensureSessionWithExchange(): Promise<unknown | null> {
+    for (let attempt = 1; attempt <= EXCHANGE_RETRY_ATTEMPTS; attempt += 1) {
+      const session = await deps.ensureSession();
+      if (session) return session;
+
+      try {
+        await deps.exchangeSession();
+      } catch {
+        if (attempt >= EXCHANGE_RETRY_ATTEMPTS) {
+          return null;
+        }
+        continue;
+      }
+
+      const refreshedSession = await deps.ensureSession();
+      if (refreshedSession) return refreshedSession;
+    }
+
+    return null;
+  }
+
   return async function authNavigationGuard(
     to: RouteLocationNormalized,
   ): Promise<AuthGuardResult> {
     if (to.path === "/login") {
-      await deps.initAuthSafe(2_500);
-      if (!deps.getActiveAccount()) return true;
+      const session = await ensureSessionWithExchange();
+      if (!session) return true;
       const me = await deps.getMeCached(false);
       if (!me) return "/pending";
       if (me.status !== "active") return "/pending";
@@ -23,9 +46,8 @@ export function createAuthNavigationGuard(deps: AuthGuardDeps) {
 
     if (!to.meta.requiresAuth) return true;
 
-    const initialized = await deps.initAuthSafe(4_000);
-    if (!initialized) return "/login";
-    if (!deps.getActiveAccount()) return "/login";
+    const session = await ensureSessionWithExchange();
+    if (!session) return `/login?returnTo=${encodeURIComponent(to.fullPath || to.path)}`;
 
     if (to.path === "/pending") {
       return true;

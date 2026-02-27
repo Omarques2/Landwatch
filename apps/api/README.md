@@ -57,6 +57,17 @@ $ npm run test:e2e
 $ npm run test:cov
 ```
 
+### E2E database safety
+
+The `npm run test:e2e` runner refuses unsafe databases by design.
+
+Set these env vars before running E2E:
+
+1. `TEST_DATABASE_URL` must use a database name ending with `_test` (example: `landwatch_test`).
+2. `TEST_DATABASE_HOST_ALLOWLIST` must include only test/local hosts (example: `localhost,127.0.0.1`).
+
+If `TEST_DATABASE_URL` points to staging/prod or does not end with `_test`, the command fails intentionally.
+
 ## Deployment
 
 When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.

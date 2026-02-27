@@ -168,9 +168,9 @@ export class AnalysesService {
   }
 
   private async resolveUserId(claims: Claims): Promise<string> {
-    const entraSub = String(claims.sub);
+    const identityUserId = String(claims.sub);
     const user = await this.prisma.user.findUnique({
-      where: { entraSub },
+      where: { identityUserId },
       select: { id: true },
     });
     if (!user) {

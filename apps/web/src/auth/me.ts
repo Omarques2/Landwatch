@@ -5,7 +5,7 @@ import { isRetryableHttpError, runWithRetryBackoff } from "./resilience";
 
 export type MeResponse = {
   id?: string;
-  entraSub?: string;
+  identityUserId?: string;
   email: string | null;
   displayName: string | null;
   status: "pending" | "active" | "disabled";

@@ -1052,6 +1052,14 @@ def process_shp(conn, dataset_id: int, dataset_code: str, shp_path: Path, snapsh
 # Main
 # ============================================================
 def _parse_args():
+    raw_args = sys.argv[1:]
+    if any(arg.strip() == "\\" for arg in raw_args):
+        raise SystemExit(
+            "Erro de sintaxe no comando: '\\' foi passado como argumento. "
+            "No Bash, use '\\' no fim da linha sem espaços após ele, "
+            "ou execute o comando em uma única linha."
+        )
+
     parser = argparse.ArgumentParser(description="LandWatch bulk ingest")
     parser.add_argument("--root", help="Diretório raiz de ingestão")
     parser.add_argument("--category", help="Categoria(s) separadas por vírgula")

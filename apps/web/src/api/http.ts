@@ -1,5 +1,5 @@
 import axios, { type AxiosRequestConfig } from "axios";
-import { acquireApiToken, hardResetAuthState, logout } from "../auth/auth";
+import { authClient, buildProductLoginRoute, resolveReturnTo } from "../auth/sigfarm-auth";
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:3001";
 
@@ -13,21 +13,36 @@ type RetriableAuthRequestConfig = AxiosRequestConfig & {
 };
 
 function isSkipAuth(config: RetriableAuthRequestConfig): boolean {
-  return (
-    (config.headers as any)?.["X-Skip-Auth"] === "1" ||
-    config.skipAuth === true
-  );
+  return (config.headers as any)?.["X-Skip-Auth"] === "1" || config.skipAuth === true;
+}
+
+function redirectToLogin(): void {
+  if (typeof window === "undefined") return;
+  const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+  const returnTo = resolveReturnTo(current);
+  const loginRoute = buildProductLoginRoute(returnTo);
+  if (window.location.pathname !== "/login" && window.location.pathname !== "/auth/callback") {
+    window.location.assign(loginRoute);
+  }
 }
 
 http.interceptors.request.use(async (config) => {
-  // Permite chamadas "public" quando você quiser (raras)
-  const skipAuth = isSkipAuth(config as RetriableAuthRequestConfig);
+  if (isSkipAuth(config as RetriableAuthRequestConfig)) return config;
 
-  if (skipAuth) return config;
+  let token = await authClient.getAccessToken();
+  if (!token) {
+    try {
+      await authClient.exchangeSession();
+      token = await authClient.getAccessToken();
+    } catch {
+      token = null;
+    }
+  }
 
-  const token = await acquireApiToken();
-  config.headers = config.headers ?? {};
-  (config.headers as any).Authorization = `Bearer ${token}`;
+  if (token) {
+    config.headers = config.headers ?? {};
+    (config.headers as any).Authorization = `Bearer ${token}`;
+  }
   return config;
 });
 
@@ -36,44 +51,45 @@ http.interceptors.response.use(
   async (error) => {
     const status = error?.response?.status;
     const original = (error?.config ?? {}) as RetriableAuthRequestConfig;
+
     if (status === 401) {
       if (!isSkipAuth(original) && !original._authRetried) {
         original._authRetried = true;
         try {
-          const token = await acquireApiToken({
-            forceRefresh: true,
-            interactive: false,
-            reason: "http-401-retry",
-          });
-          original.headers = original.headers ?? {};
-          (original.headers as any).Authorization = `Bearer ${token}`;
-          return http.request(original);
+          await authClient.refreshSession();
+          const token = await authClient.getAccessToken();
+          if (token) {
+            original.headers = original.headers ?? {};
+            (original.headers as any).Authorization = `Bearer ${token}`;
+            return http.request(original);
+          }
         } catch {
-          // fallback abaixo
+          try {
+            await authClient.exchangeSession();
+            const token = await authClient.getAccessToken();
+            if (token) {
+              original.headers = original.headers ?? {};
+              (original.headers as any).Authorization = `Bearer ${token}`;
+              return http.request(original);
+            }
+          } catch {
+            // fall through to login redirect
+          }
         }
       }
-      try {
-        await hardResetAuthState();
-      } catch {
-        // best effort
-      }
-      if (typeof window !== "undefined") {
-        const path = window.location.pathname;
-        if (path !== "/login" && path !== "/auth/callback") {
-          window.location.assign("/login");
-        }
-      }
+
+      authClient.clearSession();
+      redirectToLogin();
     }
 
     if (status === 403) {
       try {
-        await logout();
-      } catch {
-        if (typeof window !== "undefined") {
-          window.location.assign("/login");
-        }
+        await authClient.logout();
+      } finally {
+        redirectToLogin();
       }
     }
+
     return Promise.reject(error);
   },
 );

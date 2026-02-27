@@ -24,11 +24,12 @@
 
 <script setup lang="ts">
 import { onMounted } from "vue";
-import { useRouter } from "vue-router";
-import { getActiveAccount, hardResetAuthState, initAuthSafe } from "../auth/auth";
+import { useRoute, useRouter } from "vue-router";
+import { authClient, buildProductLoginRoute, getRouteReturnTo } from "../auth/sigfarm-auth";
 import { getMeCached } from "../auth/me";
 
 const router = useRouter();
+const route = useRoute();
 
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
   let timer: number | null = null;
@@ -43,24 +44,25 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
 }
 
 onMounted(async () => {
+  const safeReturnTo = getRouteReturnTo(route.query.returnTo);
+
   try {
-    const initialized = await withTimeout(initAuthSafe(), 6_000, "MSAL init");
-    if (!initialized) {
-      await hardResetAuthState();
-      await router.replace("/login");
-      return;
-    }
-    const acc = getActiveAccount();
-    if (!acc) {
-      await router.replace("/login");
-      return;
-    }
+    await withTimeout(authClient.exchangeSession(), 8_000, "exchangeSession");
 
     const me = await withTimeout(getMeCached(true), 8_000, "/users/me");
-    await router.replace(me?.status === "active" ? "/" : "/pending");
+    if (me?.status === "active") {
+      const target =
+        typeof window !== "undefined" && safeReturnTo.startsWith(window.location.origin)
+          ? safeReturnTo.slice(window.location.origin.length) || "/"
+          : "/";
+      await router.replace(target);
+      return;
+    }
+    await router.replace("/pending");
   } catch {
-    await hardResetAuthState();
-    await router.replace("/login");
+    authClient.clearSession();
+    const loginRoute = buildProductLoginRoute(safeReturnTo);
+    await router.replace(loginRoute);
   }
 });
 </script>

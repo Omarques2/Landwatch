@@ -1,5 +1,5 @@
 import { createRouter, createWebHistory } from "vue-router";
-import { getActiveAccount, initAuthSafe } from "../auth/auth";
+import { authClient } from "../auth/sigfarm-auth";
 import { getMeCached } from "../auth/me";
 import { createAuthNavigationGuard } from "./auth-guard";
 
@@ -75,8 +75,8 @@ const router = createRouter({
 
 router.beforeEach(
   createAuthNavigationGuard({
-    getActiveAccount,
-    initAuthSafe,
+    ensureSession: () => authClient.ensureSession(),
+    exchangeSession: () => authClient.exchangeSession(),
     getMeCached,
   }),
 );

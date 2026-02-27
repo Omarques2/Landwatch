@@ -12,7 +12,10 @@ describe('AppController (e2e)', () => {
   beforeAll(() => {
     process.env.NODE_ENV = 'test';
     process.env.DATABASE_URL = 'postgresql://user:pass@localhost:5432/test';
-    process.env.ENTRA_API_AUDIENCE = 'api://test';
+    process.env.SIGFARM_AUTH_ISSUER = 'https://testauth.sigfarmintelligence.com';
+    process.env.SIGFARM_AUTH_AUDIENCE = 'sigfarm-apps';
+    process.env.SIGFARM_AUTH_JWKS_URL =
+      'https://api-testauth.sigfarmintelligence.com/.well-known/jwks.json';
   });
 
   beforeEach(async () => {

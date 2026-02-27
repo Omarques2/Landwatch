@@ -50,7 +50,8 @@ import { onBeforeUnmount, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import { http } from "@/api/http";
 import { unwrapData, type ApiEnvelope } from "@/api/envelope";
-import { hardResetAuthState, logout } from "../auth/auth";
+import { logout } from "../auth/auth";
+import { authClient, buildProductLoginRoute, resolveReturnTo } from "../auth/sigfarm-auth";
 import { isRetryableHttpError, runWithRetryBackoff } from "../auth/resilience";
 import { Button as UiButton } from "@/components/ui";
 
@@ -91,11 +92,11 @@ async function fetchMe(): Promise<FetchMeResult> {
 
     // Se perdeu sessão / token inválido, volta para login
     if (status === 401 || status === 403) {
-      await hardResetAuthState();
+      authClient.clearSession();
       if (typeof window !== "undefined") {
-        window.location.assign("/login");
-      } else {
-        await logout();
+        const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+        const safeReturnTo = resolveReturnTo(current);
+        window.location.assign(buildProductLoginRoute(safeReturnTo));
       }
       return { kind: "unauthorized", me: null };
     }

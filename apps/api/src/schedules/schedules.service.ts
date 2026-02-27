@@ -337,7 +337,7 @@ export class SchedulesService {
 
   private async resolveUserId(claims: Claims) {
     const user = await this.prisma.user.findUnique({
-      where: { entraSub: String(claims.sub) },
+      where: { identityUserId: String(claims.sub) },
       select: { id: true },
     });
     if (!user) {

@@ -5,14 +5,14 @@ import {
   Injectable,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { PrismaService } from '../prisma/prisma.service';
 import type { AuthedRequest } from './authed-request.type';
 import { IS_PUBLIC_KEY } from './public.decorator';
+import { UsersService } from '../users/users.service';
 
 @Injectable()
 export class ActiveUserGuard implements CanActivate {
   constructor(
-    private readonly prisma: PrismaService,
+    private readonly usersService: UsersService,
     private readonly reflector: Reflector,
   ) {}
 
@@ -33,23 +33,16 @@ export class ActiveUserGuard implements CanActivate {
       });
     }
 
-    const entraSub = String(claims.sub);
-
-    const user = await this.prisma.user.findUnique({
-      where: { entraSub },
-      select: { id: true, status: true },
-    });
-
-    if (!user) {
-      await this.prisma.user.create({
-        data: {
-          entraSub,
-          status: 'active',
-          lastLoginAt: new Date(),
-        },
+    if (claims.globalStatus === 'disabled') {
+      throw new ForbiddenException({
+        code: 'GLOBAL_USER_DISABLED',
+        message: 'User disabled in central auth',
       });
-      return true;
     }
+
+    const user = await this.usersService.upsertFromClaims(claims, {
+      touchLastLoginAt: false,
+    });
 
     if (user.status === 'disabled') {
       throw new ForbiddenException({

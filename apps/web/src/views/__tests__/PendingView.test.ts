@@ -14,6 +14,14 @@ vi.mock("@/auth/auth", () => ({
   hardResetAuthState: vi.fn(),
 }));
 
+vi.mock("@/auth/sigfarm-auth", () => ({
+  authClient: {
+    clearSession: vi.fn(),
+  },
+  buildProductLoginRoute: vi.fn((returnTo: string) => `/login?returnTo=${encodeURIComponent(returnTo)}`),
+  resolveReturnTo: vi.fn((value?: string) => value ?? "http://localhost/"),
+}));
+
 vi.mock("vue-router", () => ({
   useRouter: () => ({ replace: vi.fn() }),
 }));

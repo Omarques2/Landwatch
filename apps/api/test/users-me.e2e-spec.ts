@@ -28,7 +28,10 @@ describe('/v1/users/me (e2e)', () => {
   beforeAll(() => {
     process.env.NODE_ENV = 'test';
     process.env.DATABASE_URL = 'postgresql://user:pass@localhost:5432/test';
-    process.env.ENTRA_API_AUDIENCE = 'api://test';
+    process.env.SIGFARM_AUTH_ISSUER = 'https://testauth.sigfarmintelligence.com';
+    process.env.SIGFARM_AUTH_AUDIENCE = 'sigfarm-apps';
+    process.env.SIGFARM_AUTH_JWKS_URL =
+      'https://api-testauth.sigfarmintelligence.com/.well-known/jwks.json';
   });
 
   afterAll(async () => {
@@ -39,7 +42,7 @@ describe('/v1/users/me (e2e)', () => {
     const lastLoginAt = new Date('2026-02-07T12:34:56.000Z');
     const user = {
       id: '11111111-1111-4111-8111-111111111111',
-      entraSub: 'entra-sub-1',
+      identityUserId: '6f8cfca5-cb58-4f83-b7a5-8d1dd43d00d5',
       email: 'user@example.com',
       displayName: 'Test User',
       status: 'active',
@@ -56,7 +59,16 @@ describe('/v1/users/me (e2e)', () => {
       .useValue({
         canActivate: (ctx: ExecutionContext) => {
           const req = ctx.switchToHttp().getRequest();
-          req.user = { sub: user.entraSub, email: user.email };
+          req.user = {
+            sub: user.identityUserId,
+            sid: 'sid-1',
+            amr: 'password',
+            email: user.email,
+            emailVerified: true,
+            globalStatus: 'active',
+            apps: [],
+            ver: 1,
+          };
           return true;
         },
       } satisfies CanActivate)
@@ -72,11 +84,12 @@ describe('/v1/users/me (e2e)', () => {
     expect(res.status).toBe(200);
     expect(res.body.data).toMatchObject({
       id: user.id,
-      entraSub: user.entraSub,
+      identityUserId: user.identityUserId,
       email: user.email,
       displayName: user.displayName,
       status: user.status,
       lastLoginAt: lastLoginAt.toISOString(),
     });
+    expect(res.body.data).not.toHaveProperty('entraSub');
   });
 });

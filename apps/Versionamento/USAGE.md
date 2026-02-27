@@ -2,21 +2,40 @@
 
 Este arquivo mostra exemplos práticos de como usar os parâmetros mais comuns.
 
-> Dica: no Git Bash use `\` para quebrar linha. No PowerShell use `` ` ``.
+> Dica: no Git Bash use `\` para quebrar linha **sem espaço depois da barra**.  
+> Se houver espaço após `\`, o Bash envia `\` como argumento e quebra o comando.
+> No PowerShell use `` ` ``.
+> Para evitar conflito de interpretador, prefira `./.venv/Scripts/python.exe`.
 
 ---
 
 ## bulk_ingest.py
 
+### Comando validado (Bash) - SemasMT
+
+Uma linha (mais seguro para copiar/colar):
+```bash
+cd /c/Users/Sigfarm/Desktop/Github/LandWatch/apps/Versionamento && ./.venv/Scripts/python.exe bulk_ingest.py --files "/c/Users/Sigfarm/Desktop/Github/LandWatch/apps/Versionamento/Dados/SemasMT/SemasMT.shp" --category "SEMASMT" --snapshot-date "2026-02-25"
+```
+
+Multilinha:
+```bash
+cd /c/Users/Sigfarm/Desktop/Github/LandWatch/apps/Versionamento
+./.venv/Scripts/python.exe bulk_ingest.py \
+  --files "/c/Users/Sigfarm/Desktop/Github/LandWatch/apps/Versionamento/Dados/SemasMT/SemasMT.shp" \
+  --category "SEMASMT" \
+  --snapshot-date "2026-02-25"
+```
+
 ### 1) Ingerir 1 SHP específico
 Git Bash:
 ```bash
-python bulk_ingest.py --files "C:/Users/Sigfarm/Desktop/Github/LandWatch/apps/Versionamento/Dados/SICAR/CAR_SP.shp" --snapshot-date 2026-02-04
+./.venv/Scripts/python.exe bulk_ingest.py --files "C:/Users/Sigfarm/Desktop/Github/LandWatch/apps/Versionamento/Dados/SICAR/CAR_SP.shp" --snapshot-date 2026-02-04
 ```
 
 ### 2) Forcar categoria/dataset (quando a pasta nao esta padrao)
 ```bash
-python bulk_ingest.py \
+./.venv/Scripts/python.exe bulk_ingest.py \
   --files "C:/data/CAR_SP.shp" \
   --category SICAR \
   --dataset CAR_SP \
@@ -25,17 +44,17 @@ python bulk_ingest.py \
 
 ### 3) Ingerir tudo dentro de um root
 ```bash
-python bulk_ingest.py --root "C:/Users/Sigfarm/Desktop/Github/LandWatch/apps/Versionamento/Dados/Prodes"
+./.venv/Scripts/python.exe bulk_ingest.py --root "C:/Users/Sigfarm/Desktop/Github/LandWatch/apps/Versionamento/Dados/Prodes"
 ```
 
 ### 4) Ingerir apenas uma categoria (ex: PRODES)
 ```bash
-python bulk_ingest.py --root "C:/Users/Sigfarm/Desktop/Github/LandWatch/apps/Versionamento/Dados" --category PRODES
+./.venv/Scripts/python.exe bulk_ingest.py --root "C:/Users/Sigfarm/Desktop/Github/LandWatch/apps/Versionamento/Dados" --category PRODES
 ```
 
 ### 5) Ingerir apenas um dataset (ex: PRODES_MATA_ATLANTICA_NB_2020)
 ```bash
-python bulk_ingest.py \
+./.venv/Scripts/python.exe bulk_ingest.py \
   --root "C:/Users/Sigfarm/Desktop/Github/LandWatch/apps/Versionamento/Dados" \
   --dataset PRODES_MATA_ATLANTICA_NB_2020 \
   --snapshot-date 2020-02-01
@@ -47,19 +66,19 @@ Se `LANDWATCH_DEFAULT_SNAPSHOT_DATE` nao estiver no `.env`, o script usa a data 
 ### 7) Exemplos reais por categoria (Git Bash)
 SICAR (1 arquivo):
 ```bash
-python bulk_ingest.py --files "C:/Users/Sigfarm/Desktop/Github/LandWatch/apps/Versionamento/Dados/SICAR/CAR_SP.shp" --snapshot-date 2026-02-04
+./.venv/Scripts/python.exe bulk_ingest.py --files "C:/Users/Sigfarm/Desktop/Github/LandWatch/apps/Versionamento/Dados/SICAR/CAR_SP.shp" --snapshot-date 2026-02-04
 ```
 
 DETER (2 arquivos):
 ```bash
-python bulk_ingest.py \
+./.venv/Scripts/python.exe bulk_ingest.py \
   --files "C:/Users/Sigfarm/Desktop/Github/LandWatch/apps/Versionamento/Dados/DETER/deter-amz_ALLYEARS.shp,C:/Users/Sigfarm/Desktop/Github/LandWatch/apps/Versionamento/Dados/DETER/deter-cerrado-nb_ALLYEARS.shp" \
   --snapshot-date 2026-02-04
 ```
 
 URL (CSV simples):
 ```bash
-python bulk_ingest.py \
+./.venv/Scripts/python.exe bulk_ingest.py \
   --files "C:/Users/Sigfarm/Desktop/Github/LandWatch/apps/Versionamento/Dados/LISTA_EMBARGOS_IBAMA/Lista_Embargos_Ibama.csv" \
   --snapshot-date 2026-02-04
 ```

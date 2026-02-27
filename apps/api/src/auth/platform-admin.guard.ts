@@ -31,7 +31,7 @@ export class PlatformAdminGuard implements CanActivate {
     }
 
     const user = await this.prisma.user.findUnique({
-      where: { entraSub: sub },
+      where: { identityUserId: sub },
       select: { id: true, status: true },
     });
 

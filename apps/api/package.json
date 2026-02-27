@@ -34,6 +34,8 @@
     "@nestjs/platform-express": "^11.0.1",
     "@prisma/adapter-pg": "^7.2.0",
     "@prisma/client": "^7.2.0",
+    "@sigfarm/auth-contracts": "file:../../vendor/sigfarm-auth-platform/dist-packages/sigfarm-auth-contracts-0.1.0.tgz",
+    "@sigfarm/auth-guard-nest": "file:../../vendor/sigfarm-auth-platform/dist-packages/sigfarm-auth-guard-nest-0.1.0.tgz",
     "axios": "^1.13.5",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.1",
@@ -96,6 +98,9 @@
     },
     "collectCoverageFrom": [
       "**/*.(t|j)s"
+    ],
+    "transformIgnorePatterns": [
+      "node_modules/(?!(@sigfarm/auth-guard-nest|@sigfarm/auth-contracts|jose)/)"
     ],
     "coverageDirectory": "../coverage",
     "testEnvironment": "node"

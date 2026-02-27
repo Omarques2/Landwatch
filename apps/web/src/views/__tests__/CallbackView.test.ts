@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
 import CallbackView from "@/views/CallbackView.vue";
-import { getActiveAccount, hardResetAuthState, initAuthSafe } from "@/auth/auth";
 import { getMeCached } from "@/auth/me";
+import { authClient, buildProductLoginRoute, getRouteReturnTo } from "@/auth/sigfarm-auth";
 
 const replaceMock = vi.fn();
 
@@ -10,12 +10,20 @@ vi.mock("vue-router", () => ({
   useRouter: () => ({
     replace: replaceMock,
   }),
+  useRoute: () => ({
+    query: {
+      returnTo: "/dashboard",
+    },
+  }),
 }));
 
-vi.mock("@/auth/auth", () => ({
-  getActiveAccount: vi.fn(),
-  hardResetAuthState: vi.fn(),
-  initAuthSafe: vi.fn(),
+vi.mock("@/auth/sigfarm-auth", () => ({
+  authClient: {
+    exchangeSession: vi.fn(),
+    clearSession: vi.fn(),
+  },
+  buildProductLoginRoute: vi.fn((returnTo: string) => `/login?returnTo=${encodeURIComponent(returnTo)}`),
+  getRouteReturnTo: vi.fn(() => "http://localhost:5173/dashboard"),
 }));
 
 vi.mock("@/auth/me", () => ({
@@ -31,23 +39,31 @@ describe("CallbackView", () => {
   beforeEach(() => {
     replaceMock.mockReset();
     replaceMock.mockResolvedValue(undefined);
-    (initAuthSafe as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(true);
-    (hardResetAuthState as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
-    (getActiveAccount as unknown as ReturnType<typeof vi.fn>).mockReturnValue(null);
+    (authClient.exchangeSession as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      session: { accessToken: "token" },
+    });
+    (authClient.clearSession as unknown as ReturnType<typeof vi.fn>).mockReset();
+    (getRouteReturnTo as unknown as ReturnType<typeof vi.fn>).mockReturnValue(
+      "http://localhost:5173/dashboard",
+    );
+    (buildProductLoginRoute as unknown as ReturnType<typeof vi.fn>).mockImplementation(
+      (returnTo: string) => `/login?returnTo=${encodeURIComponent(returnTo)}`,
+    );
     (getMeCached as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(null);
   });
 
-  it("redirects to /login when there is no active account", async () => {
+  it("redirects to /pending when /users/me is unavailable", async () => {
     mount(CallbackView);
     await flushTick();
 
-    expect(replaceMock).toHaveBeenCalledWith("/login");
+    expect(authClient.exchangeSession).toHaveBeenCalled();
+    expect(replaceMock).toHaveBeenCalledWith("/pending");
   });
 
-  it("redirects to /pending when account exists but /users/me is unavailable", async () => {
-    (getActiveAccount as unknown as ReturnType<typeof vi.fn>).mockReturnValue({
-      homeAccountId: "acc-1",
-    });
+  it("redirects to safe returnTo path when profile is active", async () => {
+    (getRouteReturnTo as unknown as ReturnType<typeof vi.fn>).mockReturnValue(
+      "http://localhost:5173/analyses",
+    );
     (getMeCached as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(null);
 
     mount(CallbackView);
@@ -57,13 +73,25 @@ describe("CallbackView", () => {
     expect(replaceMock).toHaveBeenCalledWith("/pending");
   });
 
-  it("redirects to root when account is active", async () => {
-    (getActiveAccount as unknown as ReturnType<typeof vi.fn>).mockReturnValue({
-      homeAccountId: "acc-1",
-    });
+  it("redirects to route from returnTo when account is active", async () => {
+    (getRouteReturnTo as unknown as ReturnType<typeof vi.fn>).mockReturnValue(
+      `${window.location.origin}/schedules`,
+    );
     (getMeCached as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
       status: "active",
     });
+
+    mount(CallbackView);
+    await flushTick();
+
+    expect(replaceMock).toHaveBeenCalledWith("/schedules");
+  });
+
+  it("redirects to root when returnTo origin is not from current app", async () => {
+    (getRouteReturnTo as unknown as ReturnType<typeof vi.fn>).mockReturnValue(
+      "https://auth.sigfarmintelligence.com/",
+    );
+    (getMeCached as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ status: "active" });
 
     mount(CallbackView);
     await flushTick();
@@ -72,17 +100,16 @@ describe("CallbackView", () => {
   });
 
   it("falls back to /login when callback flow throws unexpectedly", async () => {
-    (getActiveAccount as unknown as ReturnType<typeof vi.fn>).mockReturnValue({
-      homeAccountId: "acc-1",
-    });
-    (getMeCached as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(
-      new Error("stalled"),
+    (authClient.exchangeSession as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error("exchange failed"),
     );
 
     mount(CallbackView);
     await flushTick();
 
-    expect(hardResetAuthState).toHaveBeenCalled();
-    expect(replaceMock).toHaveBeenCalledWith("/login");
+    expect(authClient.clearSession).toHaveBeenCalled();
+    expect(replaceMock).toHaveBeenCalledWith(
+      "/login?returnTo=http%3A%2F%2Flocalhost%3A5173%2Fdashboard",
+    );
   });
 });

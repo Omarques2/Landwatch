@@ -6,11 +6,11 @@
   "setupFiles": [
     "<rootDir>/setup-env.ts"
   ],
-  "moduleNameMapper": {
-    "^jose$": "<rootDir>/mocks/jose.ts"
-  },
   "transform": {
     "^.+\\.(t|j)s$": "ts-jest"
   },
+  "transformIgnorePatterns": [
+    "node_modules/(?!(@sigfarm/auth-guard-nest|@sigfarm/auth-contracts|jose)/)"
+  ],
   "maxWorkers": 1
 }

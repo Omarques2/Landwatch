@@ -15,3 +15,7 @@ apps/Versionamento/*.log
 apps/Versionamento/Logs_OGR2OGR/
 Versionamento/Dados*
 .env
+apps/**/.env
+apps/**/.env.local
+apps/**/.env.*.local
+!apps/**/.env.example
