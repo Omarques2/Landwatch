@@ -70,13 +70,19 @@ async function exchangeSessionWithRetry(): Promise<void> {
 }
 
 onMounted(async () => {
-  const safeReturnTo = getRouteReturnTo(route.query.returnTo);
+  let safeReturnTo =
+    typeof window !== "undefined" ? `${window.location.origin}/` : "http://localhost:5173/";
+  try {
+    safeReturnTo = getRouteReturnTo(route.query.returnTo);
+  } catch {
+    // Keep callback flow alive even if returnTo parsing fails due bad env/query.
+  }
 
   try {
     await exchangeSessionWithRetry();
 
     const me = await withTimeout(getMeCached(true), 8_000, "/users/me");
-    if (me?.status === "active") {
+    if (me && me.status !== "disabled") {
       const target =
         typeof window !== "undefined" && safeReturnTo.startsWith(window.location.origin)
           ? safeReturnTo.slice(window.location.origin.length) || "/"

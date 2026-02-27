@@ -61,6 +61,21 @@ describe("createAuthNavigationGuard", () => {
     expect(result).toBe("/");
   });
 
+  it("redirects /login to app root when profile is pending", async () => {
+    const ensureSession = vi.fn().mockResolvedValue({ data: { sessionId: "sid" } });
+    const exchangeSession = vi.fn();
+    const getMeCached = vi.fn().mockResolvedValue({ status: "pending" });
+
+    const guard = createAuthNavigationGuard({
+      ensureSession,
+      exchangeSession,
+      getMeCached,
+    });
+
+    const result = await guard(route("/login", false) as any);
+    expect(result).toBe("/");
+  });
+
   it("keeps /login accessible when there is no session", async () => {
     const ensureSession = vi.fn().mockResolvedValue(null);
     const exchangeSession = vi.fn().mockRejectedValue(new Error("no session"));

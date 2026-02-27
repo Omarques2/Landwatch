@@ -126,8 +126,8 @@ async function checkNow() {
     const st = me?.status;
     currentStatus.value = st ?? null;
 
-    if (st === "active") {
-      // liberado -> volta para o app
+    if (st && st !== "disabled") {
+      // usuario autenticado e nao desabilitado -> volta para o app
       router.replace("/");
       return;
     }

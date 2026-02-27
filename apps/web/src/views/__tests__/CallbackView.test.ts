@@ -103,6 +103,20 @@ describe("CallbackView", () => {
     expect(replaceMock).toHaveBeenCalledWith("/schedules");
   });
 
+  it("redirects to route from returnTo when account is pending", async () => {
+    (getRouteReturnTo as unknown as ReturnType<typeof vi.fn>).mockReturnValue(
+      `${window.location.origin}/dashboard`,
+    );
+    (getMeCached as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      status: "pending",
+    });
+
+    mountView();
+    await flushTick();
+
+    expect(replaceMock).toHaveBeenCalledWith("/dashboard");
+  });
+
   it("redirects to root when returnTo origin is not from current app", async () => {
     (getRouteReturnTo as unknown as ReturnType<typeof vi.fn>).mockReturnValue(
       "https://auth.sigfarmintelligence.com/",
@@ -112,6 +126,19 @@ describe("CallbackView", () => {
     mountView();
     await flushTick();
 
+    expect(replaceMock).toHaveBeenCalledWith("/");
+  });
+
+  it("continues callback flow when returnTo parsing throws", async () => {
+    (getRouteReturnTo as unknown as ReturnType<typeof vi.fn>).mockImplementation(() => {
+      throw new Error("bad returnTo");
+    });
+    (getMeCached as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ status: "active" });
+
+    mountView();
+    await flushTick();
+
+    expect(authClient.exchangeSession).toHaveBeenCalled();
     expect(replaceMock).toHaveBeenCalledWith("/");
   });
 

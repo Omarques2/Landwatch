@@ -10,6 +10,10 @@ type AuthGuardResult = true | string;
 
 const EXCHANGE_RETRY_ATTEMPTS = 2;
 
+function canAccessApp(me: { status?: string } | null): boolean {
+  return Boolean(me && me.status !== "disabled");
+}
+
 export function createAuthNavigationGuard(deps: AuthGuardDeps) {
   async function ensureSessionWithExchange(): Promise<unknown | null> {
     for (let attempt = 1; attempt <= EXCHANGE_RETRY_ATTEMPTS; attempt += 1) {
@@ -40,7 +44,7 @@ export function createAuthNavigationGuard(deps: AuthGuardDeps) {
       if (!session) return true;
       const me = await deps.getMeCached(false);
       if (!me) return "/pending";
-      if (me.status !== "active") return "/pending";
+      if (!canAccessApp(me)) return "/pending";
       return "/";
     }
 
@@ -55,7 +59,7 @@ export function createAuthNavigationGuard(deps: AuthGuardDeps) {
 
     const me = await deps.getMeCached(false);
     if (!me) return "/pending";
-    if (me.status !== "active") return "/pending";
+    if (!canAccessApp(me)) return "/pending";
     return true;
   };
 }
