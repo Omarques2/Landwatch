@@ -41,7 +41,7 @@
 
 <script setup lang="ts">
 import { useRoute } from "vue-router";
-import { authClient, buildAuthCallbackReturnTo, getRouteReturnTo } from "../auth/sigfarm-auth";
+import { buildAuthCallbackReturnTo, buildAuthPortalLoginUrl, getRouteReturnTo } from "../auth/sigfarm-auth";
 import { Button as UiButton } from "@/components/ui";
 import logoUrl from "../assets/logo.png";
 
@@ -50,7 +50,7 @@ const route = useRoute();
 async function onLogin() {
   const returnTo = getRouteReturnTo(route.query.returnTo);
   const callbackReturnTo = buildAuthCallbackReturnTo(returnTo);
-  window.location.assign(authClient.buildLoginUrl({ returnTo: callbackReturnTo }));
+  window.location.assign(buildAuthPortalLoginUrl(callbackReturnTo));
 }
 </script>
 

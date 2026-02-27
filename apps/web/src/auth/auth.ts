@@ -1,4 +1,4 @@
-import { authClient, resolveReturnTo } from "./sigfarm-auth";
+import { authClient, buildAuthCallbackReturnTo, buildAuthPortalLoginUrl, resolveReturnTo } from "./sigfarm-auth";
 
 type AcquireApiTokenOptions = {
   forceRefresh?: boolean;
@@ -23,7 +23,8 @@ export async function initAuthSafe(_timeoutMs = 4_000): Promise<boolean> {
 
 export async function login(returnTo?: string): Promise<void> {
   const safeReturnTo = resolveReturnTo(returnTo);
-  const loginUrl = authClient.buildLoginUrl({ returnTo: safeReturnTo });
+  const callbackReturnTo = buildAuthCallbackReturnTo(safeReturnTo);
+  const loginUrl = buildAuthPortalLoginUrl(callbackReturnTo);
   if (typeof window !== "undefined") {
     window.location.assign(loginUrl);
   }

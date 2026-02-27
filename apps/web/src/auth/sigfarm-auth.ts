@@ -60,6 +60,13 @@ export function buildAuthCallbackReturnTo(returnTo?: string | null): string {
   return callbackUrl.toString();
 }
 
+export function buildAuthPortalLoginUrl(returnTo?: string): string {
+  const loginUrl = new URL("/login", authPortalBaseUrl);
+  const safeReturnTo = resolvePortalReturnTo(returnTo);
+  loginUrl.searchParams.set("returnTo", safeReturnTo ?? defaultReturnTo);
+  return loginUrl.toString();
+}
+
 export function buildProductLoginRoute(returnTo?: string): string {
   if (!returnTo) return "/login";
   return `/login?returnTo=${encodeURIComponent(returnTo)}`;
@@ -71,4 +78,32 @@ function parseAllowedOrigins(raw?: string): string[] {
     .split(",")
     .map((part) => part.trim())
     .filter((part) => part.length > 0);
+}
+
+function resolvePortalReturnTo(raw?: string): string | null {
+  if (!raw) return null;
+
+  const candidate = safelyDecode(raw);
+  if (!candidate) return null;
+
+  if (candidate.startsWith("/")) {
+    return new URL(candidate, appBaseUrl).toString();
+  }
+
+  try {
+    const parsed = new URL(candidate);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return null;
+    if (!allowedReturnOrigins.includes(parsed.origin)) return null;
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+}
+
+function safelyDecode(value: string): string | null {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return null;
+  }
 }
