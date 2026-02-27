@@ -30,6 +30,8 @@ import { getMeCached } from "../auth/me";
 
 const router = useRouter();
 const route = useRoute();
+const EXCHANGE_RETRY_ATTEMPTS = 2;
+const EXCHANGE_RETRY_DELAY_MS = 150;
 
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
   let timer: number | null = null;
@@ -43,11 +45,35 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
   });
 }
 
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
+}
+
+async function exchangeSessionWithRetry(): Promise<void> {
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= EXCHANGE_RETRY_ATTEMPTS; attempt += 1) {
+    try {
+      await withTimeout(authClient.exchangeSession(), 8_000, "exchangeSession");
+      return;
+    } catch (error) {
+      lastError = error;
+      if (attempt < EXCHANGE_RETRY_ATTEMPTS) {
+        await delay(EXCHANGE_RETRY_DELAY_MS);
+      }
+    }
+  }
+
+  throw lastError ?? new Error("exchangeSession failed");
+}
+
 onMounted(async () => {
   const safeReturnTo = getRouteReturnTo(route.query.returnTo);
 
   try {
-    await withTimeout(authClient.exchangeSession(), 8_000, "exchangeSession");
+    await exchangeSessionWithRetry();
 
     const me = await withTimeout(getMeCached(true), 8_000, "/users/me");
     if (me?.status === "active") {

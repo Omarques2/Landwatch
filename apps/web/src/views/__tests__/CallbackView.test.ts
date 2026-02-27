@@ -1,10 +1,11 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
 import CallbackView from "@/views/CallbackView.vue";
 import { getMeCached } from "@/auth/me";
 import { authClient, buildProductLoginRoute, getRouteReturnTo } from "@/auth/sigfarm-auth";
 
 const replaceMock = vi.fn();
+const mountedWrappers: Array<ReturnType<typeof mount>> = [];
 
 vi.mock("vue-router", () => ({
   useRouter: () => ({
@@ -35,8 +36,15 @@ async function flushTick() {
   await flushPromises();
 }
 
+function mountView() {
+  const wrapper = mount(CallbackView);
+  mountedWrappers.push(wrapper);
+  return wrapper;
+}
+
 describe("CallbackView", () => {
   beforeEach(() => {
+    vi.useFakeTimers();
     replaceMock.mockReset();
     replaceMock.mockResolvedValue(undefined);
     (authClient.exchangeSession as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
@@ -52,8 +60,16 @@ describe("CallbackView", () => {
     (getMeCached as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(null);
   });
 
+  afterEach(() => {
+    while (mountedWrappers.length > 0) {
+      mountedWrappers.pop()?.unmount();
+    }
+    vi.runOnlyPendingTimers();
+    vi.useRealTimers();
+  });
+
   it("redirects to /pending when /users/me is unavailable", async () => {
-    mount(CallbackView);
+    mountView();
     await flushTick();
 
     expect(authClient.exchangeSession).toHaveBeenCalled();
@@ -66,7 +82,7 @@ describe("CallbackView", () => {
     );
     (getMeCached as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(null);
 
-    mount(CallbackView);
+    mountView();
     await flushTick();
 
     expect(getMeCached).toHaveBeenCalledWith(true);
@@ -81,7 +97,7 @@ describe("CallbackView", () => {
       status: "active",
     });
 
-    mount(CallbackView);
+    mountView();
     await flushTick();
 
     expect(replaceMock).toHaveBeenCalledWith("/schedules");
@@ -93,10 +109,24 @@ describe("CallbackView", () => {
     );
     (getMeCached as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ status: "active" });
 
-    mount(CallbackView);
+    mountView();
     await flushTick();
 
     expect(replaceMock).toHaveBeenCalledWith("/");
+  });
+
+  it("retries exchange session after a transient failure", async () => {
+    (authClient.exchangeSession as unknown as ReturnType<typeof vi.fn>)
+      .mockRejectedValueOnce(new Error("transient"))
+      .mockResolvedValueOnce({ session: { accessToken: "token" } });
+
+    mountView();
+    await flushTick();
+    await vi.advanceTimersByTimeAsync(180);
+    await flushTick();
+
+    expect((authClient.exchangeSession as unknown as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThanOrEqual(2);
+    expect(replaceMock).toHaveBeenCalledWith("/pending");
   });
 
   it("falls back to /login when callback flow throws unexpectedly", async () => {
@@ -104,10 +134,13 @@ describe("CallbackView", () => {
       new Error("exchange failed"),
     );
 
-    mount(CallbackView);
+    mountView();
+    await flushTick();
+    await vi.advanceTimersByTimeAsync(180);
     await flushTick();
 
     expect(authClient.clearSession).toHaveBeenCalled();
+    expect((authClient.exchangeSession as unknown as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThanOrEqual(2);
     expect(replaceMock).toHaveBeenCalledWith(
       "/login?returnTo=http%3A%2F%2Flocalhost%3A5173%2Fdashboard",
     );
