@@ -149,11 +149,11 @@ jobs:
     env:
       NODE_VERSION: "20.19.6"
       VITE_API_BASE_URL: ${{ secrets.VITE_API_BASE_URL_STAGING }}
-      VITE_ENTRA_SPA_CLIENT_ID: ${{ secrets.VITE_ENTRA_SPA_CLIENT_ID }}
-      VITE_ENTRA_AUTHORITY: ${{ secrets.VITE_ENTRA_AUTHORITY }}
-      VITE_ENTRA_REDIRECT_URI: ${{ secrets.VITE_ENTRA_REDIRECT_URI }}
-      VITE_ENTRA_POST_LOGOUT_REDIRECT_URI: ${{ secrets.VITE_ENTRA_POST_LOGOUT_REDIRECT_URI }}
-      VITE_ENTRA_API_SCOPE: ${{ secrets.VITE_ENTRA_API_SCOPE }}
+      VITE_SIGFARM_AUTH_API_BASE_URL: https://api-testauth.sigfarmintelligence.com
+      VITE_SIGFARM_AUTH_PORTAL_BASE_URL: https://testauth.sigfarmintelligence.com
+      VITE_SIGFARM_APP_BASE_URL: https://testlandwatch.sigfarmintelligence.com
+      VITE_SIGFARM_AUTH_ALLOWED_RETURN_ORIGINS: https://testlandwatch.sigfarmintelligence.com,https://testauth.sigfarmintelligence.com
+      VITE_SIGFARM_AUTH_DEFAULT_RETURN_TO: https://testlandwatch.sigfarmintelligence.com/
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -173,11 +173,11 @@ jobs:
     env:
       NODE_VERSION: "20.19.6"
       VITE_API_BASE_URL: ${{ secrets.VITE_API_BASE_URL_PROD }}
-      VITE_ENTRA_SPA_CLIENT_ID: ${{ secrets.VITE_ENTRA_SPA_CLIENT_ID }}
-      VITE_ENTRA_AUTHORITY: ${{ secrets.VITE_ENTRA_AUTHORITY }}
-      VITE_ENTRA_REDIRECT_URI: ${{ secrets.VITE_ENTRA_REDIRECT_URI }}
-      VITE_ENTRA_POST_LOGOUT_REDIRECT_URI: ${{ secrets.VITE_ENTRA_POST_LOGOUT_REDIRECT_URI }}
-      VITE_ENTRA_API_SCOPE: ${{ secrets.VITE_ENTRA_API_SCOPE }}
+      VITE_SIGFARM_AUTH_API_BASE_URL: https://api-auth.sigfarmintelligence.com
+      VITE_SIGFARM_AUTH_PORTAL_BASE_URL: https://auth.sigfarmintelligence.com
+      VITE_SIGFARM_APP_BASE_URL: https://landwatch.sigfarmintelligence.com
+      VITE_SIGFARM_AUTH_ALLOWED_RETURN_ORIGINS: https://landwatch.sigfarmintelligence.com,https://auth.sigfarmintelligence.com
+      VITE_SIGFARM_AUTH_DEFAULT_RETURN_TO: https://landwatch.sigfarmintelligence.com/
     steps:
       - name: Checkout
         uses: actions/checkout@v4
