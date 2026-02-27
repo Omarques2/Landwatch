@@ -37,6 +37,12 @@ jobs:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Prepare vendored SDKs for Docker context
+        shell: bash
+        run: |
+          mkdir -p apps/api/vendor
+          rm -rf apps/api/vendor/sigfarm-auth-platform
+          cp -R vendor/sigfarm-auth-platform apps/api/vendor/
       - name: Build and push
         id: build
         uses: docker/build-push-action@v6
