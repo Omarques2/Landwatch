@@ -152,7 +152,7 @@ jobs:
       VITE_SIGFARM_AUTH_API_BASE_URL: https://api-testauth.sigfarmintelligence.com
       VITE_SIGFARM_AUTH_PORTAL_BASE_URL: https://testauth.sigfarmintelligence.com
       VITE_SIGFARM_APP_BASE_URL: https://testlandwatch.sigfarmintelligence.com
-      VITE_SIGFARM_AUTH_ALLOWED_RETURN_ORIGINS: https://testlandwatch.sigfarmintelligence.com,https://testauth.sigfarmintelligence.com
+      VITE_SIGFARM_AUTH_ALLOWED_RETURN_ORIGINS: https://testlandwatch.sigfarmintelligence.com,https://testauth.sigfarmintelligence.com,https://testbi.sigfarmintelligence.com
       VITE_SIGFARM_AUTH_DEFAULT_RETURN_TO: https://testlandwatch.sigfarmintelligence.com/
     steps:
       - name: Checkout
@@ -176,7 +176,7 @@ jobs:
       VITE_SIGFARM_AUTH_API_BASE_URL: https://api-auth.sigfarmintelligence.com
       VITE_SIGFARM_AUTH_PORTAL_BASE_URL: https://auth.sigfarmintelligence.com
       VITE_SIGFARM_APP_BASE_URL: https://landwatch.sigfarmintelligence.com
-      VITE_SIGFARM_AUTH_ALLOWED_RETURN_ORIGINS: https://landwatch.sigfarmintelligence.com,https://auth.sigfarmintelligence.com
+      VITE_SIGFARM_AUTH_ALLOWED_RETURN_ORIGINS: https://landwatch.sigfarmintelligence.com,https://auth.sigfarmintelligence.com,https://bi.sigfarmintelligence.com
       VITE_SIGFARM_AUTH_DEFAULT_RETURN_TO: https://landwatch.sigfarmintelligence.com/
     steps:
       - name: Checkout
