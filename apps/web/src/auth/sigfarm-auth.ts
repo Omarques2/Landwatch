@@ -34,6 +34,8 @@ export const authClient = createAuthClient({
   defaultReturnTo,
 });
 
+export const sigfarmAuthApiBaseUrl = authApiBaseUrl;
+
 export function resolveReturnTo(
   returnTo?: string | null,
   referrer?: string | null,

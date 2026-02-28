@@ -10,6 +10,7 @@ vi.mock("@/api/http", () => ({
 }));
 
 vi.mock("@/auth/auth", () => ({
+  acquireApiToken: vi.fn().mockResolvedValue("test-token"),
   logout: vi.fn(),
   hardResetAuthState: vi.fn(),
 }));

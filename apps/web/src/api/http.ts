@@ -1,4 +1,5 @@
 import axios, { type AxiosRequestConfig } from "axios";
+import { acquireApiToken } from "../auth/auth";
 import { authClient, buildProductLoginRoute, resolveReturnTo } from "../auth/sigfarm-auth";
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:3001";
@@ -29,14 +30,11 @@ function redirectToLogin(): void {
 http.interceptors.request.use(async (config) => {
   if (isSkipAuth(config as RetriableAuthRequestConfig)) return config;
 
-  let token = await authClient.getAccessToken();
-  if (!token) {
-    try {
-      await authClient.exchangeSession();
-      token = await authClient.getAccessToken();
-    } catch {
-      token = null;
-    }
+  let token: string | null = null;
+  try {
+    token = await acquireApiToken({ reason: "http-interceptor" });
+  } catch {
+    token = null;
   }
 
   if (token) {
@@ -56,25 +54,17 @@ http.interceptors.response.use(
       if (!isSkipAuth(original) && !original._authRetried) {
         original._authRetried = true;
         try {
-          await authClient.refreshSession();
-          const token = await authClient.getAccessToken();
+          const token = await acquireApiToken({
+            forceRefresh: true,
+            reason: "http-401-retry",
+          });
           if (token) {
             original.headers = original.headers ?? {};
             (original.headers as any).Authorization = `Bearer ${token}`;
             return http.request(original);
           }
         } catch {
-          try {
-            await authClient.exchangeSession();
-            const token = await authClient.getAccessToken();
-            if (token) {
-              original.headers = original.headers ?? {};
-              (original.headers as any).Authorization = `Bearer ${token}`;
-              return http.request(original);
-            }
-          } catch {
-            // fall through to login redirect
-          }
+          // fall through to login redirect
         }
       }
 

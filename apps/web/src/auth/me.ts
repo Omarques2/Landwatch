@@ -46,31 +46,26 @@ export async function getMeCached(force = false): Promise<MeResponse | null> {
 
   const inflight = (async () => {
     try {
-      let token: string | null = null;
-      try {
-        token = await acquireApiToken({ reason: "/v1/users/me" });
-      } catch {
-        token = null;
-      }
-
       const res = await runWithRetryBackoff(
-        () => {
-          if (token) {
-            return http.get("/v1/users/me", {
-              headers: {
-                Authorization: `Bearer ${token}`,
-              },
-            });
-          }
-          // Fallback path: let HTTP interceptor try token exchange/refresh.
-          return http.get("/v1/users/me");
+        async () => {
+          const token = await acquireApiToken({ reason: "/v1/users/me" });
+          return http.get("/v1/users/me", {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          });
         },
         {
           attempts: 3,
           baseDelayMs: 150,
           maxDelayMs: 1_000,
           jitterMs: 80,
-          shouldRetry: (error) => isRetryableHttpError(error),
+          shouldRetry: (error) => {
+            if (isRetryableHttpError(error)) return true;
+            const status = (error as any)?.response?.status;
+            // During callback/login redirects token bootstrap may lag briefly.
+            return status === undefined || status === null;
+          },
         },
       );
       const me = unwrapData(res.data as ApiEnvelope<MeResponse>);

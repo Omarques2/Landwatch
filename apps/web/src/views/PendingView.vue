@@ -50,7 +50,7 @@ import { onBeforeUnmount, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import { http } from "@/api/http";
 import { unwrapData, type ApiEnvelope } from "@/api/envelope";
-import { logout } from "../auth/auth";
+import { acquireApiToken, logout } from "../auth/auth";
 import { authClient, buildProductLoginRoute, resolveReturnTo } from "../auth/sigfarm-auth";
 import { isRetryableHttpError, runWithRetryBackoff } from "../auth/resilience";
 import { Button as UiButton } from "@/components/ui";
@@ -77,7 +77,14 @@ let timer: number | null = null;
 async function fetchMe(): Promise<FetchMeResult> {
   try {
     const res = await runWithRetryBackoff(
-      () => http.get("/v1/users/me"),
+      async () => {
+        const token = await acquireApiToken({ reason: "pending:/v1/users/me" });
+        return http.get("/v1/users/me", {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+      },
       {
         attempts: 3,
         baseDelayMs: 150,
