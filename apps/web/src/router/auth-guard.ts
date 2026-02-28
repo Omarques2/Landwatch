@@ -40,6 +40,9 @@ export function createAuthNavigationGuard(deps: AuthGuardDeps) {
       try {
         await deps.exchangeSession();
       } catch {
+        if (await hasProfileFallback()) {
+          return { source: "profile-fallback" };
+        }
         if (attempt >= EXCHANGE_RETRY_ATTEMPTS) {
           return null;
         }

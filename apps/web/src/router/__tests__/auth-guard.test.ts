@@ -94,7 +94,7 @@ describe("createAuthNavigationGuard", () => {
   it("redirects protected route to /login when no session is available", async () => {
     const ensureSession = vi.fn().mockResolvedValue(null);
     const exchangeSession = vi.fn().mockRejectedValue(new Error("no session"));
-    const getMeCached = vi.fn();
+    const getMeCached = vi.fn().mockResolvedValue(null);
 
     const guard = createAuthNavigationGuard({
       ensureSession,
@@ -104,7 +104,7 @@ describe("createAuthNavigationGuard", () => {
 
     const result = await guard(route("/dashboard") as any);
     expect(result).toBe("/login?returnTo=%2Fdashboard");
-    expect(getMeCached).not.toHaveBeenCalled();
+    expect(getMeCached).toHaveBeenCalledWith(true);
   });
 
   it("tries session exchange before redirecting protected route", async () => {
@@ -137,7 +137,23 @@ describe("createAuthNavigationGuard", () => {
       .fn()
       .mockRejectedValueOnce(new Error("temporary failure"))
       .mockResolvedValueOnce({ session: { accessToken: "token" } });
-    const getMeCached = vi.fn().mockResolvedValue({ status: "active" });
+    const getMeCached = vi.fn().mockResolvedValue(null);
+
+    const guard = createAuthNavigationGuard({
+      ensureSession,
+      exchangeSession,
+      getMeCached,
+    });
+
+    const result = await guard(route("/dashboard") as any);
+    expect(result).toBe("/pending");
+    expect(exchangeSession).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps protected route when exchange fails but profile fallback succeeds", async () => {
+    const ensureSession = vi.fn().mockResolvedValue(null);
+    const exchangeSession = vi.fn().mockRejectedValue(new Error("exchange down"));
+    const getMeCached = vi.fn().mockResolvedValue({ status: "pending" });
 
     const guard = createAuthNavigationGuard({
       ensureSession,
@@ -147,7 +163,7 @@ describe("createAuthNavigationGuard", () => {
 
     const result = await guard(route("/dashboard") as any);
     expect(result).toBe(true);
-    expect(exchangeSession).toHaveBeenCalledTimes(2);
+    expect(getMeCached).toHaveBeenCalledWith(true);
   });
 
   it("falls back to /users/me when /v1/auth/session stays unavailable", async () => {
