@@ -24,30 +24,9 @@ let cache: CacheState | null = null;
 
 // TTL curto para navegação (evita re-fetch em cada route)
 const TTL_MS = 5_000;
-const TOKEN_BOOTSTRAP_ATTEMPTS = 8;
-const TOKEN_BOOTSTRAP_DELAY_MS = 250;
 
 export function clearMeCache() {
   cache = null;
-}
-
-function wait(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    window.setTimeout(resolve, ms);
-  });
-}
-
-async function acquireTokenForMe(): Promise<string | null> {
-  for (let attempt = 1; attempt <= TOKEN_BOOTSTRAP_ATTEMPTS; attempt += 1) {
-    try {
-      return await acquireApiToken({ reason: "/v1/users/me" });
-    } catch {
-      if (attempt < TOKEN_BOOTSTRAP_ATTEMPTS) {
-        await wait(TOKEN_BOOTSTRAP_DELAY_MS);
-      }
-    }
-  }
-  return null;
 }
 
 /**
@@ -67,20 +46,25 @@ export async function getMeCached(force = false): Promise<MeResponse | null> {
 
   const inflight = (async () => {
     try {
-      const token = await acquireTokenForMe();
-      if (!token) {
-        const fallback = cache?.value ?? null;
-        cache = { value: fallback, fetchedAt: Date.now() };
-        return fallback;
+      let token: string | null = null;
+      try {
+        token = await acquireApiToken({ reason: "/v1/users/me" });
+      } catch {
+        token = null;
       }
 
       const res = await runWithRetryBackoff(
-        () =>
-          http.get("/v1/users/me", {
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          }),
+        () => {
+          if (token) {
+            return http.get("/v1/users/me", {
+              headers: {
+                Authorization: `Bearer ${token}`,
+              },
+            });
+          }
+          // Fallback path: let HTTP interceptor try token exchange/refresh.
+          return http.get("/v1/users/me");
+        },
         {
           attempts: 3,
           baseDelayMs: 150,
