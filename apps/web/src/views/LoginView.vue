@@ -55,8 +55,8 @@ import logoUrl from "../assets/logo.png";
 
 const route = useRoute();
 const router = useRouter();
-const RESUME_RETRY_ATTEMPTS = 3;
-const RESUME_RETRY_DELAY_MS = 300;
+const RESUME_RETRY_ATTEMPTS = import.meta.env.MODE === "test" ? 3 : 12;
+const RESUME_RETRY_DELAY_MS = import.meta.env.MODE === "test" ? 300 : 500;
 
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
   let timer: number | null = null;

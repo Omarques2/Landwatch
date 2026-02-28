@@ -30,8 +30,8 @@ import { getMeCached } from "../auth/me";
 
 const router = useRouter();
 const route = useRoute();
-const EXCHANGE_RETRY_ATTEMPTS = 4;
-const EXCHANGE_RETRY_DELAY_MS = 250;
+const EXCHANGE_RETRY_ATTEMPTS = import.meta.env.MODE === "test" ? 4 : 12;
+const EXCHANGE_RETRY_DELAY_MS = import.meta.env.MODE === "test" ? 250 : 500;
 
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
   let timer: number | null = null;
