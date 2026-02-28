@@ -69,10 +69,13 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
 }
 
 async function tryResumeSessionFromLogin() {
-  const hasReturnToQuery = typeof route.query.returnTo === "string";
-  if (!hasReturnToQuery) return;
-
-  const returnTo = getRouteReturnTo(route.query.returnTo);
+  let returnTo =
+    typeof window !== "undefined" ? `${window.location.origin}/` : "http://localhost:5173/";
+  try {
+    returnTo = getRouteReturnTo(route.query.returnTo);
+  } catch {
+    // keep safe fallback
+  }
 
   try {
     await withTimeout(authClient.exchangeSession(), 6_000, "exchangeSession");

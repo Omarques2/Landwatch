@@ -67,6 +67,9 @@ describe("LoginView", () => {
 
   it("skips auto-resume when login has no returnTo query", async () => {
     currentRouteQuery = {};
+    (authClient.exchangeSession as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error("no session"),
+    );
 
     mount(LoginView, {
       global: {
@@ -79,7 +82,7 @@ describe("LoginView", () => {
     await flushPromises();
     await flushPromises();
 
-    expect(authClient.exchangeSession).not.toHaveBeenCalled();
+    expect(authClient.exchangeSession).toHaveBeenCalled();
     expect(getMeCached).not.toHaveBeenCalled();
     expect(replaceMock).not.toHaveBeenCalled();
   });
