@@ -40,18 +40,64 @@
 </template>
 
 <script setup lang="ts">
+import { onMounted } from "vue";
 import { useRoute } from "vue-router";
-import { buildAuthCallbackReturnTo, buildAuthPortalLoginUrl, getRouteReturnTo } from "../auth/sigfarm-auth";
+import { useRouter } from "vue-router";
+import {
+  authClient,
+  buildAuthCallbackReturnTo,
+  buildAuthPortalLoginUrl,
+  getRouteReturnTo,
+} from "../auth/sigfarm-auth";
+import { getMeCached } from "../auth/me";
 import { Button as UiButton } from "@/components/ui";
 import logoUrl from "../assets/logo.png";
 
 const route = useRoute();
+const router = useRouter();
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer: number | null = null;
+  const timeout = new Promise<T>((_, reject) => {
+    timer = window.setTimeout(() => {
+      reject(new Error(`${label} timed out after ${ms}ms`));
+    }, ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timer) window.clearTimeout(timer);
+  });
+}
+
+async function tryResumeSessionFromLogin() {
+  const hasReturnToQuery = typeof route.query.returnTo === "string";
+  if (!hasReturnToQuery) return;
+
+  const returnTo = getRouteReturnTo(route.query.returnTo);
+
+  try {
+    await withTimeout(authClient.exchangeSession(), 6_000, "exchangeSession");
+    const me = await withTimeout(getMeCached(true), 8_000, "/users/me");
+    if (!me || me.status === "disabled") return;
+
+    const target =
+      typeof window !== "undefined" && returnTo.startsWith(window.location.origin)
+        ? returnTo.slice(window.location.origin.length) || "/"
+        : "/";
+    await router.replace(target);
+  } catch {
+    // no-op: keep user on login page when auto-resume is not possible
+  }
+}
 
 async function onLogin() {
   const returnTo = getRouteReturnTo(route.query.returnTo);
   const callbackReturnTo = buildAuthCallbackReturnTo(returnTo);
   window.location.assign(buildAuthPortalLoginUrl(callbackReturnTo));
 }
+
+onMounted(() => {
+  void tryResumeSessionFromLogin();
+});
 </script>
 
 <style scoped>
