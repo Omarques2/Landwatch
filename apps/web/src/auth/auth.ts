@@ -5,6 +5,7 @@ import {
   resolveReturnTo,
   sigfarmAuthApiBaseUrl,
 } from "./sigfarm-auth";
+import { AuthApiError } from "@sigfarm/auth-client-vue";
 
 type AcquireApiTokenOptions = {
   forceRefresh?: boolean;
@@ -56,8 +57,18 @@ export async function acquireApiToken(
   if (options.forceRefresh) {
     try {
       await authClient.refreshSession();
-    } catch {
-      await authClient.exchangeSession();
+    } catch (error) {
+      if (isUnauthorizedAuthError(error)) {
+        throw buildNoActiveSessionError(options.reason);
+      }
+      try {
+        await authClient.exchangeSession();
+      } catch (exchangeError) {
+        if (isUnauthorizedAuthError(exchangeError)) {
+          throw buildNoActiveSessionError(options.reason);
+        }
+        throw exchangeError;
+      }
     }
   }
 
@@ -67,15 +78,21 @@ export async function acquireApiToken(
   for (let attempt = 1; attempt <= TOKEN_BOOTSTRAP_ATTEMPTS; attempt += 1) {
     try {
       await authClient.exchangeSession();
-    } catch {
+    } catch (error) {
+      if (isUnauthorizedAuthError(error)) {
+        throw buildNoActiveSessionError(options.reason);
+      }
       // keep going, manual refresh fallback below can still recover via cookie session
     }
 
     token = await authClient.getAccessToken();
     if (token) return token;
 
-    token = await refreshAccessTokenFromCookieSession();
-    if (token) return token;
+    const refreshResult = await refreshAccessTokenFromCookieSession();
+    if (refreshResult.kind === "ok") return refreshResult.token;
+    if (refreshResult.kind === "unauthorized") {
+      throw buildNoActiveSessionError(options.reason);
+    }
 
     if (attempt < TOKEN_BOOTSTRAP_ATTEMPTS) {
       await delay(TOKEN_BOOTSTRAP_DELAY_MS);
@@ -101,7 +118,12 @@ function delay(ms: number): Promise<void> {
   });
 }
 
-async function refreshAccessTokenFromCookieSession(): Promise<string | null> {
+type CookieRefreshResult =
+  | { kind: "ok"; token: string }
+  | { kind: "unauthorized" }
+  | { kind: "failed" };
+
+async function refreshAccessTokenFromCookieSession(): Promise<CookieRefreshResult> {
   try {
     const endpoint = new URL("/v1/auth/refresh", sigfarmAuthApiBaseUrl).toString();
     const response = await fetch(endpoint, {
@@ -111,11 +133,31 @@ async function refreshAccessTokenFromCookieSession(): Promise<string | null> {
       body: "{}",
     });
 
-    if (!response.ok) return null;
+    if (response.status === 401) return { kind: "unauthorized" };
+    if (!response.ok) return { kind: "failed" };
     const payload = await response.json().catch(() => null);
     const accessToken = payload?.data?.accessToken;
-    return typeof accessToken === "string" && accessToken.length > 0 ? accessToken : null;
+    if (typeof accessToken === "string" && accessToken.length > 0) {
+      return { kind: "ok", token: accessToken };
+    }
+    return { kind: "failed" };
   } catch {
-    return null;
+    return { kind: "failed" };
   }
+}
+
+function isUnauthorizedAuthError(error: unknown): boolean {
+  if (error instanceof AuthApiError) {
+    return error.status === 401;
+  }
+
+  if (!error || typeof error !== "object") return false;
+  const maybeStatus =
+    (error as { status?: unknown }).status ??
+    (error as { response?: { status?: unknown } }).response?.status;
+  return maybeStatus === 401;
+}
+
+function buildNoActiveSessionError(reason?: string): Error {
+  return new Error(`No active authentication session${reason ? ` (${reason})` : ""}`);
 }

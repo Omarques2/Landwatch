@@ -23,6 +23,7 @@
 </template>
 
 <script setup lang="ts">
+import { AuthApiError } from "@sigfarm/auth-client-vue";
 import { onMounted } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { authClient, buildProductLoginRoute, getRouteReturnTo } from "../auth/sigfarm-auth";
@@ -60,13 +61,25 @@ async function exchangeSessionWithRetry(): Promise<void> {
       return;
     } catch (error) {
       lastError = error;
-      if (attempt < EXCHANGE_RETRY_ATTEMPTS) {
+      if (attempt < EXCHANGE_RETRY_ATTEMPTS && shouldRetryExchangeError(error)) {
         await delay(EXCHANGE_RETRY_DELAY_MS);
+        continue;
       }
+      break;
     }
   }
 
   throw lastError ?? new Error("exchangeSession failed");
+}
+
+function shouldRetryExchangeError(error: unknown): boolean {
+  if (error instanceof AuthApiError) {
+    return error.status !== 401;
+  }
+  const maybeStatus =
+    (error as { status?: unknown })?.status ??
+    (error as { response?: { status?: unknown } })?.response?.status;
+  return maybeStatus !== 401;
 }
 
 function resolveTargetPath(returnTo: string): string {

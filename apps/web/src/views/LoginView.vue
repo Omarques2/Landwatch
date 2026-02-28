@@ -40,6 +40,7 @@
 </template>
 
 <script setup lang="ts">
+import { AuthApiError } from "@sigfarm/auth-client-vue";
 import { onMounted } from "vue";
 import { useRoute } from "vue-router";
 import { useRouter } from "vue-router";
@@ -81,13 +82,25 @@ async function exchangeSessionWithRetry(): Promise<boolean> {
     try {
       await withTimeout(authClient.exchangeSession(), 6_000, "exchangeSession");
       return true;
-    } catch {
-      if (attempt < RESUME_RETRY_ATTEMPTS) {
+    } catch (error) {
+      if (attempt < RESUME_RETRY_ATTEMPTS && shouldRetryExchangeError(error)) {
         await delay(RESUME_RETRY_DELAY_MS);
+        continue;
       }
+      break;
     }
   }
   return false;
+}
+
+function shouldRetryExchangeError(error: unknown): boolean {
+  if (error instanceof AuthApiError) {
+    return error.status !== 401;
+  }
+  const maybeStatus =
+    (error as { status?: unknown })?.status ??
+    (error as { response?: { status?: unknown } })?.response?.status;
+  return maybeStatus !== 401;
 }
 
 async function tryResumeSessionFromLogin() {
