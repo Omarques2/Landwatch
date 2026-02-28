@@ -9,10 +9,16 @@ type AuthGuardDeps = {
 type AuthGuardResult = true | string;
 
 const EXCHANGE_RETRY_ATTEMPTS = 2;
+const LOGIN_EXCHANGE_RETRY_ATTEMPTS = 1;
 
 function canAccessApp(me: { status?: string } | null): boolean {
   return Boolean(me && me.status !== "disabled");
 }
+
+type EnsureSessionOptions = {
+  attempts: number;
+  allowProfileFallback: boolean;
+};
 
 export function createAuthNavigationGuard(deps: AuthGuardDeps) {
   async function ensureSessionSafely(): Promise<unknown | null> {
@@ -32,18 +38,20 @@ export function createAuthNavigationGuard(deps: AuthGuardDeps) {
     }
   }
 
-  async function ensureSessionWithExchange(): Promise<unknown | null> {
-    for (let attempt = 1; attempt <= EXCHANGE_RETRY_ATTEMPTS; attempt += 1) {
+  async function ensureSessionWithExchange(
+    options: EnsureSessionOptions,
+  ): Promise<unknown | null> {
+    for (let attempt = 1; attempt <= options.attempts; attempt += 1) {
       const session = await ensureSessionSafely();
       if (session) return session;
 
       try {
         await deps.exchangeSession();
       } catch {
-        if (await hasProfileFallback()) {
+        if (options.allowProfileFallback && (await hasProfileFallback())) {
           return { source: "profile-fallback" };
         }
-        if (attempt >= EXCHANGE_RETRY_ATTEMPTS) {
+        if (attempt >= options.attempts) {
           return null;
         }
         continue;
@@ -52,7 +60,7 @@ export function createAuthNavigationGuard(deps: AuthGuardDeps) {
       const refreshedSession = await ensureSessionSafely();
       if (refreshedSession) return refreshedSession;
 
-      if (await hasProfileFallback()) {
+      if (options.allowProfileFallback && (await hasProfileFallback())) {
         return { source: "profile-fallback" };
       }
     }
@@ -64,7 +72,10 @@ export function createAuthNavigationGuard(deps: AuthGuardDeps) {
     to: RouteLocationNormalized,
   ): Promise<AuthGuardResult> {
     if (to.path === "/login") {
-      const session = await ensureSessionWithExchange();
+      const session = await ensureSessionWithExchange({
+        attempts: LOGIN_EXCHANGE_RETRY_ATTEMPTS,
+        allowProfileFallback: false,
+      });
       if (!session) return true;
       const me = await deps.getMeCached(false);
       if (!me) return "/pending";
@@ -74,7 +85,10 @@ export function createAuthNavigationGuard(deps: AuthGuardDeps) {
 
     if (!to.meta.requiresAuth) return true;
 
-    const session = await ensureSessionWithExchange();
+    const session = await ensureSessionWithExchange({
+      attempts: EXCHANGE_RETRY_ATTEMPTS,
+      allowProfileFallback: true,
+    });
     if (!session) return `/login?returnTo=${encodeURIComponent(to.fullPath || to.path)}`;
 
     if (to.path === "/pending") {

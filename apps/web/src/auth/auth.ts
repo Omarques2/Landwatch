@@ -41,7 +41,11 @@ export async function login(returnTo?: string): Promise<void> {
 }
 
 export async function logout(): Promise<void> {
-  await authClient.logout();
+  await Promise.allSettled([
+    revokeSigfarmSessionBestEffort(),
+    signOutBetterAuthSessionBestEffort(),
+  ]);
+  authClient.clearSession();
   if (typeof window !== "undefined") {
     window.location.assign("/login");
   }
@@ -160,4 +164,34 @@ function isUnauthorizedAuthError(error: unknown): boolean {
 
 function buildNoActiveSessionError(reason?: string): Error {
   return new Error(`No active authentication session${reason ? ` (${reason})` : ""}`);
+}
+
+async function revokeSigfarmSessionBestEffort(): Promise<void> {
+  const endpoint = new URL("/v1/auth/logout", sigfarmAuthApiBaseUrl).toString();
+  const token = await authClient.getAccessToken().catch(() => null);
+  const headers: Record<string, string> = {
+    "content-type": "application/json",
+  };
+  if (token) {
+    headers.authorization = `Bearer ${token}`;
+  }
+
+  await fetch(endpoint, {
+    method: "POST",
+    credentials: "include",
+    headers,
+    body: "{}",
+  }).catch(() => undefined);
+}
+
+async function signOutBetterAuthSessionBestEffort(): Promise<void> {
+  const endpoint = new URL("/api/auth/sign-out", sigfarmAuthApiBaseUrl).toString();
+  await fetch(endpoint, {
+    method: "POST",
+    credentials: "include",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: "{}",
+  }).catch(() => undefined);
 }
