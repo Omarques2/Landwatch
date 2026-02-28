@@ -149,7 +149,7 @@ describe("CallbackView", () => {
 
     mountView();
     await flushTick();
-    await vi.advanceTimersByTimeAsync(180);
+    await vi.advanceTimersByTimeAsync(320);
     await flushTick();
 
     expect((authClient.exchangeSession as unknown as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThanOrEqual(2);
@@ -163,7 +163,7 @@ describe("CallbackView", () => {
 
     mountView();
     await flushTick();
-    await vi.advanceTimersByTimeAsync(180);
+    await vi.advanceTimersByTimeAsync(1_000);
     await flushTick();
 
     expect(authClient.clearSession).toHaveBeenCalled();
@@ -171,5 +171,24 @@ describe("CallbackView", () => {
     expect(replaceMock).toHaveBeenCalledWith(
       "/login?returnTo=http%3A%2F%2Flocalhost%3A5173%2Fdashboard",
     );
+  });
+
+  it("continues to dashboard when /users/me succeeds after exchange retry exhaustion", async () => {
+    (authClient.exchangeSession as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error("exchange failed"),
+    );
+    (getRouteReturnTo as unknown as ReturnType<typeof vi.fn>).mockReturnValue(
+      `${window.location.origin}/dashboard`,
+    );
+    (getMeCached as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ status: "active" });
+
+    mountView();
+    await flushTick();
+    await vi.advanceTimersByTimeAsync(1_000);
+    await flushTick();
+
+    expect(getMeCached).toHaveBeenCalledWith(true);
+    expect(authClient.clearSession).not.toHaveBeenCalled();
+    expect(replaceMock).toHaveBeenCalledWith("/dashboard");
   });
 });

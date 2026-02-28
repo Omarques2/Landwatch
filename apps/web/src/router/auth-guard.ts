@@ -15,9 +15,26 @@ function canAccessApp(me: { status?: string } | null): boolean {
 }
 
 export function createAuthNavigationGuard(deps: AuthGuardDeps) {
+  async function ensureSessionSafely(): Promise<unknown | null> {
+    try {
+      return await deps.ensureSession();
+    } catch {
+      return null;
+    }
+  }
+
+  async function hasProfileFallback(): Promise<boolean> {
+    try {
+      const me = await deps.getMeCached(true);
+      return Boolean(me);
+    } catch {
+      return false;
+    }
+  }
+
   async function ensureSessionWithExchange(): Promise<unknown | null> {
     for (let attempt = 1; attempt <= EXCHANGE_RETRY_ATTEMPTS; attempt += 1) {
-      const session = await deps.ensureSession();
+      const session = await ensureSessionSafely();
       if (session) return session;
 
       try {
@@ -29,8 +46,12 @@ export function createAuthNavigationGuard(deps: AuthGuardDeps) {
         continue;
       }
 
-      const refreshedSession = await deps.ensureSession();
+      const refreshedSession = await ensureSessionSafely();
       if (refreshedSession) return refreshedSession;
+
+      if (await hasProfileFallback()) {
+        return { source: "profile-fallback" };
+      }
     }
 
     return null;

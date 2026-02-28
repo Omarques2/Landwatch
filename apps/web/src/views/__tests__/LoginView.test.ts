@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
 import LoginView from "@/views/LoginView.vue";
 import { authClient, getRouteReturnTo } from "@/auth/sigfarm-auth";
@@ -46,6 +46,13 @@ describe("LoginView", () => {
     (getMeCached as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ status: "pending" });
   });
 
+  afterEach(() => {
+    if (vi.isFakeTimers()) {
+      vi.runOnlyPendingTimers();
+      vi.useRealTimers();
+    }
+  });
+
   it("auto-resumes session and redirects when login has returnTo", async () => {
     currentRouteQuery = { returnTo: "/dashboard" };
 
@@ -67,9 +74,6 @@ describe("LoginView", () => {
 
   it("skips auto-resume when login has no returnTo query", async () => {
     currentRouteQuery = {};
-    (authClient.exchangeSession as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(
-      new Error("no session"),
-    );
 
     mount(LoginView, {
       global: {
@@ -82,8 +86,32 @@ describe("LoginView", () => {
     await flushPromises();
     await flushPromises();
 
-    expect(authClient.exchangeSession).toHaveBeenCalled();
+    expect(authClient.exchangeSession).not.toHaveBeenCalled();
     expect(getMeCached).not.toHaveBeenCalled();
     expect(replaceMock).not.toHaveBeenCalled();
+  });
+
+  it("retries exchange before resolving login auto-resume", async () => {
+    vi.useFakeTimers();
+    currentRouteQuery = { returnTo: "/dashboard" };
+    (authClient.exchangeSession as unknown as ReturnType<typeof vi.fn>)
+      .mockRejectedValueOnce(new Error("temporary"))
+      .mockResolvedValueOnce({ session: { accessToken: "token" } });
+
+    mount(LoginView, {
+      global: {
+        stubs: {
+          UiButton: { template: "<button><slot /></button>" },
+        },
+      },
+    });
+
+    await flushPromises();
+    await vi.advanceTimersByTimeAsync(350);
+    await flushPromises();
+
+    expect((authClient.exchangeSession as unknown as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThanOrEqual(2);
+    expect(getMeCached).toHaveBeenCalledWith(true);
+    expect(replaceMock).toHaveBeenCalledWith("/dashboard");
   });
 });

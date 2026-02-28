@@ -55,6 +55,8 @@ import logoUrl from "../assets/logo.png";
 
 const route = useRoute();
 const router = useRouter();
+const RESUME_RETRY_ATTEMPTS = 3;
+const RESUME_RETRY_DELAY_MS = 300;
 
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
   let timer: number | null = null;
@@ -68,7 +70,29 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
   });
 }
 
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
+}
+
+async function exchangeSessionWithRetry(): Promise<boolean> {
+  for (let attempt = 1; attempt <= RESUME_RETRY_ATTEMPTS; attempt += 1) {
+    try {
+      await withTimeout(authClient.exchangeSession(), 6_000, "exchangeSession");
+      return true;
+    } catch {
+      if (attempt < RESUME_RETRY_ATTEMPTS) {
+        await delay(RESUME_RETRY_DELAY_MS);
+      }
+    }
+  }
+  return false;
+}
+
 async function tryResumeSessionFromLogin() {
+  if (typeof route.query.returnTo !== "string") return;
+
   let returnTo =
     typeof window !== "undefined" ? `${window.location.origin}/` : "http://localhost:5173/";
   try {
@@ -77,10 +101,14 @@ async function tryResumeSessionFromLogin() {
     // keep safe fallback
   }
 
+  const exchanged = await exchangeSessionWithRetry();
+
   try {
-    await withTimeout(authClient.exchangeSession(), 6_000, "exchangeSession");
     const me = await withTimeout(getMeCached(true), 8_000, "/users/me");
-    if (!me || me.status === "disabled") return;
+    if (!me || me.status === "disabled") {
+      if (!exchanged) return;
+      return;
+    }
 
     const target =
       typeof window !== "undefined" && returnTo.startsWith(window.location.origin)

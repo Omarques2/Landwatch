@@ -149,4 +149,37 @@ describe("createAuthNavigationGuard", () => {
     expect(result).toBe(true);
     expect(exchangeSession).toHaveBeenCalledTimes(2);
   });
+
+  it("falls back to /users/me when /v1/auth/session stays unavailable", async () => {
+    const ensureSession = vi.fn().mockResolvedValue(null);
+    const exchangeSession = vi.fn().mockResolvedValue({ session: { accessToken: "token" } });
+    const getMeCached = vi.fn().mockResolvedValue({ status: "active" });
+
+    const guard = createAuthNavigationGuard({
+      ensureSession,
+      exchangeSession,
+      getMeCached,
+    });
+
+    const result = await guard(route("/dashboard") as any);
+    expect(result).toBe(true);
+    expect(ensureSession).toHaveBeenCalled();
+    expect(getMeCached).toHaveBeenCalledWith(true);
+  });
+
+  it("handles thrown ensureSession and still uses profile fallback", async () => {
+    const ensureSession = vi.fn().mockRejectedValue(new Error("session endpoint down"));
+    const exchangeSession = vi.fn().mockResolvedValue({ session: { accessToken: "token" } });
+    const getMeCached = vi.fn().mockResolvedValue({ status: "pending" });
+
+    const guard = createAuthNavigationGuard({
+      ensureSession,
+      exchangeSession,
+      getMeCached,
+    });
+
+    const result = await guard(route("/dashboard") as any);
+    expect(result).toBe(true);
+    expect(getMeCached).toHaveBeenCalledWith(true);
+  });
 });

@@ -30,8 +30,8 @@ import { getMeCached } from "../auth/me";
 
 const router = useRouter();
 const route = useRoute();
-const EXCHANGE_RETRY_ATTEMPTS = 2;
-const EXCHANGE_RETRY_DELAY_MS = 150;
+const EXCHANGE_RETRY_ATTEMPTS = 4;
+const EXCHANGE_RETRY_DELAY_MS = 250;
 
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
   let timer: number | null = null;
@@ -69,6 +69,12 @@ async function exchangeSessionWithRetry(): Promise<void> {
   throw lastError ?? new Error("exchangeSession failed");
 }
 
+function resolveTargetPath(returnTo: string): string {
+  if (typeof window === "undefined") return "/";
+  if (!returnTo.startsWith(window.location.origin)) return "/";
+  return returnTo.slice(window.location.origin.length) || "/";
+}
+
 onMounted(async () => {
   let safeReturnTo =
     typeof window !== "undefined" ? `${window.location.origin}/` : "http://localhost:5173/";
@@ -79,16 +85,23 @@ onMounted(async () => {
   }
 
   try {
-    await exchangeSessionWithRetry();
+    let exchangeError: unknown = null;
+    try {
+      await exchangeSessionWithRetry();
+    } catch (error) {
+      // Keep flow alive: /users/me probe below may still recover the session via interceptor path.
+      exchangeError = error;
+    }
 
     const me = await withTimeout(getMeCached(true), 8_000, "/users/me");
     if (me && me.status !== "disabled") {
-      const target =
-        typeof window !== "undefined" && safeReturnTo.startsWith(window.location.origin)
-          ? safeReturnTo.slice(window.location.origin.length) || "/"
-          : "/";
+      const target = resolveTargetPath(safeReturnTo);
       await router.replace(target);
       return;
+    }
+
+    if (exchangeError) {
+      throw exchangeError;
     }
     await router.replace("/pending");
   } catch {
