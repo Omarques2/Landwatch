@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { AnalysesController } from './analyses.controller';
+import { AutomationAnalysesController } from './automation-analyses.controller';
 import { PublicAnalysesController } from './public-analyses.controller';
 import { AnalysesService } from './analyses.service';
 import { AnalysisRunnerService } from './analysis-runner.service';
@@ -11,7 +12,11 @@ import { AlertsModule } from '../alerts/alerts.module';
 
 @Module({
   imports: [LandwatchStatusModule, AlertsModule],
-  controllers: [AnalysesController, PublicAnalysesController],
+  controllers: [
+    AnalysesController,
+    PublicAnalysesController,
+    AutomationAnalysesController,
+  ],
   providers: [
     AnalysesService,
     AnalysisRunnerService,

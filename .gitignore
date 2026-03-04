@@ -19,3 +19,4 @@ apps/**/.env
 apps/**/.env.local
 apps/**/.env.*.local
 !apps/**/.env.example
+Gerar_analise_ambiental_API.ipynb

@@ -67,8 +67,13 @@ Responsabilidades:
 
 ### 3.3 M2M (Automacao)
 1) Cliente usa `X-API-Key`.
-2) API valida hash e escopos.
-3) Permite criar analises e consultar resultados.
+2) API valida hash, expiracao/revogacao e escopos.
+3) Cliente usa endpoints dedicados de automacao:
+   - `POST /v1/automation/analyses`
+   - `GET /v1/automation/analyses/:id`
+   - `GET /v1/automation/analyses/:id/map`
+   - `GET /v1/automation/auth/me`
+4) Endpoints web continuam em `/v1/*` com JWT de usuario (sem mistura de auth).
 
 ## 4) Avaliacao de boas praticas (skills)
 
@@ -109,7 +114,7 @@ Gaps / melhorias recomendadas:
 - Auth com Entra + bootstrap user.
 - Health/Ready.
 - CI/CD staging/prod.
-- API Key M2M + admin endpoint.
+- API Key M2M + admin endpoint + namespace dedicado de automacao (`/v1/automation/*`).
 - Farms: schema + CRUD.
 - Cars: lookup por coordenadas + bbox.
 - Analises: endpoints basicos usando funcoes do landwatch.

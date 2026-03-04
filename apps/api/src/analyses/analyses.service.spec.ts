@@ -6,6 +6,9 @@ function makePrismaMock() {
   const prisma: any = {
     user: {
       findUnique: jest.fn().mockResolvedValue({ id: 'user-1' }),
+      upsert: jest
+        .fn()
+        .mockResolvedValue({ id: 'm2m-user-1', status: 'active' }),
     },
     farm: {
       findUnique: jest.fn(),
@@ -149,6 +152,49 @@ describe('AnalysesService', () => {
       }),
     );
     expect(deps.docInfo.updateCnpjInfoBestEffort).not.toHaveBeenCalled();
+  });
+
+  it('creates analysis using api key actor and propagates orgId', async () => {
+    const prisma = makePrismaMock();
+    prisma.$queryRaw.mockResolvedValueOnce([{ ok: 1 }]);
+    prisma.farm.findFirst.mockResolvedValue({ id: 'farm-1' });
+    const deps = makeDeps();
+
+    const service = new AnalysesService(
+      prisma,
+      deps.runner as any,
+      deps.detail as any,
+      deps.cache as any,
+      deps.docInfo as any,
+      deps.landwatchStatus as any,
+      () => now,
+    );
+    await service.createForApiKey(
+      {
+        id: 'key-1',
+        clientId: 'client-1',
+        orgId: 'org-1',
+        scopes: ['analysis_write'],
+      } as any,
+      {
+        carKey: 'CAR-1',
+      },
+    );
+
+    expect(prisma.user.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { entraSub: 'm2m:client-1' },
+      }),
+    );
+    expect(prisma.analysis.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          createdByUserId: 'm2m-user-1',
+          orgId: 'org-1',
+        }),
+      }),
+    );
+    expect(deps.runner.enqueue).toHaveBeenCalledWith('analysis-1');
   });
 
   it('does not inject farm documents when input does not provide documents', async () => {

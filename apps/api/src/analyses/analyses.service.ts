@@ -7,6 +7,7 @@ import {
 import { Inject, Optional } from '@nestjs/common';
 import { AnalysisKind, FarmDocType, Prisma } from '@prisma/client';
 import type { Claims } from '../auth/claims.type';
+import type { ApiKeyPrincipal } from '../auth/authed-request.type';
 import { PrismaService } from '../prisma/prisma.service';
 import { AnalysisRunnerService, NOW_PROVIDER } from './analysis-runner.service';
 import { AnalysisDetailService } from './analysis-detail.service';
@@ -23,6 +24,11 @@ type CreateAnalysisInput = {
   farmId?: string;
   farmName?: string;
   analysisKind?: AnalysisKind;
+};
+
+type CreateActor = {
+  userId: string;
+  orgId: string | null;
 };
 
 type AnalysisMapRow = {
@@ -182,8 +188,50 @@ export class AnalysesService {
     return user.id;
   }
 
-  async create(claims: Claims, input: CreateAnalysisInput) {
+  private m2mSubject(clientId: string): string {
+    return `m2m:${clientId}`;
+  }
+
+  private async resolveApiKeyActorUserId(apiKey: ApiKeyPrincipal) {
+    const subject = this.m2mSubject(apiKey.clientId);
+    const user = await this.prisma.user.upsert({
+      where: { entraSub: subject },
+      create: {
+        entraSub: subject,
+        displayName: `M2M ${apiKey.clientId}`,
+        status: 'active',
+      },
+      update: {},
+      select: { id: true, status: true },
+    });
+
+    if (user.status === 'disabled') {
+      throw new ForbiddenException({
+        code: 'USER_DISABLED',
+        message: 'User disabled',
+      });
+    }
+
+    return user.id;
+  }
+
+  private async resolveActorFromClaims(claims: Claims): Promise<CreateActor> {
     const userId = await this.resolveUserId(claims);
+    return { userId, orgId: null };
+  }
+
+  private async resolveActorFromApiKey(
+    apiKey: ApiKeyPrincipal,
+  ): Promise<CreateActor> {
+    const userId = await this.resolveApiKeyActorUserId(apiKey);
+    return { userId, orgId: apiKey.orgId };
+  }
+
+  private async createWithActor(
+    actor: CreateActor,
+    input: CreateAnalysisInput,
+  ) {
+    const { userId, orgId } = actor;
     const carKey = this.normalizeCarKey(input.carKey);
     const analysisDate = this.normalizeDate(input.analysisDate);
     const analysisKind = this.normalizeAnalysisKind(input.analysisKind);
@@ -224,6 +272,7 @@ export class AnalysesService {
             name: input.farmName.trim(),
             carKey,
             ownerUserId: userId,
+            orgId: orgId ?? undefined,
           },
           select: { id: true },
         });
@@ -257,6 +306,7 @@ export class AnalysesService {
           status: 'pending',
           analysisKind,
           createdByUserId: userId,
+          orgId: orgId ?? undefined,
           farmId,
           hasIntersections: false,
           intersectionCount: 0,
@@ -280,6 +330,16 @@ export class AnalysesService {
       status: analysis.status,
       analysisKind: analysis.analysisKind,
     };
+  }
+
+  async create(claims: Claims, input: CreateAnalysisInput) {
+    const actor = await this.resolveActorFromClaims(claims);
+    return this.createWithActor(actor, input);
+  }
+
+  async createForApiKey(apiKey: ApiKeyPrincipal, input: CreateAnalysisInput) {
+    const actor = await this.resolveActorFromApiKey(apiKey);
+    return this.createWithActor(actor, input);
   }
 
   async createScheduled(input: {
