@@ -50,9 +50,19 @@ jobs:
           context: ./apps/api
           file: ./apps/api/Dockerfile
           push: true
+          pull: true
+          build-args: |
+            GIT_SHA=${{ github.sha }}
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+      - name: Verify built image contains fornecedores module
+        shell: bash
+        run: |
+          set -euo pipefail
+          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}"
+          docker pull "$IMAGE"
+          docker run --rm "$IMAGE" /bin/sh -lc "test -f /app/dist/fornecedores/fornecedores.controller.js"
       - name: Set image outputs
         id: meta
         run: |
@@ -100,6 +110,16 @@ jobs:
         run: |
           curl --fail --show-error --silent "${{ secrets.STAGING_API_BASE_URL }}/health"
           curl --fail --show-error --silent "${{ secrets.STAGING_API_BASE_URL }}/ready"
+      - name: Smoke check fornecedores route (staging)
+        shell: bash
+        run: |
+          set -euo pipefail
+          STATUS="$(curl -s -o /tmp/fornecedores-staging.json -w "%{http_code}" "${{ secrets.STAGING_API_BASE_URL }}/v1/fornecedores/summary")"
+          if [ "$STATUS" != "401" ]; then
+            echo "::error::Expected 401 for /v1/fornecedores/summary in staging, got $STATUS"
+            cat /tmp/fornecedores-staging.json
+            exit 1
+          fi
 
   api-prod:
     runs-on: ubuntu-latest
@@ -142,6 +162,16 @@ jobs:
         run: |
           curl --fail --show-error --silent "${{ secrets.PROD_API_BASE_URL }}/health"
           curl --fail --show-error --silent "${{ secrets.PROD_API_BASE_URL }}/ready"
+      - name: Smoke check fornecedores route (prod)
+        shell: bash
+        run: |
+          set -euo pipefail
+          STATUS="$(curl -s -o /tmp/fornecedores-prod.json -w "%{http_code}" "${{ secrets.PROD_API_BASE_URL }}/v1/fornecedores/summary")"
+          if [ "$STATUS" != "401" ]; then
+            echo "::error::Expected 401 for /v1/fornecedores/summary in prod, got $STATUS"
+            cat /tmp/fornecedores-prod.json
+            exit 1
+          fi
 
   web-staging:
     runs-on: ubuntu-latest

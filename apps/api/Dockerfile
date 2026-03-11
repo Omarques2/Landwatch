@@ -16,6 +16,8 @@ FROM node:20-alpine AS runtime
 
 WORKDIR /app
 ENV NODE_ENV=production
+ARG GIT_SHA=unknown
+ENV LANDWATCH_BUILD_SHA=$GIT_SHA
 
 COPY package*.json ./
 COPY --from=build /app/node_modules ./node_modules
