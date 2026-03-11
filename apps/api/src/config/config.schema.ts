@@ -58,6 +58,7 @@ const envBaseSchema = z.object({
   RATE_LIMIT_API_MAX: numberSchema.default(120),
 
   TRUST_PROXY: booleanSchema.default(false),
+  AUTH_BYPASS_LOCALHOST: booleanSchema.default(false),
   DB_SSL_ALLOW_INVALID: booleanSchema.default(false),
 
   API_KEY_PEPPER: z.string().min(1, 'API_KEY_PEPPER is required'),
@@ -81,6 +82,27 @@ const envBaseSchema = z.object({
   LANDWATCH_PDF_TILE_PROVIDERS: z.string().optional(),
 
   SCHEDULES_JOB_TOKEN: z.string().optional(),
+
+  FABRIC_API_BASE_URL: z
+    .string()
+    .url()
+    .default('https://api.fabric.microsoft.com'),
+  FABRIC_TENANT_ID: z.string().optional(),
+  FABRIC_CLIENT_ID: z.string().optional(),
+  FABRIC_CLIENT_SECRET: z.string().optional(),
+  FABRIC_WORKSPACE_ID: z.string().optional(),
+  FABRIC_LAKEHOUSE_ID: z.string().optional(),
+  FABRIC_LAKEHOUSE_SQL_CONNECTION_STRING: z.string().optional(),
+  FABRIC_LAKEHOUSE_SQL_DATABASE: z.string().optional(),
+  FABRIC_LAKEHOUSE_SQL_SCHEMA: z.string().default('dbo'),
+  FABRIC_SQL_QUERY_DRIVER: z
+    .enum(['mssql_tedious', 'sqlclient_bridge'])
+    .default('mssql_tedious'),
+  FABRIC_CAR_UPDATE_MODE: z.enum(['disabled', 'spark_job']).default('disabled'),
+  FABRIC_CAR_UPDATE_ITEM_ID: z.string().optional(),
+  FABRIC_CAR_UPDATE_JOB_TYPE: z.string().default('DefaultJob'),
+  FABRIC_CAR_UPDATE_WAIT_SECONDS: numberSchema.default(60),
+  FABRIC_CAR_UPDATE_POLL_INTERVAL_MS: numberSchema.default(2000),
 });
 
 const envSchema = envBaseSchema.superRefine(
@@ -96,11 +118,52 @@ const envSchema = envBaseSchema.superRefine(
       });
     }
 
+    if (
+      ['production', 'staging'].includes(values.NODE_ENV) &&
+      values.AUTH_BYPASS_LOCALHOST
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['AUTH_BYPASS_LOCALHOST'],
+        message: 'AUTH_BYPASS_LOCALHOST must be false in production/staging',
+      });
+    }
+
     if (values.CORS_CREDENTIALS && !values.CORS_ORIGINS) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['CORS_ORIGINS'],
         message: 'CORS_ORIGINS is required when CORS_CREDENTIALS is true',
+      });
+    }
+
+    const fabricFields: Array<keyof z.infer<typeof envBaseSchema>> = [
+      'FABRIC_TENANT_ID',
+      'FABRIC_CLIENT_ID',
+      'FABRIC_CLIENT_SECRET',
+      'FABRIC_WORKSPACE_ID',
+      'FABRIC_LAKEHOUSE_ID',
+    ];
+
+    const provided = fabricFields.filter((field) => Boolean(values[field]));
+    if (provided.length > 0 && provided.length < fabricFields.length) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['FABRIC_TENANT_ID'],
+        message:
+          'FABRIC_TENANT_ID, FABRIC_CLIENT_ID, FABRIC_CLIENT_SECRET, FABRIC_WORKSPACE_ID and FABRIC_LAKEHOUSE_ID must be provided together',
+      });
+    }
+
+    if (
+      values.FABRIC_CAR_UPDATE_MODE === 'spark_job' &&
+      !values.FABRIC_CAR_UPDATE_ITEM_ID
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['FABRIC_CAR_UPDATE_ITEM_ID'],
+        message:
+          'FABRIC_CAR_UPDATE_ITEM_ID is required when FABRIC_CAR_UPDATE_MODE is spark_job',
       });
     }
   },

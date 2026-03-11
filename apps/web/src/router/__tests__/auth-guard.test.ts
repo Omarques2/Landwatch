@@ -13,6 +13,29 @@ function route(path: string, requiresAuth = true): MockRoute {
 }
 
 describe("createAuthNavigationGuard", () => {
+  it("bypasses authentication flow on localhost when VITE_AUTH_BYPASS_LOCALHOST is enabled", async () => {
+    vi.stubEnv("VITE_AUTH_BYPASS_LOCALHOST", "true");
+
+    const ensureSession = vi.fn().mockResolvedValue(null);
+    const exchangeSession = vi.fn().mockResolvedValue(null);
+    const getMeCached = vi.fn().mockResolvedValue(null);
+
+    const guard = createAuthNavigationGuard({
+      ensureSession,
+      exchangeSession,
+      getMeCached,
+    });
+
+    const result = await guard(route("/dashboard") as any);
+
+    expect(result).toBe(true);
+    expect(ensureSession).not.toHaveBeenCalled();
+    expect(exchangeSession).not.toHaveBeenCalled();
+    expect(getMeCached).not.toHaveBeenCalled();
+
+    vi.unstubAllEnvs();
+  });
+
   it("redirects protected route to pending when session exists but profile is unavailable", async () => {
     const ensureSession = vi.fn().mockResolvedValue({ data: { sessionId: "sid" } });
     const exchangeSession = vi.fn();

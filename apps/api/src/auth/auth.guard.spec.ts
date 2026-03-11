@@ -33,6 +33,8 @@ function makeContext(
 
 describe('AuthGuard', () => {
   beforeEach(() => {
+    process.env.NODE_ENV = 'test';
+    process.env.AUTH_BYPASS_LOCALHOST = 'false';
     process.env.SIGFARM_AUTH_ISSUER =
       'https://testauth.sigfarmintelligence.com';
     process.env.SIGFARM_AUTH_AUDIENCE = 'sigfarm-apps';
@@ -73,5 +75,21 @@ describe('AuthGuard', () => {
 
     await expect(guard.canActivate(ctx)).resolves.toBe(false);
     expect(req.user).toBeUndefined();
+  });
+
+  it('bypasses auth in local development when AUTH_BYPASS_LOCALHOST is enabled', async () => {
+    process.env.NODE_ENV = 'development';
+    process.env.AUTH_BYPASS_LOCALHOST = 'true';
+
+    const guard = new AuthGuard(new Reflector());
+    const handler = () => undefined;
+    const req = {
+      headers: { host: 'localhost:3001' },
+    } as unknown as AuthedRequest;
+    const ctx = makeContext(req, handler);
+
+    await expect(guard.canActivate(ctx)).resolves.toBe(true);
+    expect(req.user?.sub).toBe('00000000-0000-4000-8000-000000000001');
+    expect(canActivateMock).not.toHaveBeenCalled();
   });
 });

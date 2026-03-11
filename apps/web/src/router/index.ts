@@ -16,6 +16,7 @@ import AnalysisDetailView from "../views/AnalysisDetailView.vue";
 import AnalysisPrintView from "../views/AnalysisPrintView.vue";
 import AnalysisPublicView from "../views/AnalysisPublicView.vue";
 import SchedulesView from "../views/SchedulesView.vue";
+import FornecedoresView from "../views/FornecedoresView.vue";
 
 const router = createRouter({
   history: createWebHistory(),
@@ -56,6 +57,11 @@ const router = createRouter({
           path: "schedules",
           component: SchedulesView,
           meta: { title: "Agendamento" },
+        },
+        {
+          path: "fornecedores",
+          component: FornecedoresView,
+          meta: { title: "Fornecedores" },
         },
       ],
     },

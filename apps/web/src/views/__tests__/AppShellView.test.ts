@@ -89,4 +89,17 @@ describe("AppShellView", () => {
 
     expect(wrapper.text()).toContain("Agendamento");
   });
+
+  it("renders the Fornecedores item in navigation", () => {
+    const wrapper = mount(AppShellView, {
+      global: {
+        stubs: {
+          RouterView: true,
+          UiSheet: { template: "<div><slot /></div>" },
+        },
+      },
+    });
+
+    expect(wrapper.text()).toContain("Fornecedores");
+  });
 });

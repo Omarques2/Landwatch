@@ -15,6 +15,7 @@ import { DashboardModule } from './dashboard/dashboard.module';
 import { LandwatchStatusModule } from './landwatch-status/landwatch-status.module';
 import { AlertsModule } from './alerts/alerts.module';
 import { SchedulesModule } from './schedules/schedules.module';
+import { FornecedoresModule } from './fornecedores/fornecedores.module';
 
 @Module({
   imports: [
@@ -33,6 +34,7 @@ import { SchedulesModule } from './schedules/schedules.module';
     AnalysesModule,
     AlertsModule,
     SchedulesModule,
+    FornecedoresModule,
     DashboardModule,
     LandwatchStatusModule,
   ],

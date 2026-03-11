@@ -345,15 +345,50 @@ Card P1 — Detectar lock de MVs e sinalizar no sistema
 Card P2 — Tests e2e + factories
 - Aceite: test:e2e isolado de prod/staging.
 
+### EPIC-11: Fornecedores + GTA Pendencias (P1)
+Card P1 — Integracao de leitura com Fabric Lakehouse (SQL endpoint)
+- Objetivo: expor dados de `Fornecedores` e `gta_pendencias` via API do LandWatch.
+- Aceite:
+  - endpoint de indicadores agregados (`/v1/fornecedores/summary`).
+  - endpoint de listagem paginada com filtros por coluna (`/v1/fornecedores`).
+  - endpoint de drill-down de pendencias por fornecedor (`/v1/fornecedores/:id/gta-pendencias`).
+
+Card P1 — Atualizacao de CAR no cadastro do fornecedor
+- Objetivo: permitir editar `car` para fornecedor via modal na UI.
+- Aceite:
+  - endpoint `PATCH /v1/fornecedores/:id/car`.
+  - escrita em Lakehouse via Spark job (Notebook/Fabric Job Scheduler), sem DML direto no SQL endpoint.
+  - retorno de status da execucao com tratamento de erro amigavel.
+
+Card P1 — Nova aba `Fornecedores` no sidebar
+- Objetivo: disponibilizar visao operacional de pendencias GTA por fornecedor.
+- Aceite:
+  - item `Fornecedores` no sidebar e rota protegida.
+  - cards de KPI: total fornecedores, com CAR, sem CAR, GTAs pendentes, GTAs potencialmente resolvidas com CAR.
+  - tabela com filtros por coluna (estilo excel) e paginacao.
+  - duplo clique na linha abre modal para editar CAR.
+  - selecao de fornecedor carrega GTAs relacionadas (drill-down).
+
+Card P1 — Observabilidade e seguranca da integracao Fabric
+- Objetivo: garantir operacao segura da conexao com Lakehouse.
+- Aceite:
+  - env vars validadas em boot.
+  - logs sem segredo (tenant/client secret/token mascarados).
+  - tratamento de indisponibilidade do endpoint SQL e timeout de job de escrita.
+  - healthcheck operacional do conector (opcional por ambiente).
+
 ## Plano detalhado ativo
 - EPIC-12 (Agendamentos + Alertas): `docs/plans/2026-02-12-epic12-scheduled-analyses-alerts.md`
 - Estrategia interim aprovada: cron diario no GitHub Actions chamando endpoint interno protegido por token, enquanto o worker completo nao entra.
+- EPIC-11 (Fornecedores + Lakehouse Fabric): `docs/plans/2026-03-10-fornecedores-lakehouse-fabric.md`
 
 ## Decisoes pendentes (precisam de resposta)
 - Performance: estrategias de cache e views materializadas.
 - Governanca: RBAC puro vs RBAC + grants + ABAC leve.
 - Politica de retencao de PDFs por org (pos-MVP).
 - Workflow de aprovacao de documentos (regras, SLA, selo no PDF).
+- Fornecedores/Lakehouse: identificar notebook/job oficial para escrita de `car` (item id, job type e contrato de parametros).
+- Fornecedores/Lakehouse: definir regra de validacao de formato de `car` (aceitar qualquer valor nao vazio vs padrao completo SICAR).
 
 ## Riscos principais e mitigacoes
 - PostGIS pesado -> limitar bbox, indexes e batch.

@@ -45,4 +45,55 @@ describe('validateEnv', () => {
       }),
     ).toThrow('CORS_ORIGINS');
   });
+
+  it('rejects AUTH_BYPASS_LOCALHOST in production', () => {
+    expect(() =>
+      validateEnv({
+        ...baseEnv,
+        NODE_ENV: 'production',
+        AUTH_BYPASS_LOCALHOST: 'true',
+      }),
+    ).toThrow('AUTH_BYPASS_LOCALHOST');
+  });
+
+  it('requires complete Fabric credential set when partially configured', () => {
+    expect(() =>
+      validateEnv({
+        ...baseEnv,
+        FABRIC_TENANT_ID: 'tenant-id',
+        FABRIC_CLIENT_ID: 'client-id',
+      }),
+    ).toThrow('FABRIC_TENANT_ID');
+  });
+
+  it('requires update item id when spark job mode is enabled', () => {
+    expect(() =>
+      validateEnv({
+        ...baseEnv,
+        FABRIC_TENANT_ID: 'tenant-id',
+        FABRIC_CLIENT_ID: 'client-id',
+        FABRIC_CLIENT_SECRET: 'client-secret',
+        FABRIC_WORKSPACE_ID: 'workspace-id',
+        FABRIC_LAKEHOUSE_ID: 'lakehouse-id',
+        FABRIC_CAR_UPDATE_MODE: 'spark_job',
+      }),
+    ).toThrow('FABRIC_CAR_UPDATE_ITEM_ID');
+  });
+
+  it('accepts sqlclient bridge driver for Fabric queries', () => {
+    const parsed = validateEnv({
+      ...baseEnv,
+      FABRIC_SQL_QUERY_DRIVER: 'sqlclient_bridge',
+    });
+    expect(parsed.FABRIC_SQL_QUERY_DRIVER).toBe('sqlclient_bridge');
+  });
+
+  it('rejects invalid Fabric SQL query driver', () => {
+    expect(() =>
+      validateEnv({
+        ...baseEnv,
+        FABRIC_SQL_QUERY_DRIVER: 'unknown_driver',
+      }),
+    ).toThrow('FABRIC_SQL_QUERY_DRIVER');
+  });
 });
