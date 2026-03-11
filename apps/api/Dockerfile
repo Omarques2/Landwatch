@@ -36,7 +36,7 @@ RUN apk add --no-cache \
     tzdata \
     zlib \
   && POWERSHELL_VERSION=7.4.7 \
-  && curl -fSL "https://github.com/PowerShell/PowerShell/releases/download/v${POWERSHELL_VERSION}/powershell-${POWERSHELL_VERSION}-linux-alpine-x64.tar.gz" -o /tmp/powershell.tar.gz \
+  && curl -fSL "https://github.com/PowerShell/PowerShell/releases/download/v${POWERSHELL_VERSION}/powershell-${POWERSHELL_VERSION}-linux-musl-x64.tar.gz" -o /tmp/powershell.tar.gz \
   && mkdir -p /opt/microsoft/powershell/7 \
   && tar -xzf /tmp/powershell.tar.gz -C /opt/microsoft/powershell/7 \
   && chmod +x /opt/microsoft/powershell/7/pwsh \
