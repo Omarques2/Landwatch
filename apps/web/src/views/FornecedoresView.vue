@@ -613,7 +613,7 @@ function sanitizeEstabelecimentoDisplay(value: string): string {
   const withoutPrefix = original.replace(/(?:^|\s)(?:fazenda|faz\.?)(?=\s|$)/gi, " ");
   const collapsed = withoutPrefix
     .replace(/\s{2,}/g, " ")
-    .replace(/^[,;:/\\|.\-]+/, "")
+    .replace(/^[,;:/\\|.-]+/, "")
     .trim();
 
   return collapsed || original;

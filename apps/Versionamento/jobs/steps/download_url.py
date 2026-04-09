@@ -33,9 +33,15 @@ DEFAULT_DOWNLOADS = [
         "filename": "Terras_Indigenas",
     },
     {
-        "url": "https://www.gov.br/icmbio/pt-br/assuntos/dados_geoespaciais/mapa-tematico-e-dados-geoestatisticos-das-unidades-de-conservacao-federais/copy_of_Limites_UCs_fed_112025.zip",
+        "url": "https://www.gov.br/icmbio/pt-br/assuntos/dados_geoespaciais/mapa-tematico-e-dados-geoestatisticos-das-unidades-de-conservacao-federais/limites_ucs_federais_032026_a-1.zip",
         "path": "UCS",
-        "filename": "Unidades_Conservacao",
+        "filename": "UCS_FEDERAL",
+    },
+    {
+        "url": "https://dados.mma.gov.br/dataset/44b6dc8a-dc82-4a84-8d95-1b0da7c85dac/resource/6ba9a557-87e8-4882-acb7-b3e0f0ea192d/download/shp_cnuc_2025_08.zip",
+        "path": "UCS",
+        "filename": "UCS_CNUC",
+        "zip_shp_stems": ["cnuc_2025_08"],
     },
     {
         "url": "https://www.gov.br/icmbio/pt-br/assuntos/dados_geoespaciais/mapa-tematico-e-dados-geoestatisticos-das-unidades-de-conservacao-federais/embargos_icmbio_shp.zip",
@@ -154,12 +160,27 @@ def process_download_item(item: dict, out_root: Path) -> List[Path]:
     saved: List[Path] = []
     if is_zip:
         zf = zipfile.ZipFile(io.BytesIO(data))
-        for member in zf.namelist():
+        members = [m for m in zf.namelist() if not m.endswith("/")]
+        allowed_stems_raw = item.get("zip_shp_stems") or []
+        allowed_stems = {str(stem).strip().lower() for stem in allowed_stems_raw if str(stem).strip()}
+        if allowed_stems:
+            members = [m for m in members if Path(m).stem.lower() in allowed_stems]
+            if not members:
+                log_warn(
+                    "Nenhum membro do ZIP corresponde ao filtro zip_shp_stems="
+                    f"{sorted(allowed_stems)} para {url}"
+                )
+                return []
+
+        shp_stems = {Path(m).stem.lower() for m in members if Path(m).suffix.lower() == ".shp"}
+        use_base_name = bool(base_name) and len(shp_stems) <= 1
+
+        for member in members:
             if member.endswith("/"):
                 continue
             member_path = Path(member)
             ext = member_path.suffix
-            if base_name:
+            if use_base_name and base_name:
                 filename = f"{base_name}{ext}" if ext else base_name
             else:
                 filename = member_path.name
@@ -167,7 +188,8 @@ def process_download_item(item: dict, out_root: Path) -> List[Path]:
             target_path.parent.mkdir(parents=True, exist_ok=True)
             blob = zf.read(member)
             target_path.write_bytes(blob)
-            saved.append(target_path)
+            if target_path not in saved:
+                saved.append(target_path)
     else:
         original_name = get_filename(resp, url, "")
         ext = Path(original_name).suffix

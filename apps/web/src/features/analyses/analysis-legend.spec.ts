@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildIndigenaLegendItems,
   buildLegendCodes,
+  buildUcsLegendItems,
 } from "@/features/analyses/analysis-legend";
 
 describe("analysis-legend", () => {
@@ -62,5 +63,46 @@ describe("analysis-legend", () => {
 
     expect(items).toHaveLength(1);
     expect(items[0]?.label).toBe("Terra Indígena Declarada");
+  });
+
+  it("builds UCS legend items from textual labels in UCS group", () => {
+    const datasetGroups = [
+      {
+        title: "Unidades de conservação",
+        items: [
+          {
+            datasetCode: "UCS_PARQUE_NACIONAL",
+            hit: true,
+            label: "Parque Nacional",
+          },
+          {
+            datasetCode: "UCS_APA",
+            hit: false,
+            label: "Área de Proteção Ambiental",
+          },
+        ],
+      },
+    ];
+    const mapFeatures = [
+      { categoryCode: "UCS", datasetCode: "UNIDADES_CONSERVACAO" },
+    ];
+
+    const items = buildUcsLegendItems(datasetGroups, mapFeatures);
+
+    expect(items).toHaveLength(1);
+    expect(items[0]?.label).toBe("Parque Nacional");
+  });
+
+  it("excludes generic UCS dataset code from map legend when UCS labels are shown", () => {
+    const mapFeatures = [
+      { categoryCode: "UCS", datasetCode: "UNIDADES_CONSERVACAO" },
+      { categoryCode: "PRODES", datasetCode: "PRODES_CERRADO_NB_2020" },
+    ];
+
+    const codes = buildLegendCodes(mapFeatures, {
+      includeUcs: false,
+    });
+
+    expect(codes).toEqual(["PRODES_CERRADO_NB_2020"]);
   });
 });

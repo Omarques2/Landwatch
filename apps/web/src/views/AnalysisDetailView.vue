@@ -270,7 +270,7 @@ import { Button as UiButton } from "@/components/ui";
 import { http } from "@/api/http";
 import { unwrapData, type ApiEnvelope } from "@/api/envelope";
 import { colorForDataset, formatDatasetLabel } from "@/features/analyses/analysis-colors";
-import { buildIndigenaLegendItems, buildLegendCodes } from "@/features/analyses/analysis-legend";
+import { buildIndigenaLegendItems, buildLegendCodes, buildUcsLegendItems } from "@/features/analyses/analysis-legend";
 import { getAnalysisMapCache, setAnalysisMapCache } from "@/features/analyses/analysis-map-cache";
 import AnalysisMap from "@/components/maps/AnalysisMap.vue";
 import AnalysisPrintLayout from "@/components/analyses/AnalysisPrintLayout.vue";
@@ -474,9 +474,14 @@ const indigenaLegendItems = computed(() =>
   buildIndigenaLegendItems(analysis.value?.datasetGroups ?? [], mapFeatures.value),
 );
 
+const ucsLegendItems = computed(() =>
+  buildUcsLegendItems(analysis.value?.datasetGroups ?? [], mapFeatures.value),
+);
+
 const printLegend = computed(() => {
   const codes = buildLegendCodes(mapFeatures.value, {
     includeIndigena: indigenaLegendItems.value.length === 0,
+    includeUcs: ucsLegendItems.value.length === 0,
   });
   return [
     { code: "SICAR", label: "CAR", color: "#ef4444" },
@@ -486,6 +491,7 @@ const printLegend = computed(() => {
       color: colorForDataset(code),
     })),
     ...indigenaLegendItems.value,
+    ...ucsLegendItems.value,
   ];
 });
 

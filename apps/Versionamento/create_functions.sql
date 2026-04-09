@@ -119,21 +119,24 @@ CREATE INDEX IF NOT EXISTS idx_mv_indigena_phase_active_feature
 CREATE INDEX IF NOT EXISTS idx_mv_indigena_phase_active_phase
   ON landwatch.mv_indigena_phase_active(fase_ti);
 
--- MV: sigla categoria UCS
-CREATE MATERIALIZED VIEW IF NOT EXISTS landwatch.mv_ucs_sigla_active AS
+-- MV: categoria UCS (texto)
+DROP MATERIALIZED VIEW IF EXISTS landwatch.mv_ucs_sigla_active;
+
+CREATE MATERIALIZED VIEW landwatch.mv_ucs_sigla_active AS
 SELECT
   d.dataset_id,
   d.code AS dataset_code,
   h.feature_id,
   NULLIF(
     COALESCE(
-      p.pack_json->>'SiglaCateg',
-      p.pack_json->>'SIGLACATEG',
-      p.pack_json->>'siglacateg',
-      p.pack_json->>'sigla_categ'
+      p.pack_json->>'categoria_uc',
+      p.pack_json->>'CATEGORIA_UC',
+      p.pack_json->>'categoria',
+      p.pack_json->>'Categoria',
+      p.pack_json->>'CATEGORIA'
     ),
     ''
-  ) AS sigla_categ
+  ) AS categoria_uc
 FROM landwatch.lw_feature_attr_pack_hist h
 JOIN landwatch.lw_attr_pack p ON p.pack_id = h.pack_id
 JOIN landwatch.lw_dataset d ON d.dataset_id = h.dataset_id
@@ -145,10 +148,11 @@ WHERE h.valid_to IS NULL
     OR UPPER(d.code) LIKE '%CONSERV%'
   )
   AND COALESCE(
-    p.pack_json->>'SiglaCateg',
-    p.pack_json->>'SIGLACATEG',
-    p.pack_json->>'siglacateg',
-    p.pack_json->>'sigla_categ'
+    p.pack_json->>'categoria_uc',
+    p.pack_json->>'CATEGORIA_UC',
+    p.pack_json->>'categoria',
+    p.pack_json->>'Categoria',
+    p.pack_json->>'CATEGORIA'
   ) IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS idx_mv_ucs_sigla_active_dataset
@@ -157,8 +161,8 @@ CREATE INDEX IF NOT EXISTS idx_mv_ucs_sigla_active_dataset
 CREATE INDEX IF NOT EXISTS idx_mv_ucs_sigla_active_feature
   ON landwatch.mv_ucs_sigla_active(feature_id);
 
-CREATE INDEX IF NOT EXISTS idx_mv_ucs_sigla_active_sigla
-  ON landwatch.mv_ucs_sigla_active(sigla_categ);
+CREATE INDEX IF NOT EXISTS idx_mv_ucs_sigla_active_categoria
+  ON landwatch.mv_ucs_sigla_active(categoria_uc);
 
 CREATE OR REPLACE FUNCTION landwatch.fn_sicar_feature_current(p_cod_imovel text)
 RETURNS TABLE (

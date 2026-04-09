@@ -223,7 +223,12 @@ export class FabricLakehouseRepository {
     const schema = this.sqlSchema();
     const offset = (params.page - 1) * params.pageSize;
     const queryParams: QueryParam[] = [
-      { name: 'fornecedorId', type: 'VarChar', length: 128, value: fornecedorId },
+      {
+        name: 'fornecedorId',
+        type: 'VarChar',
+        length: 128,
+        value: fornecedorId,
+      },
     ];
     const filters: string[] = ['g.id_fornecedor = @fornecedorId'];
 
@@ -324,9 +329,13 @@ export class FabricLakehouseRepository {
       requestedBy: requestedBy ?? null,
     });
     await this.fabric.refreshSqlEndpointMetadata(metadata.sqlEndpointId);
-    const verification = await this.verifyFornecedorCarWrite(fornecedorId, car, {
-      completed: job.status === 'COMPLETED',
-    });
+    const verification = await this.verifyFornecedorCarWrite(
+      fornecedorId,
+      car,
+      {
+        completed: job.status === 'COMPLETED',
+      },
+    );
     return {
       idFornecedor: fornecedorId,
       car,
@@ -350,7 +359,14 @@ export class FabricLakehouseRepository {
         FROM ${schema}.[${FABRIC_FORNECEDORES_TABLE_NAME}] f
         WHERE f.id_fornecedor = @fornecedorId
       `,
-        [{ name: 'fornecedorId', type: 'VarChar', length: 128, value: fornecedorId }],
+        [
+          {
+            name: 'fornecedorId',
+            type: 'VarChar',
+            length: 128,
+            value: fornecedorId,
+          },
+        ],
       );
       const current = rows[0]?.car;
       return current === null || current === undefined ? null : String(current);
@@ -427,9 +443,10 @@ export class FabricLakehouseRepository {
       query: queryText,
       parameters: params.map((param) => this.toBridgeParameter(param)),
     };
-    const payloadBase64 = Buffer.from(JSON.stringify(payload), 'utf-8').toString(
-      'base64',
-    );
+    const payloadBase64 = Buffer.from(
+      JSON.stringify(payload),
+      'utf-8',
+    ).toString('base64');
 
     const shell = process.platform === 'win32' ? 'powershell.exe' : 'pwsh';
     const command = this.buildSqlClientBridgeCommand();

@@ -985,28 +985,34 @@ export class AnalysisDetailService {
     categories: string[],
     hits: Set<string>,
   ): Array<{ datasetCode: string; hit: boolean; label: string }> {
-    const labels: Record<string, string> = {
-      APA: 'Área de Proteção Ambiental',
-      ARIE: 'Área de Relevante Interesse Ecológico',
-      ESEC: 'Estação Ecológica',
-      FLONA: 'Floresta Nacional',
-      MONA: 'Monumento Natural',
-      PARNA: 'Parque Nacional',
-      REBIO: 'Reserva Biológica',
-      RDS: 'Reserva de Desenvolvimento Sustentável',
-      RESEX: 'Reserva Extrativista',
-      RPPN: 'Reserva Particular do Patrimônio Natural',
-      REVIS: 'Refúgio de Vida Silvestre',
-    };
+    const normalize = (value: string) =>
+      value.trim().toLocaleUpperCase('pt-BR');
+    const hitSet = new Set(Array.from(hits).map(normalize));
     const cleaned = categories
-      .map((sigla) => (sigla ?? '').trim().toUpperCase())
-      .filter((sigla) => sigla.length > 0);
-    const unique = Array.from(new Set(cleaned));
+      .map((category) => (category ?? '').trim())
+      .filter((category) => category.length > 0);
+
+    const unique: string[] = [];
+    const seen = new Set<string>();
+    for (const category of cleaned) {
+      const key = normalize(category);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      unique.push(category);
+    }
+
     const effective = unique.length ? unique : Array.from(hits);
-    const items = effective.map((sigla) => ({
-      datasetCode: `UCS_${sigla}`,
-      hit: hits.has(sigla),
-      label: labels[sigla] ?? sigla,
+    const toDatasetToken = (value: string) =>
+      value
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^A-Za-z0-9]+/g, '_')
+        .replace(/^_+|_+$/g, '')
+        .toUpperCase();
+    const items = effective.map((category) => ({
+      datasetCode: `UCS_${toDatasetToken(category) || 'CATEGORIA'}`,
+      hit: hitSet.has(normalize(category)),
+      label: category,
     }));
     items.sort((a, b) => (a.label ?? '').localeCompare(b.label ?? ''));
     return items;
@@ -1128,9 +1134,9 @@ export class AnalysisDetailService {
         const rows = await this.prisma.$queryRaw<
           Array<{ value: string | null }>
         >(Prisma.sql`
-            SELECT DISTINCT sigla_categ AS value
+            SELECT DISTINCT categoria_uc AS value
             FROM ${Prisma.raw(`"${schema}"."mv_ucs_sigla_active"`)}
-            WHERE sigla_categ IS NOT NULL
+            WHERE categoria_uc IS NOT NULL
               ${
                 datasetCodes && datasetCodes.length > 0
                   ? Prisma.sql`AND dataset_code IN (${Prisma.join(datasetCodes)})`
@@ -1146,7 +1152,17 @@ export class AnalysisDetailService {
       }
     }
 
-    const keys = ['SiglaCateg', 'SIGLACATEG', 'siglacateg', 'sigla_categ'];
+    const keys = [
+      'categoria_uc',
+      'CATEGORIA_UC',
+      'categoria',
+      'Categoria',
+      'CATEGORIA',
+      'SiglaCateg',
+      'SIGLACATEG',
+      'siglacateg',
+      'sigla_categ',
+    ];
     if (datasetCodes && datasetCodes.length > 0) {
       return this.fetchDistinctAttrValues(schema, analysisDate, {
         categoryCode: 'UCS_SNIRH',
@@ -1201,13 +1217,13 @@ export class AnalysisDetailService {
         const rows = await this.prisma.$queryRaw<
           Array<{ value: string | null }>
         >(Prisma.sql`
-            SELECT DISTINCT sigla_categ AS value
+            SELECT DISTINCT categoria_uc AS value
             FROM ${Prisma.raw(`"${schema}"."mv_ucs_sigla_active"`)}
             WHERE dataset_code IN (${Prisma.join(
               targets.map((row) => row.datasetCode),
             )})
               AND feature_id IN (${Prisma.join(featureIds)})
-              AND sigla_categ IS NOT NULL
+              AND categoria_uc IS NOT NULL
           `);
         const values = (rows ?? [])
           .map((row) => (row.value ?? '').trim())
@@ -1218,7 +1234,17 @@ export class AnalysisDetailService {
       }
     }
     return this.fetchAttrValuesForFeatures(schema, analysisDate, targets, {
-      keys: ['SiglaCateg', 'SIGLACATEG', 'siglacateg', 'sigla_categ'],
+      keys: [
+        'categoria_uc',
+        'CATEGORIA_UC',
+        'categoria',
+        'Categoria',
+        'CATEGORIA',
+        'SiglaCateg',
+        'SIGLACATEG',
+        'siglacateg',
+        'sigla_categ',
+      ],
     });
   }
 

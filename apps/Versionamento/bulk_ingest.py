@@ -579,7 +579,46 @@ def create_stg_raw_csv(conn, csv_path: Path, delimiter: str, encoding: str) -> T
     return table, cols
 
 
-def _build_ogr_cmd(shp_path: Path, group_size: int, use_makevalid: bool) -> List[str]:
+def _normalize_ogr_encoding(value: str) -> str:
+    normalized = value.strip().strip('"').strip("'").upper().replace("_", "-")
+    aliases = {
+        "UTF8": "UTF-8",
+        "UTF-8": "UTF-8",
+        "65001": "UTF-8",
+        "LATIN1": "ISO-8859-1",
+        "LATIN-1": "ISO-8859-1",
+    }
+    return aliases.get(normalized, value.strip().strip('"').strip("'"))
+
+
+def detect_shp_encoding(shp_path: Path) -> Tuple[Optional[str], str]:
+    cpg_path = shp_path.with_suffix(".cpg")
+    if cpg_path.exists():
+        raw = cpg_path.read_bytes()
+        parsed = None
+        for enc in ("utf-8-sig", "latin1"):
+            try:
+                parsed = raw.decode(enc, errors="strict")
+                break
+            except Exception:
+                continue
+        if parsed is None:
+            parsed = raw.decode("latin1", errors="replace")
+        first_line = parsed.splitlines()[0].strip() if parsed else ""
+        if first_line:
+            return _normalize_ogr_encoding(first_line), f"cpg:{cpg_path.name}"
+        log_warn(f"CPG vazio para {shp_path.name}; aplicando fallback de encoding.")
+    if OGR2OGR_ENCODING:
+        return _normalize_ogr_encoding(OGR2OGR_ENCODING), "env:LANDWATCH_OGR2OGR_ENCODING"
+    return None, "auto"
+
+
+def _build_ogr_cmd(
+    shp_path: Path,
+    group_size: int,
+    use_makevalid: bool,
+    shp_encoding: Optional[str],
+) -> List[str]:
     ogr2ogr = resolve_ogr2ogr()
     if not ogr2ogr:
         raise RuntimeError("ogr2ogr com driver PostgreSQL não encontrado no PATH.")
@@ -598,11 +637,11 @@ def _build_ogr_cmd(shp_path: Path, group_size: int, use_makevalid: bool) -> List
         "-lco",
         "FID=row_id",
         "-progress",
-        "-oo",
-        f"ENCODING={OGR2OGR_ENCODING}",
         "-nlt",
         OGR2OGR_NLT,
     ]
+    if shp_encoding:
+        ogr_cmd.extend(["-oo", f"ENCODING={shp_encoding}"])
     if OGR2OGR_USE_COPY:
         ogr_cmd.extend(["--config", "PG_USE_COPY", "YES"])
     if not OGR2OGR_ENABLE_METADATA:
@@ -628,7 +667,11 @@ def create_stg_raw_shp(conn, shp_path: Path, file_size_bytes: int):
         ogr_env["GDAL_DATA"] = GDAL_DATA
     if PROJ_LIB:
         ogr_env["PROJ_LIB"] = PROJ_LIB
-    log_debug(f"OGR encoding (shp)= {OGR2OGR_ENCODING}")
+    shp_encoding, encoding_source = detect_shp_encoding(shp_path)
+    if shp_encoding:
+        log_info(f"OGR encoding (shp)= {shp_encoding} (source={encoding_source})")
+    else:
+        log_info("OGR encoding (shp)= auto (sem override -oo ENCODING)")
     group_size = choose_ogr_group_size(file_size_bytes)
     if group_size > 0:
         log_debug(f"OGR group size (-gt)= {group_size}")
@@ -647,7 +690,12 @@ def create_stg_raw_shp(conn, shp_path: Path, file_size_bytes: int):
     use_makevalid = OGR2OGR_MAKEVALID
 
     while True:
-        ogr_cmd = _build_ogr_cmd(shp_path, current_group_size, use_makevalid)
+        ogr_cmd = _build_ogr_cmd(
+            shp_path,
+            current_group_size,
+            use_makevalid,
+            shp_encoding=shp_encoding,
+        )
         log_info("Executando ogr2ogr para staging SHP...")
         log_debug(f"ogr2ogr cmd: {' '.join([_mask_pg_conn_str(p) for p in ogr_cmd])}")
         try:

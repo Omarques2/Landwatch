@@ -174,8 +174,8 @@ describe('AnalysisDetailService', () => {
       {
         indigenaPhases: ['Declarada'],
         indigenaHits: new Set<string>(),
-        ucsCategories: ['APA'],
-        ucsHits: new Set<string>(['APA']),
+        ucsCategories: ['Área de Proteção Ambiental'],
+        ucsHits: new Set<string>(['Área de Proteção Ambiental']),
       },
     );
 
@@ -415,7 +415,7 @@ describe('AnalysisDetailService', () => {
     );
   });
 
-  it('requests sigla_categ when fetching UCS categories', async () => {
+  it('requests categoria_uc/categoria when fetching UCS categories', async () => {
     const prisma = makePrismaMock();
     const docInfo = { buildDocInfo: jest.fn() };
     const service = new AnalysisDetailService(
@@ -434,8 +434,61 @@ describe('AnalysisDetailService', () => {
       'landwatch',
       '2026-01-31',
       expect.objectContaining({
-        keys: expect.arrayContaining(['SiglaCateg']),
+        keys: expect.arrayContaining(['categoria', 'sigla_categ']),
       }),
+    );
+  });
+
+  it('falls back to attr history keys when mv_ucs_sigla_active has no categoria_uc', async () => {
+    const prisma = makePrismaMock();
+    prisma.$queryRaw.mockRejectedValueOnce(
+      new Error('column categoria_uc does not exist'),
+    );
+    const docInfo = { buildDocInfo: jest.fn() };
+    const service = new AnalysisDetailService(
+      prisma as any,
+      docInfo as any,
+      () => now,
+    );
+
+    const fallbackSpy = jest
+      .spyOn(service as any, 'fetchDistinctAttrValues')
+      .mockResolvedValue(['APA']);
+
+    const result = await (service as any).fetchUcsCategories(
+      'landwatch',
+      '2026-02-01',
+      ['UNIDADES_CONSERVACAO'],
+    );
+
+    expect(result).toEqual(['APA']);
+    expect(fallbackSpy).toHaveBeenCalledWith(
+      'landwatch',
+      '2026-02-01',
+      expect.objectContaining({
+        keys: expect.arrayContaining(['sigla_categ']),
+      }),
+    );
+  });
+
+  it('uses UCS hit values as fallback labels when categories list is empty', () => {
+    const prisma = makePrismaMock();
+    const docInfo = { buildDocInfo: jest.fn() };
+    const service = new AnalysisDetailService(
+      prisma as any,
+      docInfo as any,
+      () => now,
+    );
+
+    const items = (service as any).buildUcsItems([], new Set<string>(['APA']));
+
+    expect(items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          label: 'APA',
+          hit: true,
+        }),
+      ]),
     );
   });
 

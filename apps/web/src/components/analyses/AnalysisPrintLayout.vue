@@ -151,7 +151,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { colorForDataset, formatDatasetLabel } from "@/features/analyses/analysis-colors";
-import { buildIndigenaLegendItems, buildLegendCodes } from "@/features/analyses/analysis-legend";
+import { buildIndigenaLegendItems, buildLegendCodes, buildUcsLegendItems } from "@/features/analyses/analysis-legend";
 import AnalysisMap from "@/components/maps/AnalysisMap.vue";
 import AnalysisWatermark from "@/components/analyses/AnalysisWatermark.vue";
 import QRCode from "qrcode";
@@ -283,9 +283,14 @@ const indigenaLegendItems = computed(() =>
   buildIndigenaLegendItems(props.analysis?.datasetGroups ?? [], props.mapFeatures),
 );
 
+const ucsLegendItems = computed(() =>
+  buildUcsLegendItems(props.analysis?.datasetGroups ?? [], props.mapFeatures),
+);
+
 const printLegend = computed(() => {
   const codes = buildLegendCodes(props.mapFeatures, {
     includeIndigena: indigenaLegendItems.value.length === 0,
+    includeUcs: ucsLegendItems.value.length === 0,
   });
   return [
     { code: "SICAR", label: "CAR", color: "#ef4444" },
@@ -295,6 +300,7 @@ const printLegend = computed(() => {
       color: colorForDataset(code),
     })),
     ...indigenaLegendItems.value,
+    ...ucsLegendItems.value,
   ];
 });
 

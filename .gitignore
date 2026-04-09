@@ -20,3 +20,6 @@ apps/**/.env.local
 apps/**/.env.*.local
 !apps/**/.env.example
 Gerar_analise_ambiental_API.ipynb
+UCs-shps/
+download_urls_ucs_only.json
+apps/Versionamento/download_urls_ucs_only.json

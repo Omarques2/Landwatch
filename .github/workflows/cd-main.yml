@@ -114,12 +114,21 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          STATUS="$(curl -s -o /tmp/fornecedores-staging.json -w "%{http_code}" "${{ secrets.STAGING_API_BASE_URL }}/v1/fornecedores/summary")"
-          if [ "$STATUS" != "401" ]; then
-            echo "::error::Expected 401 for /v1/fornecedores/summary in staging, got $STATUS"
-            cat /tmp/fornecedores-staging.json
-            exit 1
-          fi
+          ATTEMPTS=24
+          SLEEP_SECONDS=5
+          STATUS=""
+          for i in $(seq 1 "$ATTEMPTS"); do
+            STATUS="$(curl -s -o /tmp/fornecedores-staging.json -w "%{http_code}" "${{ secrets.STAGING_API_BASE_URL }}/v1/fornecedores/summary")"
+            if [ "$STATUS" = "401" ]; then
+              echo "Smoke check passed on attempt $i/$ATTEMPTS."
+              exit 0
+            fi
+            echo "Attempt $i/$ATTEMPTS: expected 401, got $STATUS. Retrying in ${SLEEP_SECONDS}s..."
+            sleep "$SLEEP_SECONDS"
+          done
+          echo "::error::Expected 401 for /v1/fornecedores/summary in staging, got $STATUS after $ATTEMPTS attempts"
+          cat /tmp/fornecedores-staging.json
+          exit 1
 
   api-prod:
     runs-on: ubuntu-latest
@@ -166,12 +175,21 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          STATUS="$(curl -s -o /tmp/fornecedores-prod.json -w "%{http_code}" "${{ secrets.PROD_API_BASE_URL }}/v1/fornecedores/summary")"
-          if [ "$STATUS" != "401" ]; then
-            echo "::error::Expected 401 for /v1/fornecedores/summary in prod, got $STATUS"
-            cat /tmp/fornecedores-prod.json
-            exit 1
-          fi
+          ATTEMPTS=24
+          SLEEP_SECONDS=5
+          STATUS=""
+          for i in $(seq 1 "$ATTEMPTS"); do
+            STATUS="$(curl -s -o /tmp/fornecedores-prod.json -w "%{http_code}" "${{ secrets.PROD_API_BASE_URL }}/v1/fornecedores/summary")"
+            if [ "$STATUS" = "401" ]; then
+              echo "Smoke check passed on attempt $i/$ATTEMPTS."
+              exit 0
+            fi
+            echo "Attempt $i/$ATTEMPTS: expected 401, got $STATUS. Retrying in ${SLEEP_SECONDS}s..."
+            sleep "$SLEEP_SECONDS"
+          done
+          echo "::error::Expected 401 for /v1/fornecedores/summary in prod, got $STATUS after $ATTEMPTS attempts"
+          cat /tmp/fornecedores-prod.json
+          exit 1
 
   web-staging:
     runs-on: ubuntu-latest
