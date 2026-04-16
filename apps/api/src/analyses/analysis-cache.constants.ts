@@ -1,1 +1,1 @@
-export const ANALYSIS_CACHE_VERSION = 9;
+export const ANALYSIS_CACHE_VERSION = 11;

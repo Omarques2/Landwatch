@@ -153,6 +153,43 @@ class PrepareUcsTest(unittest.TestCase):
         with self.assertRaises(PrepareUcsError):
             build_prepared_ucs(fed, cnuc)
 
+    def test_prepare_ucs_files_merges_novas_fontes_and_infers_specific_category_from_name(self):
+        fed = self._make_federal()
+        cnuc = self._make_cnuc()
+        fed_path = self.tmp_dir / "limites_fed.shp"
+        cnuc_path = self.tmp_dir / "cnuc.shp"
+        fed.to_file(fed_path, driver="ESRI Shapefile", encoding="UTF-8")
+        cnuc.to_file(cnuc_path, driver="ESRI Shapefile", encoding="UTF-8")
+
+        novas_root = self.tmp_dir / "NovasFontes"
+        src_dir = novas_root / "10-siga.meioambiente.go.gov.br"
+        src_dir.mkdir(parents=True, exist_ok=True)
+        novas = gpd.GeoDataFrame(
+            {
+                "nome": ["Área de Proteção Ambiental Serra Azul"],
+                "categoria": ["Unidade de Conservação - Uso Sustentável"],
+                "grupo": ["US"],
+                "esferaadmi": ["municipal"],
+                "codigo": ["NF001"],
+            },
+            geometry=[self._poly(100, 100)],
+            crs="EPSG:4674",
+        )
+        novas.to_file(src_dir / "novas.shp", driver="ESRI Shapefile", encoding="UTF-8")
+
+        result = prepare_ucs_files(
+            fed_shp=fed_path,
+            cnuc_shp=cnuc_path,
+            output_dir=self.tmp_dir / "prepared_with_novas",
+            novas_fontes_root=novas_root,
+        )
+
+        out = gpd.read_file(result.output_shp)
+        row = out[out["source"].str.startswith("NOVASFONTES_")].iloc[0]
+        self.assertEqual(row["categoria"], "Área de Proteção Ambiental")
+        self.assertIn("novas_output_total", result.metrics)
+        self.assertEqual(result.metrics["novas_output_total"], 1)
+
     def test_run_detects_sources_and_returns_single_prepared_artifact(self):
         fed = self._make_federal()
         cnuc = self._make_cnuc()

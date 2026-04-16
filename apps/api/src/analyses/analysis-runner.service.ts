@@ -449,10 +449,12 @@ export class AnalysisRunnerService implements OnModuleInit, OnModuleDestroy {
     try {
       const detail = await this.detail.getById(analysisId);
       const map = await this.detail.getMapById(analysisId, 0.0001);
+      const geojson = await this.detail.getGeoJsonById(analysisId, 0.0001);
       await this.cache.set(analysisId, {
         cacheVersion: ANALYSIS_CACHE_VERSION,
         detail,
         map: { tolerance: 0.0001, rows: map },
+        geojson: { tolerance: 0.0001, collection: geojson },
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

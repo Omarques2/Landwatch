@@ -53,6 +53,9 @@ describe('AutomationAnalysesController', () => {
   it('forwards map detail to service when api key context is present', async () => {
     const analysesService = {
       getMapById: jest.fn().mockResolvedValue([]),
+      getGeoJsonById: jest
+        .fn()
+        .mockResolvedValue({ type: 'FeatureCollection' }),
     };
     const module: TestingModule = await Test.createTestingModule({
       controllers: [AutomationAnalysesController],
@@ -70,7 +73,12 @@ describe('AutomationAnalysesController', () => {
     };
 
     await controller.getMap(req as any, 'analysis-1', '0.005');
+    await controller.getGeoJson(req as any, 'analysis-1', '0.005');
     expect(analysesService.getMapById).toHaveBeenCalledWith(
+      'analysis-1',
+      0.005,
+    );
+    expect(analysesService.getGeoJsonById).toHaveBeenCalledWith(
       'analysis-1',
       0.005,
     );
@@ -89,9 +97,14 @@ describe('AutomationAnalysesController', () => {
       API_KEY_SCOPES_KEY,
       AutomationAnalysesController.prototype.getMap,
     ) as ApiKeyScope[];
+    const geoJsonScopes = Reflect.getMetadata(
+      API_KEY_SCOPES_KEY,
+      AutomationAnalysesController.prototype.getGeoJson,
+    ) as ApiKeyScope[];
 
     expect(writeScopes).toEqual([ApiKeyScope.analysis_write]);
     expect(readScopes).toEqual([ApiKeyScope.analysis_read]);
     expect(mapScopes).toEqual([ApiKeyScope.analysis_read]);
+    expect(geoJsonScopes).toEqual([ApiKeyScope.analysis_read]);
   });
 });

@@ -60,6 +60,8 @@ type MapFeature = {
   categoryCode: string;
   datasetCode: string;
   featureId?: string | null;
+  displayName?: string | null;
+  naturalId?: string | null;
   geom: any;
 };
 

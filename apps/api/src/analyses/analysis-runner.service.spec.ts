@@ -46,6 +46,9 @@ describe('AnalysisRunnerService', () => {
       detail: {
         getById: jest.fn().mockResolvedValue({ id: 'analysis-1' }),
         getMapById: jest.fn().mockResolvedValue([]),
+        getGeoJsonById: jest
+          .fn()
+          .mockResolvedValue({ type: 'FeatureCollection', features: [] }),
       },
       cache: {
         set: jest.fn(),
@@ -260,6 +263,7 @@ describe('AnalysisRunnerService', () => {
         cacheVersion: ANALYSIS_CACHE_VERSION,
         detail: { id: 'analysis-1' },
         map: expect.any(Object),
+        geojson: expect.any(Object),
       }),
     );
   });

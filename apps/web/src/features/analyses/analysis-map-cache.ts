@@ -4,7 +4,7 @@ type CacheEntry<T> = {
 };
 
 const memoryCache = new Map<string, CacheEntry<unknown>>();
-const CACHE_PREFIX = "analysis-map:";
+const CACHE_PREFIX = "analysis-map:v2:";
 const DEFAULT_TTL_MS = 24 * 60 * 60 * 1000;
 
 function storageAvailable(): boolean {

@@ -8,6 +8,9 @@ export type DatasetGroup = {
 export type MapFeature = {
   categoryCode?: string;
   datasetCode?: string;
+  featureId?: string | null;
+  displayName?: string | null;
+  naturalId?: string | null;
 };
 
 type LegendItem = {
@@ -65,42 +68,27 @@ export function buildLegendCodes(
 }
 
 export function buildUcsLegendItems(
-  datasetGroups: DatasetGroup[] | null | undefined,
   mapFeatures: MapFeature[] | null | undefined,
 ): LegendItem[] {
-  const normalizeLabel = (value: string) =>
-    value
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .toLowerCase();
-  const groups = datasetGroups ?? [];
-  const ucsGroup = groups.find(
-    (group) => normalizeLabel(group.title ?? "") === "unidades de conservacao",
-  );
-  const items = (ucsGroup?.items ?? []).filter((item) => item.hit);
-  if (items.length === 0) return [];
+  const features = (mapFeatures ?? []).filter((feature) => isUcsFeature(feature));
+  if (features.length === 0) return [];
 
-  const byLabel = new Map<string, { datasetCode: string; label: string }>();
-  for (const item of items) {
-    const label = (item.label ?? formatDatasetLabel(item.datasetCode)).trim();
-    if (!label) continue;
-    const key = normalizeLabel(label);
-    if (!byLabel.has(key)) {
-      byLabel.set(key, { datasetCode: item.datasetCode, label });
-    }
+  const byCode = new Map<string, string>();
+  for (const feature of features) {
+    const code = getUcsLegendCode(feature);
+    const label = getUcsDisplayName(feature);
+    if (!code || !label || byCode.has(code)) continue;
+    byCode.set(code, label);
   }
-
-  const features = mapFeatures ?? [];
-  const ucsFeature = features.find((feature) => isUcsFeature(feature));
-  const color = colorForDataset(ucsFeature?.datasetCode ?? "UNIDADES_CONSERVACAO");
-
-  const legendItems = Array.from(byLabel.entries()).map(([key, item]) => ({
-    code: `UCS_${key}`,
+  const ordered = Array.from(byCode.entries())
+    .map(([code, label]) => ({ code, label }))
+    .sort((a, b) => a.label.localeCompare(b.label, "pt-BR"));
+  const total = ordered.length;
+  return ordered.map((item, index) => ({
+    code: item.code,
     label: item.label,
-    color,
+    color: colorForUcsLegendItem(index, total),
   }));
-  legendItems.sort((a, b) => a.label.localeCompare(b.label));
-  return legendItems;
 }
 
 export function buildIndigenaLegendItems(
@@ -128,4 +116,37 @@ export function buildIndigenaLegendItems(
     label: item.label ?? formatDatasetLabel(item.datasetCode),
     color,
   }));
+}
+
+function normalizeLegendLabel(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export function getUcsDisplayName(feature?: MapFeature | null): string | null {
+  if (!feature || !isUcsFeature(feature)) return null;
+  const displayName = (feature.displayName ?? "").trim();
+  if (displayName) return displayName;
+  const naturalId = (feature.naturalId ?? "").trim();
+  if (naturalId) return naturalId;
+  const datasetCode = (feature.datasetCode ?? "").trim();
+  if (!datasetCode) return null;
+  const featureId = (feature.featureId ?? "").trim();
+  return featureId ? `${datasetCode}:${featureId}` : `${datasetCode}:UNKNOWN`;
+}
+
+export function getUcsLegendCode(feature?: MapFeature | null): string | null {
+  const label = getUcsDisplayName(feature);
+  if (!label) return null;
+  return `UCS_${normalizeLegendLabel(label)}`;
+}
+
+export function colorForUcsLegendItem(index: number, total: number): string {
+  const size = total > 0 ? total : 1;
+  const hue = ((index * 360) / size + 23) % 360;
+  return `hsl(${hue.toFixed(2)} 72% 43%)`;
 }

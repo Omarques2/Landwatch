@@ -3,6 +3,7 @@ import {
   Injectable,
   Inject,
   Optional,
+  Logger,
 } from '@nestjs/common';
 import { AnalysisKind, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -50,8 +51,60 @@ export type AnalysisMapRow = {
   datasetCode: string;
   snapshotDate: Date | null;
   featureId: string | null;
+  displayName: string | null;
+  naturalId: string | null;
   geom: Record<string, unknown>;
   isSicar: boolean;
+};
+
+export type AnalysisGeoJsonFeatureProperties = {
+  analysisResultId: string;
+  categoryCode: string;
+  datasetCode: string;
+  datasetLabel: string;
+  snapshotDate: string | null;
+  isSicar: boolean;
+  featureId: string | null;
+  featureKey: string | null;
+  naturalId: string | null;
+  naturalIdKey: string | null;
+  displayName: string | null;
+  displayNameKey: string | null;
+  ucsCategoria: string | null;
+  sicarAreaM2: number | null;
+  featureAreaM2: number | null;
+  overlapAreaM2: number | null;
+  overlapPctOfSicar: number | null;
+  featureAreaHa: number | null;
+  overlapAreaHa: number | null;
+  hasIntersection: boolean;
+};
+
+export type AnalysisGeoJsonFeature = {
+  type: 'Feature';
+  id: string;
+  geometry: Record<string, unknown>;
+  properties: AnalysisGeoJsonFeatureProperties;
+};
+
+export type AnalysisGeoJsonCollection = {
+  type: 'FeatureCollection';
+  properties: {
+    analysisId: string;
+    carKey: string;
+    analysisDate: string;
+    analysisKind: 'STANDARD' | 'DETER';
+    generatedAt: string;
+    geomMode: 'feature_geom';
+    tolerance: number;
+    totals: {
+      features: number;
+      intersections: number;
+      datasets: number;
+      overlapAreaM2: number;
+    };
+  };
+  features: AnalysisGeoJsonFeature[];
 };
 
 function assertIdentifier(value: string, name: string): string {
@@ -66,6 +119,7 @@ function assertIdentifier(value: string, name: string): string {
 
 @Injectable()
 export class AnalysisDetailService {
+  private readonly logger = new Logger(AnalysisDetailService.name);
   private readonly nowProvider: () => Date;
 
   constructor(
@@ -296,21 +350,17 @@ export class AnalysisDetailService {
         ? Math.min(Math.max(tolerance, 0), 0.01)
         : 0.0001;
     const analysisKind = analysis.analysisKind ?? AnalysisKind.STANDARD;
-    const whereByKind =
-      analysisKind === AnalysisKind.DETER
-        ? Prisma.sql`
-            AND r.category_code <> 'BIOMAS'
-            AND (
-              r.category_code = 'DETER'
-              OR r.dataset_code ILIKE 'DETER%'
-              OR (r.dataset_code ILIKE 'CAR\\_%' AND r.feature_area_m2 IS NULL)
-            )
-          `
-        : Prisma.sql`
-            AND r.category_code NOT IN ('BIOMAS', 'DETER')
-            AND r.dataset_code NOT ILIKE 'DETER%'
-            AND (r.dataset_code NOT ILIKE 'CAR\\_%' OR r.feature_area_m2 IS NULL)
-          `;
+    const whereByKind = this.buildResultWhereByKind(analysisKind);
+    const attrDateFilter = analysisDate
+      ? Prisma.sql`AND h_attr.valid_from <= ${analysisDate}::date
+          AND (h_attr.valid_to IS NULL OR h_attr.valid_to > ${analysisDate}::date)`
+      : Prisma.sql`AND h_attr.valid_to IS NULL`;
+    const isUcsSql = Prisma.sql`(
+      UPPER(r.category_code) LIKE '%UCS%'
+      OR UPPER(r.category_code) LIKE '%CONSERVAC%'
+      OR UPPER(r.dataset_code) LIKE '%UCS%'
+      OR UPPER(r.dataset_code) LIKE '%CONSERVAC%'
+    )`;
 
     const sql = Prisma.sql`
       SELECT
@@ -319,12 +369,47 @@ export class AnalysisDetailService {
         r.snapshot_date,
         r.feature_id,
         r.geom_id,
+        CASE
+          WHEN ${isUcsSql} THEN COALESCE(
+            NULLIF(f.feature_key, ''),
+            NULLIF(p.pack_json->>'cnuc_code', ''),
+            NULLIF(p.pack_json->>'cd_cnuc', ''),
+            NULLIF(p.pack_json->>'Cnuc', ''),
+            NULLIF(p.pack_json->>'id', ''),
+            NULLIF(p.pack_json->>'objectid', '')
+          )
+          ELSE NULL
+        END AS natural_id,
+        CASE
+          WHEN ${isUcsSql} THEN COALESCE(
+            NULLIF(p.pack_json->>'nome_uc', ''),
+            NULLIF(p.pack_json->>'nome', ''),
+            NULLIF(p.pack_json->>'NOME', ''),
+            NULLIF(p.pack_json->>'nm', ''),
+            NULLIF(p.pack_json->>'NM', ''),
+            NULLIF(p.pack_json->>'denominacao', ''),
+            NULLIF(p.pack_json->>'descricao', ''),
+            NULLIF(f.feature_key, '')
+          )
+          ELSE NULL
+        END AS display_name,
         ST_AsGeoJSON(
           ST_SimplifyPreserveTopology(g.geom, ${safeTolerance})
         ) AS geom
       FROM ${Prisma.raw('"app"."analysis_result"')} r
       JOIN ${Prisma.raw(`"${schema}"."lw_geom_store"`)} g
         ON g.geom_id = r.geom_id
+      LEFT JOIN ${Prisma.raw(`"${schema}"."lw_dataset"`)} d
+        ON d.code = r.dataset_code
+      LEFT JOIN ${Prisma.raw(`"${schema}"."lw_feature"`)} f
+        ON f.dataset_id = d.dataset_id
+       AND f.feature_id = r.feature_id
+      LEFT JOIN ${Prisma.raw(`"${schema}"."lw_feature_attr_pack_hist"`)} h_attr
+        ON h_attr.dataset_id = d.dataset_id
+       AND h_attr.feature_id = r.feature_id
+       ${attrDateFilter}
+      LEFT JOIN ${Prisma.raw(`"${schema}"."lw_attr_pack"`)} p
+        ON p.pack_id = h_attr.pack_id
       WHERE r.analysis_id = ${id}
         AND r.geom_id IS NOT NULL
         ${whereByKind}
@@ -336,6 +421,8 @@ export class AnalysisDetailService {
       snapshot_date: string | Date | null;
       feature_id: string | number | bigint | null;
       geom_id: string | number | bigint | null;
+      display_name: string | null;
+      natural_id: string | null;
       geom: string | null;
     };
 
@@ -359,6 +446,40 @@ export class AnalysisDetailService {
           r.snapshot_date,
           r.feature_id,
           NULL::bigint AS geom_id,
+          CASE
+            WHEN (
+              UPPER(r.category_code) LIKE '%UCS%'
+              OR UPPER(r.category_code) LIKE '%CONSERVAC%'
+              OR UPPER(r.dataset_code) LIKE '%UCS%'
+              OR UPPER(r.dataset_code) LIKE '%CONSERVAC%'
+            ) THEN COALESCE(
+              NULLIF(f.feature_key, ''),
+              NULLIF(p.pack_json->>'cnuc_code', ''),
+              NULLIF(p.pack_json->>'cd_cnuc', ''),
+              NULLIF(p.pack_json->>'Cnuc', ''),
+              NULLIF(p.pack_json->>'id', ''),
+              NULLIF(p.pack_json->>'objectid', '')
+            )
+            ELSE NULL
+          END AS natural_id,
+          CASE
+            WHEN (
+              UPPER(r.category_code) LIKE '%UCS%'
+              OR UPPER(r.category_code) LIKE '%CONSERVAC%'
+              OR UPPER(r.dataset_code) LIKE '%UCS%'
+              OR UPPER(r.dataset_code) LIKE '%CONSERVAC%'
+            ) THEN COALESCE(
+              NULLIF(p.pack_json->>'nome_uc', ''),
+              NULLIF(p.pack_json->>'nome', ''),
+              NULLIF(p.pack_json->>'NOME', ''),
+              NULLIF(p.pack_json->>'nm', ''),
+              NULLIF(p.pack_json->>'NM', ''),
+              NULLIF(p.pack_json->>'denominacao', ''),
+              NULLIF(p.pack_json->>'descricao', ''),
+              NULLIF(f.feature_key, '')
+            )
+            ELSE NULL
+          END AS display_name,
           ST_AsGeoJSON(
             ST_SimplifyPreserveTopology(g.geom, ${safeTolerance})
           ) AS geom
@@ -370,6 +491,15 @@ export class AnalysisDetailService {
          AND h.feature_id = r.feature_id
         JOIN ${Prisma.raw(`"${schema}"."lw_geom_store"`)} g
           ON g.geom_id = h.geom_id
+        LEFT JOIN ${Prisma.raw(`"${schema}"."lw_feature"`)} f
+          ON f.dataset_id = d.dataset_id
+         AND f.feature_id = r.feature_id
+        LEFT JOIN ${Prisma.raw(`"${schema}"."lw_feature_attr_pack_hist"`)} h_attr
+          ON h_attr.dataset_id = d.dataset_id
+         AND h_attr.feature_id = r.feature_id
+         ${attrDateFilter}
+        LEFT JOIN ${Prisma.raw(`"${schema}"."lw_attr_pack"`)} p
+          ON p.pack_id = h_attr.pack_id
         WHERE r.analysis_id = ${id}
           AND r.feature_id IS NOT NULL
           ${whereByKind}
@@ -392,21 +522,380 @@ export class AnalysisDetailService {
           analysisKind,
         );
       })
-      .map((row) => ({
-        categoryCode: row.category_code,
-        datasetCode: row.dataset_code,
-        snapshotDate: row.snapshot_date ? new Date(row.snapshot_date) : null,
-        featureId: this.normalizeFeatureId(row.feature_id)?.toString() ?? null,
-        geom: JSON.parse(row.geom as string) as Record<string, unknown>,
-        isSicar: row.category_code === 'SICAR',
-      }));
+      .map((row) => {
+        const isUcs = this.isUcsDataset(row.category_code, row.dataset_code);
+        const displayName = row.display_name?.trim() || null;
+        const naturalId = row.natural_id?.trim() || null;
+        return {
+          categoryCode: row.category_code,
+          datasetCode: row.dataset_code,
+          snapshotDate: row.snapshot_date ? new Date(row.snapshot_date) : null,
+          featureId:
+            this.normalizeFeatureId(row.feature_id)?.toString() ?? null,
+          displayName: isUcs ? displayName : null,
+          naturalId: isUcs ? naturalId : null,
+          geom: JSON.parse(row.geom as string) as Record<string, unknown>,
+          isSicar: row.category_code === 'SICAR',
+        };
+      });
     return mapped;
+  }
+
+  async getGeoJsonById(
+    id: string,
+    tolerance?: number,
+  ): Promise<AnalysisGeoJsonCollection> {
+    const startedAt = Date.now();
+    const analysis = await this.prisma.analysis.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        carKey: true,
+        analysisDate: true,
+        analysisKind: true,
+      },
+    });
+    if (!analysis) {
+      throw new BadRequestException({
+        code: 'ANALYSIS_NOT_FOUND',
+        message: 'Analysis not found',
+      });
+    }
+
+    const schema = this.getSchema();
+    const analysisDate = analysis.analysisDate
+      ? analysis.analysisDate.toISOString().slice(0, 10)
+      : this.nowProvider().toISOString().slice(0, 10);
+    const safeTolerance =
+      typeof tolerance === 'number' && Number.isFinite(tolerance)
+        ? Math.min(Math.max(tolerance, 0), 0.01)
+        : 0.0001;
+    const analysisKind = analysis.analysisKind ?? AnalysisKind.STANDARD;
+    const whereByKind = this.buildResultWhereByKind(analysisKind);
+
+    type GeoJsonRow = {
+      analysis_result_id: string;
+      category_code: string;
+      dataset_code: string;
+      dataset_label: string;
+      snapshot_date: string | Date | null;
+      feature_id: string | number | bigint | null;
+      feature_key: string | null;
+      natural_id: string | null;
+      natural_id_key: string | null;
+      display_name: string | null;
+      display_name_key: string | null;
+      ucs_categoria: string | null;
+      sicar_area_m2: string | number | null;
+      feature_area_m2: string | number | null;
+      overlap_area_m2: string | number | null;
+      overlap_pct_of_sicar: string | number | null;
+      geom: string | null;
+    };
+
+    const sql = Prisma.sql`
+      SELECT
+        r.id AS analysis_result_id,
+        r.category_code,
+        r.dataset_code,
+        COALESCE(NULLIF(d.description, ''), r.dataset_code) AS dataset_label,
+        r.snapshot_date,
+        r.feature_id,
+        f.feature_key,
+        COALESCE(
+          NULLIF(f.feature_key, ''),
+          NULLIF(p.pack_json->>'cnuc_code', ''),
+          NULLIF(p.pack_json->>'cd_cnuc', ''),
+          NULLIF(p.pack_json->>'Cnuc', ''),
+          NULLIF(p.pack_json->>'id', ''),
+          NULLIF(p.pack_json->>'objectid', '')
+        ) AS natural_id,
+        CASE
+          WHEN NULLIF(f.feature_key, '') IS NOT NULL THEN 'feature_key'
+          WHEN NULLIF(p.pack_json->>'cnuc_code', '') IS NOT NULL THEN 'cnuc_code'
+          WHEN NULLIF(p.pack_json->>'cd_cnuc', '') IS NOT NULL THEN 'cd_cnuc'
+          WHEN NULLIF(p.pack_json->>'Cnuc', '') IS NOT NULL THEN 'Cnuc'
+          WHEN NULLIF(p.pack_json->>'id', '') IS NOT NULL THEN 'id'
+          WHEN NULLIF(p.pack_json->>'objectid', '') IS NOT NULL THEN 'objectid'
+          ELSE NULL
+        END AS natural_id_key,
+        COALESCE(
+          NULLIF(p.pack_json->>'nome_uc', ''),
+          NULLIF(p.pack_json->>'nome', ''),
+          NULLIF(p.pack_json->>'NOME', ''),
+          NULLIF(p.pack_json->>'nm', ''),
+          NULLIF(p.pack_json->>'NM', ''),
+          NULLIF(p.pack_json->>'denominacao', ''),
+          NULLIF(p.pack_json->>'descricao', ''),
+          NULLIF(f.feature_key, '')
+        ) AS display_name,
+        CASE
+          WHEN NULLIF(p.pack_json->>'nome_uc', '') IS NOT NULL THEN 'nome_uc'
+          WHEN NULLIF(p.pack_json->>'nome', '') IS NOT NULL THEN 'nome'
+          WHEN NULLIF(p.pack_json->>'NOME', '') IS NOT NULL THEN 'NOME'
+          WHEN NULLIF(p.pack_json->>'nm', '') IS NOT NULL THEN 'nm'
+          WHEN NULLIF(p.pack_json->>'NM', '') IS NOT NULL THEN 'NM'
+          WHEN NULLIF(p.pack_json->>'denominacao', '') IS NOT NULL THEN 'denominacao'
+          WHEN NULLIF(p.pack_json->>'descricao', '') IS NOT NULL THEN 'descricao'
+          WHEN NULLIF(f.feature_key, '') IS NOT NULL THEN 'feature_key'
+          ELSE NULL
+        END AS display_name_key,
+        u.categoria_uc AS ucs_categoria,
+        r.sicar_area_m2,
+        r.feature_area_m2,
+        r.overlap_area_m2,
+        r.overlap_pct_of_sicar,
+        ST_AsGeoJSON(
+          ST_SimplifyPreserveTopology(g.geom, ${safeTolerance})
+        ) AS geom
+      FROM ${Prisma.raw('"app"."analysis_result"')} r
+      JOIN ${Prisma.raw(`"${schema}"."lw_geom_store"`)} g
+        ON g.geom_id = r.geom_id
+      LEFT JOIN ${Prisma.raw(`"${schema}"."lw_dataset"`)} d
+        ON d.code = r.dataset_code
+      LEFT JOIN ${Prisma.raw(`"${schema}"."lw_feature"`)} f
+        ON f.dataset_id = d.dataset_id
+       AND f.feature_id = r.feature_id
+      LEFT JOIN ${Prisma.raw(`"${schema}"."lw_feature_attr_pack_hist"`)} h
+        ON h.dataset_id = d.dataset_id
+       AND h.feature_id = r.feature_id
+       AND h.valid_from <= ${analysisDate}::date
+       AND (h.valid_to IS NULL OR h.valid_to > ${analysisDate}::date)
+      LEFT JOIN ${Prisma.raw(`"${schema}"."lw_attr_pack"`)} p
+        ON p.pack_id = h.pack_id
+      LEFT JOIN ${Prisma.raw(`"${schema}"."mv_ucs_sigla_active"`)} u
+        ON u.dataset_code = r.dataset_code
+       AND u.feature_id = r.feature_id
+      WHERE r.analysis_id = ${id}
+        AND r.geom_id IS NOT NULL
+        ${whereByKind}
+    `;
+
+    let rows: GeoJsonRow[] = [];
+    try {
+      const raw = await this.queryRawWithRetry<GeoJsonRow[]>(sql);
+      rows = Array.isArray(raw) ? raw : [];
+    } catch {
+      rows = [];
+    }
+
+    if (rows.length === 0) {
+      const dateFilter = Prisma.sql`AND h_geom.valid_from <= ${analysisDate}::date
+        AND (h_geom.valid_to IS NULL OR h_geom.valid_to > ${analysisDate}::date)`;
+      const fallbackSql = Prisma.sql`
+        SELECT
+          r.id AS analysis_result_id,
+          r.category_code,
+          r.dataset_code,
+          COALESCE(NULLIF(d.description, ''), r.dataset_code) AS dataset_label,
+          r.snapshot_date,
+          r.feature_id,
+          f.feature_key,
+          COALESCE(
+            NULLIF(f.feature_key, ''),
+            NULLIF(p.pack_json->>'cnuc_code', ''),
+            NULLIF(p.pack_json->>'cd_cnuc', ''),
+            NULLIF(p.pack_json->>'Cnuc', ''),
+            NULLIF(p.pack_json->>'id', ''),
+            NULLIF(p.pack_json->>'objectid', '')
+          ) AS natural_id,
+          CASE
+            WHEN NULLIF(f.feature_key, '') IS NOT NULL THEN 'feature_key'
+            WHEN NULLIF(p.pack_json->>'cnuc_code', '') IS NOT NULL THEN 'cnuc_code'
+            WHEN NULLIF(p.pack_json->>'cd_cnuc', '') IS NOT NULL THEN 'cd_cnuc'
+            WHEN NULLIF(p.pack_json->>'Cnuc', '') IS NOT NULL THEN 'Cnuc'
+            WHEN NULLIF(p.pack_json->>'id', '') IS NOT NULL THEN 'id'
+            WHEN NULLIF(p.pack_json->>'objectid', '') IS NOT NULL THEN 'objectid'
+            ELSE NULL
+          END AS natural_id_key,
+          COALESCE(
+            NULLIF(p.pack_json->>'nome_uc', ''),
+            NULLIF(p.pack_json->>'nome', ''),
+            NULLIF(p.pack_json->>'NOME', ''),
+            NULLIF(p.pack_json->>'nm', ''),
+            NULLIF(p.pack_json->>'NM', ''),
+            NULLIF(p.pack_json->>'denominacao', ''),
+            NULLIF(p.pack_json->>'descricao', ''),
+            NULLIF(f.feature_key, '')
+          ) AS display_name,
+          CASE
+            WHEN NULLIF(p.pack_json->>'nome_uc', '') IS NOT NULL THEN 'nome_uc'
+            WHEN NULLIF(p.pack_json->>'nome', '') IS NOT NULL THEN 'nome'
+            WHEN NULLIF(p.pack_json->>'NOME', '') IS NOT NULL THEN 'NOME'
+            WHEN NULLIF(p.pack_json->>'nm', '') IS NOT NULL THEN 'nm'
+            WHEN NULLIF(p.pack_json->>'NM', '') IS NOT NULL THEN 'NM'
+            WHEN NULLIF(p.pack_json->>'denominacao', '') IS NOT NULL THEN 'denominacao'
+            WHEN NULLIF(p.pack_json->>'descricao', '') IS NOT NULL THEN 'descricao'
+            WHEN NULLIF(f.feature_key, '') IS NOT NULL THEN 'feature_key'
+            ELSE NULL
+          END AS display_name_key,
+          u.categoria_uc AS ucs_categoria,
+          r.sicar_area_m2,
+          r.feature_area_m2,
+          r.overlap_area_m2,
+          r.overlap_pct_of_sicar,
+          ST_AsGeoJSON(
+            ST_SimplifyPreserveTopology(g.geom, ${safeTolerance})
+          ) AS geom
+        FROM ${Prisma.raw('"app"."analysis_result"')} r
+        JOIN ${Prisma.raw(`"${schema}"."lw_dataset"`)} d
+          ON d.code = r.dataset_code
+        JOIN ${Prisma.raw(`"${schema}"."lw_feature_geom_hist"`)} h_geom
+          ON h_geom.dataset_id = d.dataset_id
+         AND h_geom.feature_id = r.feature_id
+          ${dateFilter}
+        JOIN ${Prisma.raw(`"${schema}"."lw_geom_store"`)} g
+          ON g.geom_id = h_geom.geom_id
+        LEFT JOIN ${Prisma.raw(`"${schema}"."lw_feature"`)} f
+          ON f.dataset_id = d.dataset_id
+         AND f.feature_id = r.feature_id
+        LEFT JOIN ${Prisma.raw(`"${schema}"."lw_feature_attr_pack_hist"`)} h_attr
+          ON h_attr.dataset_id = d.dataset_id
+         AND h_attr.feature_id = r.feature_id
+         AND h_attr.valid_from <= ${analysisDate}::date
+         AND (h_attr.valid_to IS NULL OR h_attr.valid_to > ${analysisDate}::date)
+        LEFT JOIN ${Prisma.raw(`"${schema}"."lw_attr_pack"`)} p
+          ON p.pack_id = h_attr.pack_id
+        LEFT JOIN ${Prisma.raw(`"${schema}"."mv_ucs_sigla_active"`)} u
+          ON u.dataset_code = r.dataset_code
+         AND u.feature_id = r.feature_id
+        WHERE r.analysis_id = ${id}
+          AND r.feature_id IS NOT NULL
+          ${whereByKind}
+      `;
+      try {
+        const rawFallback =
+          await this.queryRawWithRetry<GeoJsonRow[]>(fallbackSql);
+        rows = Array.isArray(rawFallback) ? rawFallback : [];
+      } catch {
+        rows = [];
+      }
+    }
+
+    const features = rows
+      .map((row, idx): AnalysisGeoJsonFeature | null => {
+        if (!row.geom) return null;
+        const geometry = JSON.parse(row.geom) as Record<string, unknown>;
+        const featureId =
+          this.normalizeFeatureId(row.feature_id)?.toString() ?? null;
+        const sicarAreaM2 = this.toNumber(row.sicar_area_m2);
+        const featureAreaM2 = this.toNumber(row.feature_area_m2);
+        const overlapAreaM2 = this.toNumber(row.overlap_area_m2);
+        const overlapPctOfSicar = this.toNumber(row.overlap_pct_of_sicar);
+        const featureAreaHa =
+          featureAreaM2 !== null
+            ? Number((featureAreaM2 / 10000).toFixed(6))
+            : null;
+        const overlapAreaHa =
+          overlapAreaM2 !== null
+            ? Number((overlapAreaM2 / 10000).toFixed(6))
+            : null;
+        const isSicar = (row.category_code ?? '').toUpperCase() === 'SICAR';
+        const hasIntersection = !isSicar && (overlapAreaM2 ?? 0) > 0;
+
+        return {
+          type: 'Feature',
+          id: featureId
+            ? `${row.dataset_code}:${featureId}`
+            : `${row.dataset_code}:${idx}`,
+          geometry,
+          properties: {
+            analysisResultId: row.analysis_result_id,
+            categoryCode: row.category_code,
+            datasetCode: row.dataset_code,
+            datasetLabel: row.dataset_label ?? row.dataset_code,
+            snapshotDate: row.snapshot_date
+              ? new Date(row.snapshot_date).toISOString().slice(0, 10)
+              : null,
+            isSicar,
+            featureId,
+            featureKey: row.feature_key ?? null,
+            naturalId: row.natural_id ?? null,
+            naturalIdKey: row.natural_id_key ?? null,
+            displayName: row.display_name ?? row.feature_key ?? null,
+            displayNameKey:
+              row.display_name_key ?? (row.feature_key ? 'feature_key' : null),
+            ucsCategoria: row.ucs_categoria ?? null,
+            sicarAreaM2,
+            featureAreaM2,
+            overlapAreaM2,
+            overlapPctOfSicar,
+            featureAreaHa,
+            overlapAreaHa,
+            hasIntersection,
+          },
+        };
+      })
+      .filter((value): value is AnalysisGeoJsonFeature => Boolean(value));
+
+    const overlapAreaM2Total = Number(
+      features
+        .reduce(
+          (acc, feature) => acc + (feature.properties.overlapAreaM2 ?? 0),
+          0,
+        )
+        .toFixed(6),
+    );
+
+    const collection: AnalysisGeoJsonCollection = {
+      type: 'FeatureCollection',
+      properties: {
+        analysisId: analysis.id,
+        carKey: analysis.carKey,
+        analysisDate,
+        analysisKind:
+          analysisKind === AnalysisKind.DETER ? 'DETER' : 'STANDARD',
+        generatedAt: this.nowProvider().toISOString(),
+        geomMode: 'feature_geom',
+        tolerance: safeTolerance,
+        totals: {
+          features: features.length,
+          intersections: features.filter(
+            (feature) => feature.properties.hasIntersection,
+          ).length,
+          datasets: new Set(
+            features.map((feature) => feature.properties.datasetCode),
+          ).size,
+          overlapAreaM2: overlapAreaM2Total,
+        },
+      },
+      features,
+    };
+
+    this.logger.log(
+      JSON.stringify({
+        event: 'analysis.geojson.built',
+        analysisId: id,
+        features: features.length,
+        tolerance: safeTolerance,
+        durationMs: Date.now() - startedAt,
+      }),
+    );
+
+    return collection;
   }
 
   async listIndigenaPhases(asOf?: string) {
     const analysisDate = this.normalizeDate(asOf);
     const schema = this.getSchema();
     return this.fetchIndigenaPhases(schema, analysisDate);
+  }
+
+  private buildResultWhereByKind(kind: AnalysisKind) {
+    return kind === AnalysisKind.DETER
+      ? Prisma.sql`
+          AND r.category_code <> 'BIOMAS'
+          AND (
+            r.category_code = 'DETER'
+            OR r.dataset_code ILIKE 'DETER%'
+            OR (r.dataset_code ILIKE 'CAR\\_%' AND r.feature_area_m2 IS NULL)
+          )
+        `
+      : Prisma.sql`
+          AND r.category_code NOT IN ('BIOMAS', 'DETER')
+          AND r.dataset_code NOT ILIKE 'DETER%'
+          AND (r.dataset_code NOT ILIKE 'CAR\\_%' OR r.feature_area_m2 IS NULL)
+        `;
   }
 
   private shouldIncludeDetailResult(
@@ -482,6 +971,15 @@ export class AnalysisDetailService {
     if (typeof value === 'number') return BigInt(value);
     if (typeof value === 'string' && value.length > 0) return BigInt(value);
     return null;
+  }
+
+  private toNumber(value: string | number | null | undefined): number | null {
+    if (value === null || value === undefined) return null;
+    if (typeof value === 'number') {
+      return Number.isFinite(value) ? value : null;
+    }
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
   }
 
   private async queryRawWithRetry<T>(

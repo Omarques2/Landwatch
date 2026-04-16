@@ -75,6 +75,8 @@ describe('AnalysisDetailService', () => {
         snapshot_date: null,
         feature_id: 1,
         geom_id: 10,
+        display_name: null,
+        natural_id: null,
         geom: '{"type":"Polygon","coordinates":[[[0,0],[1,0],[1,1],[0,0]]]}',
       },
       {
@@ -83,6 +85,8 @@ describe('AnalysisDetailService', () => {
         snapshot_date: null,
         feature_id: 2,
         geom_id: 20,
+        display_name: null,
+        natural_id: null,
         geom: '{"type":"Polygon","coordinates":[[[0,0],[1,0],[1,1],[0,0]]]}',
       },
       {
@@ -91,6 +95,8 @@ describe('AnalysisDetailService', () => {
         snapshot_date: null,
         feature_id: 3,
         geom_id: 30,
+        display_name: null,
+        natural_id: null,
         geom: '{"type":"Polygon","coordinates":[[[0,0],[1,0],[1,1],[0,0]]]}',
       },
     ]);
@@ -109,6 +115,8 @@ describe('AnalysisDetailService', () => {
     expect(result).toHaveLength(1);
     expect(result[0].datasetCode).toBe('PRODES_2024');
     expect(result[0].featureId).toBe('3');
+    expect(result[0].displayName).toBeNull();
+    expect(result[0].naturalId).toBeNull();
   });
 
   it('keeps DETER rows in map for DETER analyses', async () => {
@@ -126,6 +134,8 @@ describe('AnalysisDetailService', () => {
         snapshot_date: null,
         feature_id: 2,
         geom_id: 20,
+        display_name: null,
+        natural_id: null,
         geom: '{"type":"Polygon","coordinates":[[[0,0],[1,0],[1,1],[0,0]]]}',
       },
     ]);
@@ -141,6 +151,170 @@ describe('AnalysisDetailService', () => {
 
     expect(result).toHaveLength(1);
     expect(result[0].datasetCode).toBe('DETER_AMZ_2024');
+    expect(result[0].displayName).toBeNull();
+    expect(result[0].naturalId).toBeNull();
+  });
+
+  it('returns UCS displayName/naturalId and keeps non-UCS enrichment as null', async () => {
+    const prisma = makePrismaMock();
+    prisma.analysis.findUnique.mockResolvedValue({
+      id: 'analysis-1',
+      carKey: 'CAR-1',
+      analysisDate: new Date('2026-01-31'),
+      analysisKind: AnalysisKind.STANDARD,
+    });
+    prisma.$queryRaw.mockResolvedValueOnce([
+      {
+        category_code: 'UCS',
+        dataset_code: 'UNIDADES_CONSERVACAO',
+        snapshot_date: null,
+        feature_id: 10,
+        geom_id: 101,
+        display_name: 'Parque Nacional Teste',
+        natural_id: '1234.56.7890',
+        geom: '{"type":"Polygon","coordinates":[[[0,0],[1,0],[1,1],[0,0]]]}',
+      },
+      {
+        category_code: 'PRODES',
+        dataset_code: 'PRODES_2024',
+        snapshot_date: null,
+        feature_id: 20,
+        geom_id: 202,
+        display_name: 'Nao Deve Sair',
+        natural_id: 'NAO-DEVE-SAIR',
+        geom: '{"type":"Polygon","coordinates":[[[0,0],[1,0],[1,1],[0,0]]]}',
+      },
+    ]);
+
+    const docInfo = { buildDocInfo: jest.fn() };
+    const service = new AnalysisDetailService(
+      prisma as any,
+      docInfo as any,
+      () => now,
+    );
+
+    const result = await service.getMapById('analysis-1');
+
+    expect(result).toHaveLength(2);
+    expect(result[0]).toEqual(
+      expect.objectContaining({
+        datasetCode: 'UNIDADES_CONSERVACAO',
+        displayName: 'Parque Nacional Teste',
+        naturalId: '1234.56.7890',
+      }),
+    );
+    expect(result[1]).toEqual(
+      expect.objectContaining({
+        datasetCode: 'PRODES_2024',
+        displayName: null,
+        naturalId: null,
+      }),
+    );
+  });
+
+  it('builds enriched geojson with totals and fallback identifiers', async () => {
+    const prisma = makePrismaMock();
+    prisma.analysis.findUnique.mockResolvedValue({
+      id: 'analysis-1',
+      carKey: 'CAR-1',
+      analysisDate: new Date('2026-01-31'),
+      analysisKind: AnalysisKind.STANDARD,
+    });
+    prisma.$queryRaw.mockResolvedValueOnce([
+      {
+        analysis_result_id: 'result-1',
+        category_code: 'SICAR',
+        dataset_code: 'SICAR',
+        dataset_label: 'SICAR',
+        snapshot_date: null,
+        feature_id: 1,
+        feature_key: 'CAR-1',
+        natural_id: 'CAR-1',
+        natural_id_key: 'feature_key',
+        display_name: 'CAR-1',
+        display_name_key: 'feature_key',
+        ucs_categoria: null,
+        sicar_area_m2: '1000',
+        feature_area_m2: null,
+        overlap_area_m2: null,
+        overlap_pct_of_sicar: null,
+        geom: '{"type":"Polygon","coordinates":[[[0,0],[1,0],[1,1],[0,0]]]}',
+      },
+      {
+        analysis_result_id: 'result-2',
+        category_code: 'UCS',
+        dataset_code: 'UNIDADES_CONSERVACAO',
+        dataset_label: 'Unidades de Conservacao',
+        snapshot_date: '2026-01-31',
+        feature_id: 2,
+        feature_key: null,
+        natural_id: '1234.56.7890',
+        natural_id_key: 'cnuc_code',
+        display_name: 'Parque Nacional Teste',
+        display_name_key: 'nome_uc',
+        ucs_categoria: 'Parque Nacional',
+        sicar_area_m2: '1000',
+        feature_area_m2: '200',
+        overlap_area_m2: '50',
+        overlap_pct_of_sicar: '5',
+        geom: '{"type":"Polygon","coordinates":[[[0,0],[1,0],[1,1],[0,0]]]}',
+      },
+    ]);
+
+    const docInfo = { buildDocInfo: jest.fn() };
+    const service = new AnalysisDetailService(
+      prisma as any,
+      docInfo as any,
+      () => now,
+    );
+
+    const result = await service.getGeoJsonById('analysis-1');
+
+    expect(result.type).toBe('FeatureCollection');
+    expect(result.properties.analysisId).toBe('analysis-1');
+    expect(result.properties.geomMode).toBe('feature_geom');
+    expect(result.properties.totals).toEqual({
+      features: 2,
+      intersections: 1,
+      datasets: 2,
+      overlapAreaM2: 50,
+    });
+    expect(result.features[1].properties).toEqual(
+      expect.objectContaining({
+        naturalId: '1234.56.7890',
+        naturalIdKey: 'cnuc_code',
+        displayName: 'Parque Nacional Teste',
+        displayNameKey: 'nome_uc',
+        ucsCategoria: 'Parque Nacional',
+        overlapAreaHa: 0.005,
+        featureAreaHa: 0.02,
+        hasIntersection: true,
+      }),
+    );
+  });
+
+  it('builds geojson query with DETER filter for DETER analyses', async () => {
+    const prisma = makePrismaMock();
+    prisma.analysis.findUnique.mockResolvedValue({
+      id: 'analysis-1',
+      carKey: 'CAR-1',
+      analysisDate: new Date('2026-01-31'),
+      analysisKind: AnalysisKind.DETER,
+    });
+    prisma.$queryRaw.mockResolvedValueOnce([]);
+
+    const docInfo = { buildDocInfo: jest.fn() };
+    const service = new AnalysisDetailService(
+      prisma as any,
+      docInfo as any,
+      () => now,
+    );
+
+    await service.getGeoJsonById('analysis-1');
+
+    const sqlArg = prisma.$queryRaw.mock.calls[0]?.[0] as { sql?: string };
+    expect(sqlArg?.sql ?? '').toContain("r.category_code = 'DETER'");
+    expect(sqlArg?.sql ?? '').toContain('"analysis_result"');
   });
 
   it('splits UCS datasets into a dedicated group without showing the raw UCS dataset', () => {

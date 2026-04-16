@@ -239,6 +239,8 @@ type MapFeature = {
   categoryCode: string;
   datasetCode: string;
   featureId?: string | null;
+  displayName?: string | null;
+  naturalId?: string | null;
   geom: any;
 };
 
@@ -325,7 +327,7 @@ const indigenaLegendItems = computed(() =>
 );
 
 const ucsLegendItems = computed(() =>
-  buildUcsLegendItems(analysis.value?.datasetGroups ?? [], mapFeatures.value),
+  buildUcsLegendItems(mapFeatures.value),
 );
 
 const printLegend = computed(() => {

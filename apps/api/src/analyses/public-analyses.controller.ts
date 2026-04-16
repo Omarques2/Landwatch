@@ -20,4 +20,13 @@ export class PublicAnalysesController {
     const parsed = tolerance ? Number(tolerance) : undefined;
     return this.analyses.getMapById(id, parsed);
   }
+
+  @Get(':id/geojson')
+  async getGeoJson(
+    @Param('id') id: string,
+    @Query('tolerance') tolerance?: string,
+  ) {
+    const parsed = tolerance ? Number(tolerance) : undefined;
+    return this.analyses.getGeoJsonById(id, parsed);
+  }
 }

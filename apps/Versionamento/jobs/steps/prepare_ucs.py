@@ -1,4 +1,6 @@
+import argparse
 import json
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
@@ -6,7 +8,18 @@ from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 import geopandas as gpd
 import pandas as pd
 
-from .common import DatasetArtifact, ensure_dir, log_info, log_warn
+try:
+    from .common import DatasetArtifact, ensure_dir, log_info, log_warn
+    from .prepare_ucs_novas_fontes import (
+        build_prepared_novas_fontes_ucs,
+        discover_source_layers as discover_novas_fontes_layers,
+    )
+except ImportError:  # suporte a execucao direta via `python prepare_ucs.py`
+    from common import DatasetArtifact, ensure_dir, log_info, log_warn
+    from prepare_ucs_novas_fontes import (
+        build_prepared_novas_fontes_ucs,
+        discover_source_layers as discover_novas_fontes_layers,
+    )
 
 OUTPUT_DATASET_CODE = "UNIDADES_CONSERVACAO"
 OUTPUT_FILENAME = f"{OUTPUT_DATASET_CODE}.shp"
@@ -171,7 +184,9 @@ def _validate_prepared_output(prepared: gpd.GeoDataFrame) -> None:
         if null_or_blank:
             raise PrepareUcsError(f"Output UCS invalido: coluna '{col}' com {null_or_blank} valor(es) nulo(s)/vazio(s).")
 
-    invalid_source = int((~prepared["source"].isin(ALLOWED_SOURCE_VALUES)).sum())
+    source_series = prepared["source"].fillna("")
+    source_valid_mask = source_series.isin(ALLOWED_SOURCE_VALUES) | source_series.str.startswith("NOVASFONTES_")
+    invalid_source = int((~source_valid_mask).sum())
     if invalid_source:
         raise PrepareUcsError(f"Output UCS invalido: {invalid_source} linha(s) com source invalido.")
 
@@ -265,6 +280,50 @@ def build_prepared_ucs(
     return prepared, metrics
 
 
+def _merge_with_novas_fontes(
+    base_prepared: gpd.GeoDataFrame,
+    novas_fontes_root: Path,
+) -> Tuple[gpd.GeoDataFrame, Dict[str, int]]:
+    if not novas_fontes_root.exists():
+        raise FileNotFoundError(f"Diretorio de NovasFontes nao encontrado: {novas_fontes_root}")
+    if not novas_fontes_root.is_dir():
+        raise PrepareUcsError(f"Caminho de NovasFontes invalido (nao e diretorio): {novas_fontes_root}")
+
+    source_layers = discover_novas_fontes_layers(novas_fontes_root)
+    novas_prepared, novas_metrics = build_prepared_novas_fontes_ucs(
+        source_layers=source_layers,
+        base_ucs=base_prepared,
+    )
+
+    if base_prepared.crs and novas_prepared.crs and base_prepared.crs != novas_prepared.crs:
+        novas_prepared = novas_prepared.to_crs(base_prepared.crs)
+    elif base_prepared.crs is None and novas_prepared.crs is not None:
+        base_prepared = base_prepared.set_crs(novas_prepared.crs, allow_override=True)
+    elif novas_prepared.crs is None and base_prepared.crs is not None:
+        novas_prepared = novas_prepared.set_crs(base_prepared.crs, allow_override=True)
+
+    merged = pd.concat([base_prepared, novas_prepared], ignore_index=True)
+    merged = gpd.GeoDataFrame(merged, geometry=base_prepared.geometry.name, crs=base_prepared.crs or novas_prepared.crs)
+    merged["cnuc_code"] = merged["cnuc_code"].map(normalize_cnuc_code)
+    for col in ["nome_uc", "categoria", "grupo", "esfera", "source"]:
+        merged[col] = merged[col].map(_normalize_text)
+    merged = merged.sort_values(by=["cnuc_code"], ascending=True).reset_index(drop=True)
+
+    merged_dup = int(merged.duplicated(subset=["cnuc_code"]).sum())
+    if merged_dup:
+        raise PrepareUcsError(f"Output UCS invalido apos merge com NovasFontes: {merged_dup} codigo(s) duplicado(s).")
+
+    _validate_prepared_output(merged)
+
+    extra_metrics = {
+        "novas_source_layers": int(novas_metrics.get("source_layers", 0)),
+        "novas_candidate_in": int(novas_metrics.get("candidate_in", 0)),
+        "novas_base_filtered": int(novas_metrics.get("base_filtered", 0)),
+        "novas_output_total": int(novas_metrics.get("output_total", 0)),
+    }
+    return merged, extra_metrics
+
+
 def _collect_shapefile_family(shp_path: Path) -> List[Path]:
     stem = shp_path.stem
     return sorted([p for p in shp_path.parent.glob(f"{stem}.*") if p.is_file()])
@@ -281,6 +340,7 @@ def prepare_ucs_files(
     cnuc_shp: Path,
     output_dir: Path,
     output_stem: str = OUTPUT_DATASET_CODE,
+    novas_fontes_root: Optional[Path] = None,
 ) -> PrepareUcsResult:
     if not fed_shp.exists():
         raise FileNotFoundError(f"SHP federal nao encontrado: {fed_shp}")
@@ -293,6 +353,10 @@ def prepare_ucs_files(
     federal = gpd.read_file(fed_shp)
     cnuc = gpd.read_file(cnuc_shp)
     prepared, metrics = build_prepared_ucs(federal, cnuc)
+    if novas_fontes_root is not None:
+        prepared, extra_metrics = _merge_with_novas_fontes(prepared, novas_fontes_root)
+        metrics.update(extra_metrics)
+        metrics["output_total"] = int(len(prepared))
 
     _delete_shapefile_family(output_shp)
     prepared.to_file(output_shp, driver="ESRI Shapefile", encoding="UTF-8")
@@ -311,6 +375,7 @@ def prepare_ucs_files(
                 f"intersect={metrics['intersect']}",
                 f"cnuc_complement={metrics['cnuc_complement']}",
                 f"fed_missing_cnuc_categoria={metrics['fed_missing_cnuc_categoria']}",
+                f"novas_output_total={metrics.get('novas_output_total', 0)}",
                 f"dropped_null_geom={metrics['dropped_null_geom']}",
                 f"output_total={metrics['output_total']}",
             ]
@@ -371,8 +436,15 @@ def run(
     snapshot_date: str,
 ) -> DatasetArtifact:
     fed_shp, cnuc_shp = find_ucs_source_shps(artifacts)
+    novas_fontes_env = os.environ.get("LANDWATCH_UCS_NOVAS_FONTES_ROOT", "").strip()
+    novas_fontes_root = Path(novas_fontes_env) if novas_fontes_env else None
     output_dir = work_dir / "URL" / "UCS"
-    result = prepare_ucs_files(fed_shp=fed_shp, cnuc_shp=cnuc_shp, output_dir=output_dir)
+    result = prepare_ucs_files(
+        fed_shp=fed_shp,
+        cnuc_shp=cnuc_shp,
+        output_dir=output_dir,
+        novas_fontes_root=novas_fontes_root,
+    )
     return DatasetArtifact(
         category="UCS",
         dataset_code=OUTPUT_DATASET_CODE,
@@ -382,7 +454,40 @@ def run(
             "prepared": True,
             "fed_shp": str(fed_shp),
             "cnuc_shp": str(cnuc_shp),
+            "novas_fontes_root": str(novas_fontes_root) if novas_fontes_root else None,
             "qa_report": str(result.qa_report_path),
             "qa_metrics": result.metrics,
         },
     )
+
+
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Prepara UCS unificado (Federal + CNUC + NovasFontes opcional).")
+    parser.add_argument("--fed-shp", required=True, help="Caminho do SHP federal.")
+    parser.add_argument("--cnuc-shp", required=True, help="Caminho do SHP CNUC.")
+    parser.add_argument("--output-dir", required=True, help="Diretorio de saida do SHP preparado.")
+    parser.add_argument("--output-stem", default=OUTPUT_DATASET_CODE, help="Nome base do arquivo SHP de saida.")
+    parser.add_argument(
+        "--novas-fontes-root",
+        default=None,
+        help="Diretorio com as NovasFontes para incrementar no dataset final (opcional).",
+    )
+    return parser.parse_args()
+
+
+def main() -> int:
+    args = _parse_args()
+    result = prepare_ucs_files(
+        fed_shp=Path(args.fed_shp),
+        cnuc_shp=Path(args.cnuc_shp),
+        output_dir=Path(args.output_dir),
+        output_stem=args.output_stem,
+        novas_fontes_root=Path(args.novas_fontes_root) if args.novas_fontes_root else None,
+    )
+    log_info(f"SHP saida: {result.output_shp}")
+    log_info(f"QA report: {result.qa_report_path}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

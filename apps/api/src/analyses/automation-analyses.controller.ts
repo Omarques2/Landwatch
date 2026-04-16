@@ -60,4 +60,21 @@ export class AutomationAnalysesController {
     const parsed = tolerance ? Number(tolerance) : undefined;
     return this.analyses.getMapById(id, parsed);
   }
+
+  @Get(':id/geojson')
+  @ApiKeyScopes(ApiKeyScope.analysis_read)
+  async getGeoJson(
+    @Req() req: AuthedRequest,
+    @Param('id') id: string,
+    @Query('tolerance') tolerance?: string,
+  ) {
+    if (!req.apiKey) {
+      throw new UnauthorizedException({
+        code: 'UNAUTHORIZED',
+        message: 'Missing API key context',
+      });
+    }
+    const parsed = tolerance ? Number(tolerance) : undefined;
+    return this.analyses.getGeoJsonById(id, parsed);
+  }
 }

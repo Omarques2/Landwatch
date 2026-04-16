@@ -47,6 +47,7 @@ describe('AnalysesService', () => {
       detail: {
         getById: jest.fn(),
         getMapById: jest.fn(),
+        getGeoJsonById: jest.fn(),
         listIndigenaPhases: jest.fn(),
       },
       cache: {
@@ -359,6 +360,72 @@ describe('AnalysesService', () => {
 
     expect(result).toEqual(mapRows);
     expect(deps.detail.getMapById).not.toHaveBeenCalled();
+  });
+
+  it('returns cached geojson when tolerance matches', async () => {
+    const prisma = makePrismaMock();
+    const deps = makeDeps();
+    const geojson = {
+      type: 'FeatureCollection',
+      features: [],
+      properties: { analysisId: 'analysis-1' },
+    };
+    deps.cache.get.mockResolvedValue({
+      cacheVersion: ANALYSIS_CACHE_VERSION,
+      geojson: { tolerance: 0.0001, collection: geojson },
+    });
+
+    const service = new AnalysesService(
+      prisma,
+      deps.runner as any,
+      deps.detail as any,
+      deps.cache as any,
+      deps.docInfo as any,
+      deps.landwatchStatus as any,
+      () => now,
+    );
+
+    const result = await service.getGeoJsonById('analysis-1');
+
+    expect(result).toEqual(geojson);
+    expect(deps.detail.getGeoJsonById).not.toHaveBeenCalled();
+  });
+
+  it('delegates geojson to detail service when cache is missing', async () => {
+    const prisma = makePrismaMock();
+    const deps = makeDeps();
+    const geojson = {
+      type: 'FeatureCollection',
+      features: [
+        {
+          type: 'Feature',
+          id: 'UCS:1',
+          geometry: { type: 'Point', coordinates: [0, 0] },
+          properties: {},
+        },
+      ],
+      properties: { analysisId: 'analysis-1' },
+    };
+    deps.cache.get.mockResolvedValue(null);
+    deps.detail.getGeoJsonById.mockResolvedValue(geojson);
+
+    const service = new AnalysesService(
+      prisma,
+      deps.runner as any,
+      deps.detail as any,
+      deps.cache as any,
+      deps.docInfo as any,
+      deps.landwatchStatus as any,
+      () => now,
+    );
+
+    const result = await service.getGeoJsonById('analysis-1', 0.002);
+
+    expect(result).toEqual(geojson);
+    expect(deps.detail.getGeoJsonById).toHaveBeenCalledWith(
+      'analysis-1',
+      0.002,
+    );
   });
 
   it('filters analyses by farmId when provided', async () => {

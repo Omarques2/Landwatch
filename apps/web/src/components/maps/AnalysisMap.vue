@@ -27,11 +27,19 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import L from "leaflet";
 import { colorForDataset, formatDatasetLabel } from "@/features/analyses/analysis-colors";
+import {
+  buildUcsLegendItems,
+  getUcsDisplayName,
+  getUcsLegendCode,
+  isUcsFeature,
+} from "@/features/analyses/analysis-legend";
 
 type MapFeature = {
   categoryCode: string;
   datasetCode: string;
   featureId?: string | null;
+  displayName?: string | null;
+  naturalId?: string | null;
   geom: any;
 };
 
@@ -52,9 +60,25 @@ let selectedKey: string | null = null;
 let selectedDataset: string | null = null;
 let printModeState = false;
 
+const ucsLegendItems = computed(() => buildUcsLegendItems(props.features));
+const ucsColorByCode = computed(() => {
+  return new Map(ucsLegendItems.value.map((item) => [item.code, item.color]));
+});
+
+function colorForFeatureCode(datasetCode: string, legendCode?: string | null) {
+  if (legendCode && legendCode.startsWith("UCS_")) {
+    return ucsColorByCode.value.get(legendCode) ?? colorForDataset(datasetCode);
+  }
+  return colorForDataset(datasetCode);
+}
+
 const legend = computed(() => {
   const codes = Array.from(
-    new Set(props.features.filter((f) => f.categoryCode !== "SICAR").map((f) => f.datasetCode)),
+    new Set(
+      props.features
+        .filter((f) => f.categoryCode !== "SICAR" && !isUcsFeature(f))
+        .map((f) => f.datasetCode),
+    ),
   );
   return [
     { code: "SICAR", label: "CAR", color: "#ef4444" },
@@ -63,6 +87,7 @@ const legend = computed(() => {
       label: formatDatasetLabel(code),
       color: colorForDataset(code),
     })),
+    ...ucsLegendItems.value,
   ];
 });
 
@@ -85,6 +110,9 @@ function buildFeatureCollection(
         properties: {
           datasetCode: f.datasetCode,
           categoryCode: f.categoryCode,
+          displayName: f.displayName ?? null,
+          naturalId: f.naturalId ?? null,
+          legendCode: getUcsLegendCode(f) ?? f.datasetCode,
           isSicar: f.categoryCode === "SICAR",
           featureId: f.featureId ?? null,
           __key: f.featureId ? `${f.datasetCode}-${f.featureId}` : `${f.datasetCode}-${idx}`,
@@ -199,19 +227,21 @@ function updateLayers() {
     otherLayer = L.geoJSON(otherFeatures as any, {
       style: (feature: any) => {
         const code = feature?.properties?.datasetCode ?? "";
+        const legendCode = feature?.properties?.legendCode ?? code;
         const key = feature?.properties?.__key ?? "";
         const isSelected = key && key === selectedKey;
-        const isDatasetActive = selectedDataset ? code === selectedDataset : true;
+        const isDatasetActive = selectedDataset ? legendCode === selectedDataset : true;
         return {
           color: isSelected ? "#0f172a" : "#111827",
           weight: isSelected ? 2.5 : 1,
-          fillColor: colorForDataset(code),
+          fillColor: colorForFeatureCode(code, legendCode),
           fillOpacity: isSelected ? 0.75 : isDatasetActive ? 0.6 : 0.15,
         };
       },
       pointToLayer: (feature: any, latlng) => {
         const code = feature?.properties?.datasetCode ?? "";
-        const color = colorForDataset(code);
+        const legendCode = feature?.properties?.legendCode ?? code;
+        const color = colorForFeatureCode(code, legendCode);
         return L.circleMarker(latlng, {
           radius: 0,
           color,
@@ -224,7 +254,19 @@ function updateLayers() {
       onEachFeature: (feature, layer) => {
         const code = feature.properties?.datasetCode ?? "";
         const category = feature.properties?.categoryCode ?? "";
-        layer.bindTooltip(`${formatDatasetLabel(code)} (${category})`, { sticky: true });
+        const label = isUcsFeature({
+          categoryCode: category,
+          datasetCode: code,
+        })
+          ? getUcsDisplayName({
+              categoryCode: category,
+              datasetCode: code,
+              featureId: feature.properties?.featureId ?? null,
+              displayName: feature.properties?.displayName ?? null,
+              naturalId: feature.properties?.naturalId ?? null,
+            }) ?? formatDatasetLabel(code)
+          : formatDatasetLabel(code);
+        layer.bindTooltip(`${label} (${category})`, { sticky: true });
         layer.on("click", () => {
           const key = feature.properties?.__key ?? null;
           if (selectedKey && key === selectedKey) {
@@ -232,7 +274,7 @@ function updateLayers() {
             selectedDataset = null;
           } else {
             selectedKey = key;
-            selectedDataset = feature.properties?.datasetCode ?? null;
+            selectedDataset = feature.properties?.legendCode ?? feature.properties?.datasetCode ?? null;
           }
           selectedDatasetRef.value = selectedDataset;
           applyStyles();
@@ -293,13 +335,14 @@ function applyStyles() {
   const sicarSelected = selectedDataset === "SICAR";
   otherLayer?.setStyle((feat: any) => {
     const featCode = feat?.properties?.datasetCode ?? "";
+    const legendCode = feat?.properties?.legendCode ?? featCode;
     const featKey = feat?.properties?.__key ?? "";
     const isSelected = featKey && featKey === selectedKey;
-    const isDatasetActive = selectedDataset ? featCode === selectedDataset : true;
+    const isDatasetActive = selectedDataset ? legendCode === selectedDataset : true;
     return {
       color: isSelected ? "#0f172a" : "#111827",
       weight: isSelected ? 2.5 : 1,
-      fillColor: colorForDataset(featCode),
+      fillColor: colorForFeatureCode(featCode, legendCode),
       fillOpacity: isSelected ? 0.75 : isDatasetActive ? 0.6 : 0.15,
     };
   });

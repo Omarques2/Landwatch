@@ -61,6 +61,15 @@ export class AnalysesController {
     return this.analyses.getMapById(id, parsed);
   }
 
+  @Get(':id/geojson')
+  async getGeoJson(
+    @Param('id') id: string,
+    @Query('tolerance') tolerance?: string,
+  ) {
+    const parsed = tolerance ? Number(tolerance) : undefined;
+    return this.analyses.getGeoJsonById(id, parsed);
+  }
+
   @Get(':id/pdf')
   getPdf(@Param('id') id: string) {
     return {

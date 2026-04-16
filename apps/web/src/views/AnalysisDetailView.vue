@@ -321,7 +321,20 @@ type MapFeature = {
   categoryCode: string;
   datasetCode: string;
   featureId?: string | null;
+  displayName?: string | null;
+  naturalId?: string | null;
   geom: any;
+};
+
+type GeoJsonCollection = {
+  type: "FeatureCollection";
+  properties?: Record<string, unknown>;
+  features: Array<{
+    type: "Feature";
+    id?: string;
+    geometry: unknown;
+    properties?: Record<string, unknown>;
+  }>;
 };
 
 const route = useRoute();
@@ -475,7 +488,7 @@ const indigenaLegendItems = computed(() =>
 );
 
 const ucsLegendItems = computed(() =>
-  buildUcsLegendItems(analysis.value?.datasetGroups ?? [], mapFeatures.value),
+  buildUcsLegendItems(mapFeatures.value),
 );
 
 const printLegend = computed(() => {
@@ -671,44 +684,19 @@ function buildExportFileBase() {
   return suffix ? `Sigfarm-LandWatch-${suffix}` : "Sigfarm-LandWatch";
 }
 
-function buildGeoJsonCollection() {
-  const features = mapFeatures.value
-    .filter((item) => item.geom)
-    .map((item, idx) => ({
-      type: "Feature",
-      geometry: item.geom,
-      properties: {
-        categoryCode: item.categoryCode,
-        datasetCode: item.datasetCode,
-        featureId: item.featureId ?? null,
-        isSicar: item.categoryCode === "SICAR",
-        __key: item.featureId ? `${item.datasetCode}-${item.featureId}` : `${item.datasetCode}-${idx}`,
-      },
-    }));
-
-  return {
-    type: "FeatureCollection",
-    features,
-    properties: {
-      analysisId: analysis.value?.id ?? null,
-      carKey: analysis.value?.carKey ?? null,
-      analysisDate: analysis.value?.analysisDate ?? null,
-    },
-  };
-}
-
 async function downloadGeoJson() {
   if (!analysis.value) {
     await loadAnalysis();
   }
   if (!analysis.value) return;
   if (analysis.value.status !== "completed") return;
-  if (!mapFeatures.value.length && !mapLoading.value) {
-    await loadMap(analysis.value.id);
+  const res = await http.get<ApiEnvelope<GeoJsonCollection>>(
+    `/v1/analyses/${analysis.value.id}/geojson`,
+  );
+  const payload = unwrapData(res.data);
+  if (!payload || !Array.isArray(payload.features) || payload.features.length === 0) {
+    return;
   }
-  if (!mapFeatures.value.length) return;
-
-  const payload = buildGeoJsonCollection();
   const blob = new Blob([JSON.stringify(payload)], {
     type: "application/geo+json;charset=utf-8",
   });

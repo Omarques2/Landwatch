@@ -3,6 +3,7 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  Logger,
 } from '@nestjs/common';
 import { Inject, Optional } from '@nestjs/common';
 import { AnalysisKind, FarmDocType, Prisma } from '@prisma/client';
@@ -10,7 +11,10 @@ import type { Claims } from '../auth/claims.type';
 import type { ApiKeyPrincipal } from '../auth/authed-request.type';
 import { PrismaService } from '../prisma/prisma.service';
 import { AnalysisRunnerService, NOW_PROVIDER } from './analysis-runner.service';
-import { AnalysisDetailService } from './analysis-detail.service';
+import {
+  AnalysisDetailService,
+  type AnalysisGeoJsonCollection,
+} from './analysis-detail.service';
 import { AnalysisCacheService } from './analysis-cache.service';
 import { DocInfoService } from './doc-info.service';
 import { LandwatchStatusService } from '../landwatch-status/landwatch-status.service';
@@ -36,6 +40,8 @@ type AnalysisMapRow = {
   datasetCode: string;
   snapshotDate: Date | null;
   featureId: string | null;
+  displayName: string | null;
+  naturalId: string | null;
   geom: Record<string, unknown>;
   isSicar: boolean;
 };
@@ -44,6 +50,7 @@ type AnalysisCachePayload = {
   cacheVersion?: number;
   detail?: Record<string, unknown>;
   map?: { tolerance: number; rows: AnalysisMapRow[] };
+  geojson?: { tolerance: number; collection: AnalysisGeoJsonCollection };
 };
 
 function assertIdentifier(value: string, name: string): string {
@@ -58,6 +65,7 @@ function assertIdentifier(value: string, name: string): string {
 
 @Injectable()
 export class AnalysesService {
+  private readonly logger = new Logger(AnalysesService.name);
   private readonly nowProvider: () => Date;
 
   constructor(
@@ -525,6 +533,46 @@ export class AnalysesService {
       return cached.map.rows;
     }
     return this.detail.getMapById(id, safeTolerance);
+  }
+
+  async getGeoJsonById(id: string, tolerance?: number) {
+    const safeTolerance =
+      typeof tolerance === 'number' && Number.isFinite(tolerance)
+        ? Math.min(Math.max(tolerance, 0), 0.01)
+        : 0.0001;
+    const startedAt = Date.now();
+    const cached = await this.cache.get<AnalysisCachePayload>(id);
+    if (cached && cached.cacheVersion !== ANALYSIS_CACHE_VERSION) {
+      await this.cache.invalidate(id);
+    }
+    if (
+      cached?.cacheVersion === ANALYSIS_CACHE_VERSION &&
+      cached.geojson &&
+      Math.abs(cached.geojson.tolerance - safeTolerance) < 1e-9
+    ) {
+      this.logger.log(
+        JSON.stringify({
+          event: 'analysis.geojson.cached',
+          analysisId: id,
+          tolerance: safeTolerance,
+          features: cached.geojson.collection.features.length,
+          durationMs: Date.now() - startedAt,
+        }),
+      );
+      return cached.geojson.collection;
+    }
+
+    const collection = await this.detail.getGeoJsonById(id, safeTolerance);
+    this.logger.log(
+      JSON.stringify({
+        event: 'analysis.geojson.served',
+        analysisId: id,
+        tolerance: safeTolerance,
+        features: collection.features.length,
+        durationMs: Date.now() - startedAt,
+      }),
+    );
+    return collection;
   }
 
   async listIndigenaPhases(asOf?: string) {

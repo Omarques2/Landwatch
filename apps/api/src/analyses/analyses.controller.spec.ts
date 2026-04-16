@@ -17,4 +17,32 @@ describe('AnalysesController', () => {
       response: { code: 'UNAUTHORIZED' },
     });
   });
+
+  it('forwards map and geojson requests with parsed tolerance', async () => {
+    const analysesService = {
+      create: jest.fn(),
+      getMapById: jest.fn().mockResolvedValue([]),
+      getGeoJsonById: jest
+        .fn()
+        .mockResolvedValue({ type: 'FeatureCollection' }),
+    };
+    const module: TestingModule = await Test.createTestingModule({
+      controllers: [AnalysesController],
+      providers: [{ provide: AnalysesService, useValue: analysesService }],
+    }).compile();
+
+    const controller = module.get(AnalysesController);
+
+    await controller.getMap('analysis-1', '0.005');
+    await controller.getGeoJson('analysis-1', '0.005');
+
+    expect(analysesService.getMapById).toHaveBeenCalledWith(
+      'analysis-1',
+      0.005,
+    );
+    expect(analysesService.getGeoJsonById).toHaveBeenCalledWith(
+      'analysis-1',
+      0.005,
+    );
+  });
 });

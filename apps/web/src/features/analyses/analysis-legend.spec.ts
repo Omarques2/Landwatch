@@ -3,6 +3,7 @@ import {
   buildIndigenaLegendItems,
   buildLegendCodes,
   buildUcsLegendItems,
+  getUcsLegendCode,
 } from "@/features/analyses/analysis-legend";
 
 describe("analysis-legend", () => {
@@ -65,32 +66,69 @@ describe("analysis-legend", () => {
     expect(items[0]?.label).toBe("Terra Indígena Declarada");
   });
 
-  it("builds UCS legend items from textual labels in UCS group", () => {
-    const datasetGroups = [
+  it("builds UCS legend items from UCS feature displayName", () => {
+    const mapFeatures = [
       {
-        title: "Unidades de conservação",
-        items: [
-          {
-            datasetCode: "UCS_PARQUE_NACIONAL",
-            hit: true,
-            label: "Parque Nacional",
-          },
-          {
-            datasetCode: "UCS_APA",
-            hit: false,
-            label: "Área de Proteção Ambiental",
-          },
-        ],
+        categoryCode: "UCS",
+        datasetCode: "UNIDADES_CONSERVACAO",
+        featureId: "10",
+        displayName: "Parque Nacional Teste",
+      },
+      {
+        categoryCode: "UCS",
+        datasetCode: "UNIDADES_CONSERVACAO",
+        featureId: "11",
+        displayName: "Área de Proteção Ambiental Teste",
       },
     ];
+
+    const items = buildUcsLegendItems(mapFeatures);
+
+    expect(items).toHaveLength(2);
+    expect(items[0]?.label).toBe("Área de Proteção Ambiental Teste");
+    expect(items[1]?.label).toBe("Parque Nacional Teste");
+    expect(items[0]?.color).not.toBe(items[1]?.color);
+  });
+
+  it("deduplicates UCS labels by normalized code and keeps deterministic colors", () => {
     const mapFeatures = [
-      { categoryCode: "UCS", datasetCode: "UNIDADES_CONSERVACAO" },
+      {
+        categoryCode: "UCS",
+        datasetCode: "UNIDADES_CONSERVACAO",
+        featureId: "10",
+        displayName: "Parque Nacional Teste",
+      },
+      {
+        categoryCode: "UCS",
+        datasetCode: "UNIDADES_CONSERVACAO",
+        featureId: "11",
+        displayName: "PARQUE NACIONAL TESTE",
+      },
+      {
+        categoryCode: "UCS",
+        datasetCode: "UNIDADES_CONSERVACAO",
+        featureId: "12",
+        displayName: "Área de Proteção Ambiental",
+      },
     ];
 
-    const items = buildUcsLegendItems(datasetGroups, mapFeatures);
+    const first = buildUcsLegendItems(mapFeatures);
+    const second = buildUcsLegendItems(mapFeatures);
 
-    expect(items).toHaveLength(1);
-    expect(items[0]?.label).toBe("Parque Nacional");
+    expect(first).toHaveLength(2);
+    expect(first).toEqual(second);
+  });
+
+  it("builds UCS legend code fallback as datasetCode:featureId", () => {
+    const code = getUcsLegendCode({
+      categoryCode: "UCS",
+      datasetCode: "UNIDADES_CONSERVACAO",
+      featureId: "123",
+      displayName: null,
+      naturalId: null,
+    });
+
+    expect(code).toBe("UCS_unidades_conservacao:123");
   });
 
   it("excludes generic UCS dataset code from map legend when UCS labels are shown", () => {
