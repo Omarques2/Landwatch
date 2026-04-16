@@ -122,22 +122,29 @@
           Sem interseções relevantes.
         </div>
         <div v-else class="print-groups">
-          <div v-for="group in analysis?.datasetGroups ?? []" :key="group.title" class="print-group">
+          <div v-for="group in printDatasetGroups" :key="group.title" class="print-group">
             <div class="print-group-title">{{ group.title }}</div>
-            <div class="print-grid">
+            <div class="print-group-rows">
               <div
-                v-for="item in group.items"
-                :key="item.datasetCode"
-                class="print-chip"
+                v-for="(row, rowIndex) in group.rows"
+                :key="`${group.title}:${rowIndex}`"
+                class="print-grid"
+                :style="printGridStyle(row.columns)"
               >
-                <span
-                  class="print-chip-icon"
-                  :class="item.hit ? 'chip-bad' : 'chip-ok'"
+                <div
+                  v-for="item in row.items"
+                  :key="item.datasetCode"
+                  class="print-chip"
                 >
-                  {{ item.hit ? "✕" : "✓" }}
-                </span>
-                <div class="print-chip-body">
-                  <span class="print-chip-text">{{ formatDatasetLabelPrint(item) }}</span>
+                  <span
+                    class="print-chip-icon"
+                    :class="item.hit ? 'chip-bad' : 'chip-ok'"
+                  >
+                    {{ item.hit ? "✕" : "✓" }}
+                  </span>
+                  <div class="print-chip-body">
+                    <span class="print-chip-text">{{ formatDatasetLabelPrint(item) }}</span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -151,6 +158,10 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { colorForDataset, formatDatasetLabel } from "@/features/analyses/analysis-colors";
+import {
+  buildPrintChipRows,
+  formatPrintDatasetLabel,
+} from "@/features/analyses/analysis-print";
 import { buildIndigenaLegendItems, buildLegendCodes, buildUcsLegendItems } from "@/features/analyses/analysis-legend";
 import AnalysisMap from "@/components/maps/AnalysisMap.vue";
 import AnalysisWatermark from "@/components/analyses/AnalysisWatermark.vue";
@@ -186,15 +197,19 @@ type AnalysisDetail = {
   sicarCoordinates?: { lat: number; lng: number } | null;
   biomas?: string[];
   sicarStatus?: string | null;
-  datasetGroups?: Array<{
-    title: string;
-    items: Array<{ datasetCode: string; hit: boolean; label?: string }>;
-  }>;
+  datasetGroups?: DatasetGroup[];
   docInfos?: DocInfo[];
   analysisDate: string;
   status: string;
   intersectionCount?: number;
   results: AnalysisResult[];
+};
+
+type DatasetGroupItem = { datasetCode: string; hit: boolean; label?: string };
+type DatasetGroup = { title: string; items: DatasetGroupItem[] };
+type PrintDatasetGroup = {
+  title: string;
+  rows: Array<{ columns: number; items: DatasetGroupItem[] }>;
 };
 
 type MapFeature = {
@@ -324,6 +339,13 @@ const sicarAreaHa = computed(() => {
   return value / 10000;
 });
 
+const printDatasetGroups = computed<PrintDatasetGroup[]>(() =>
+  (props.analysis?.datasetGroups ?? []).map((group) => ({
+    title: group.title,
+    rows: buildPrintChipRows(group.items, formatDatasetLabelPrint),
+  })),
+);
+
 function formatDate(value?: string | null) {
   if (!value) return "-";
   const raw = value.slice(0, 10);
@@ -344,9 +366,14 @@ function formatBiomas(biomas?: string[] | null) {
 }
 
 function formatDatasetLabelPrint(item: { datasetCode: string; label?: string }) {
-  if (item.label) return item.label;
-  const label = formatDatasetLabel(item.datasetCode);
-  return label.replace(/\\bProdes\\b\\s*/i, "").trim();
+  if (item.label) return formatPrintDatasetLabel(item.label);
+  return formatPrintDatasetLabel(formatDatasetLabel(item.datasetCode));
+}
+
+function printGridStyle(columns: number) {
+  return {
+    gridTemplateColumns: `repeat(${Math.max(columns, 1)}, minmax(0, 1fr))`,
+  };
 }
 
 function formatCoordinates(coords?: { lat: number; lng: number } | null) {
@@ -667,9 +694,13 @@ watch(
   margin-bottom: 4px;
 }
 
+.print-group-rows {
+  display: grid;
+  gap: 4px;
+}
+
 .print-grid {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 4px;
 }
 
@@ -799,9 +830,6 @@ watch(
   .print-breakable {
     break-inside: auto;
     page-break-inside: auto;
-  }
-  .print-grid {
-    grid-template-columns: repeat(5, minmax(0, 1fr));
   }
   .print-map-frame :deep(.leaflet-control-container) {
     display: none !important;

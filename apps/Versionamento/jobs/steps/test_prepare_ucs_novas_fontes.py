@@ -139,7 +139,8 @@ class PrepareNovasFontesUcsTest(unittest.TestCase):
 
         row = prepared.iloc[0]
         self.assertEqual(row["categoria"], "Área Florestal")
-        self.assertIn("Unidades de conservação", row["nome_uc"])
+        self.assertFalse(row["nome_uc"].lower().startswith("unidades de conservação de"))
+        self.assertIn("proteção integral", row["nome_uc"].lower())
 
     def test_build_prepared_novas_fontes_handles_cp1252_apostrophe_in_dagua(self):
         ibge = gpd.GeoDataFrame(
@@ -163,7 +164,69 @@ class PrepareNovasFontesUcsTest(unittest.TestCase):
         )
 
         row = prepared.iloc[0]
-        self.assertEqual(row["categoria"], "UC de Uso Sustentável - Corpo d'Água Continental")
+        self.assertEqual(row["categoria"], "Corpo d'Água Continental")
+
+    def test_build_prepared_novas_fontes_uses_only_found_id_for_cnuc_code_and_compact_source(self):
+        source = gpd.GeoDataFrame(
+            {
+                "id_uc": ["NF.NOVASFONTES8.3645"],
+                "nome_uc": ["Reserva Particular do Patrimônio Natural X"],
+                "categoria": ["RPPN"],
+            },
+            geometry=[self._poly(0, 0)],
+            crs="EPSG:4674",
+        )
+
+        prepared, _ = build_prepared_novas_fontes_ucs(
+            source_layers=[
+                SourceLayer(
+                    source_name="8-metadados.snirh.gov.br",
+                    shp_path=self.tmp_dir / "snirh_id.shp",
+                    gdf=source,
+                )
+            ],
+            base_ucs=None,
+        )
+
+        row = prepared.iloc[0]
+        self.assertEqual(row["cnuc_code"], "3645")
+        self.assertEqual(row["source"], "METADADOS_SNIRH_GOV_BR")
+        self.assertEqual(row["nome_uc"], "RPPN X")
+
+    def test_build_prepared_novas_fontes_compacts_uc_prefixes_in_name_and_category(self):
+        source = gpd.GeoDataFrame(
+            {
+                "nome": [
+                    "Unidade de conservação de uso sustentável em área florestal",
+                    "Unidades de conservação de proteção integral em área campestre",
+                ],
+                "categoria": [
+                    "UC de Uso Sustentável - Área Florestal",
+                    "UC de Proteção Integral - Área Campestre",
+                ],
+            },
+            geometry=[self._poly(0, 0), self._poly(2, 2)],
+            crs="EPSG:4674",
+        )
+
+        prepared, _ = build_prepared_novas_fontes_ucs(
+            source_layers=[
+                SourceLayer(
+                    source_name="7-geoftp.ibge.gov.br",
+                    shp_path=self.tmp_dir / "compact_prefixes.shp",
+                    gdf=source,
+                )
+            ],
+            base_ucs=None,
+        )
+
+        cats = set(prepared["categoria"].tolist())
+        nomes = set(prepared["nome_uc"].tolist())
+        self.assertIn("Área Florestal", cats)
+        self.assertIn("Área Campestre", cats)
+        self.assertFalse(any(v.startswith("UC de ") for v in cats))
+        self.assertFalse(any(v.lower().startswith("unidade de conservação de") for v in nomes))
+        self.assertFalse(any(v.lower().startswith("unidades de conservação de") for v in nomes))
 
     def test_build_prepared_novas_fontes_prefers_specific_category_from_name_over_us_pi(self):
         source = gpd.GeoDataFrame(

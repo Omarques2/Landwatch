@@ -140,6 +140,24 @@ IBGE_UC_CLASS_PATTERNS = [
 CODE_LIKE_VALUE_RE = re.compile(r"^[A-Za-z]{0,5}_?\d+(?:\.\d+)+$")
 LEADING_CODE_PREFIX_RE = re.compile(r"^[A-Za-z]{0,5}_?\d+(?:\.\d+)+(?:[_\-\s]+)")
 UC_DESCRIPTION_RE = re.compile(r"\bunidade(?:s)? de conserva", re.IGNORECASE)
+SOURCE_LABEL_LEADING_PREFIX_RE = re.compile(r"^(?:\d+_+|NOVASFONTES_+)+", re.IGNORECASE)
+UC_CATEGORIA_PREFIX_RE = re.compile(
+    r"^(?:"
+    r"UC\s+de\s+Uso\s+Sustent[aá]vel\s*-\s*"
+    r"|UC\s+de\s+Prote[cç][aã]o\s+Integral\s*-\s*"
+    r"|Unidade\s+de\s+Conserva[cç][aã]o\s*-\s*Uso\s+Sustent[aá]vel\s*-\s*"
+    r"|Unidade\s+de\s+Conserva[cç][aã]o\s*-\s*Prote[cç][aã]o\s+Integral\s*-\s*"
+    r")",
+    re.IGNORECASE,
+)
+UC_NOME_PREFIX_RE = re.compile(
+    r"^(?:Unidade|Unidades)\s+de\s+Conserva[cç][aã]o\s+de\s*",
+    re.IGNORECASE,
+)
+RPPN_NOME_RE = re.compile(
+    r"RESERVA\s+PARTICULAR\s+DO\s+PATRIM[ÔO]NIO\s+NATURAL",
+    re.IGNORECASE,
+)
 
 
 class PrepareNovasFontesUcsError(RuntimeError):
@@ -181,6 +199,32 @@ def _normalize_text(value) -> Optional[str]:
     text = _fix_mojibake(text)
     text = re.sub(r"\s+", " ", text)
     return text
+
+
+def _compact_uc_categoria(value: Optional[str]) -> Optional[str]:
+    text = _normalize_text(value)
+    if not text:
+        return None
+
+    compacted = UC_CATEGORIA_PREFIX_RE.sub("", text).strip(" -")
+    if compacted:
+        return compacted
+
+    norm = _normalize_for_match(text)
+    if "uso sustentavel" in norm or "uso sutentavel" in norm:
+        return "Uso Sustentável"
+    if "protecao integral" in norm:
+        return "Proteção Integral"
+    return text
+
+
+def _compact_uc_nome(value: Optional[str]) -> Optional[str]:
+    text = _normalize_text(value)
+    if not text:
+        return None
+    compacted = UC_NOME_PREFIX_RE.sub("", text).strip(" -")
+    compacted = RPPN_NOME_RE.sub("RPPN", compacted).strip(" -")
+    return compacted or text
 
 
 def _normalize_code(value) -> Optional[str]:
@@ -407,12 +451,10 @@ def _infer_uc_generic_category_by_area(search_norm: str) -> Optional[str]:
         area_suffix = "Área Descoberta"
 
     if area_suffix:
-        if is_uso:
-            return f"UC de Uso Sustentável - {area_suffix}"
         return area_suffix
 
     if is_uso:
-        return "Unidade de Conservação - Uso Sustentável"
+        return "Uso Sustentável"
     return "Proteção Integral"
 
 
@@ -504,7 +546,7 @@ def _canonicalize_category(raw_category: Optional[str], raw_name: Optional[str],
             return canonical
 
     if raw_category_norm in {"us", "uso sustentavel", "uso sustentavel - us"} or raw_name_norm == "us":
-        return area_based or "Unidade de Conservação - Uso Sustentável"
+        return area_based or "Uso Sustentável"
     if raw_category_norm in {"pi", "protecao integral", "protecao integral - pi"} or raw_name_norm == "pi":
         return area_based or "Proteção Integral"
     if raw_category_norm.startswith("vpar"):
@@ -520,7 +562,7 @@ def _canonicalize_category(raw_category: Optional[str], raw_name: Optional[str],
         if "protecao integral" in search_norm:
             return "Proteção Integral"
         if "uso sustentavel" in search_norm or "uso sutentavel" in search_norm:
-            return "Unidade de Conservação - Uso Sustentável"
+            return "Uso Sustentável"
 
     return _derive_custom_category(raw_category, raw_name, search)
 
@@ -573,7 +615,8 @@ def _infer_esfera(raw_esfera: Optional[str], text_blob: str, source_name: str, s
 
 def _source_label(source_name: str) -> str:
     slug = re.sub(r"[^A-Za-z0-9]+", "_", source_name).strip("_").upper()
-    return f"NOVASFONTES_{slug[:28]}" if slug else "NOVASFONTES"
+    slug = SOURCE_LABEL_LEADING_PREFIX_RE.sub("", slug).strip("_")
+    return slug[:80] if slug else "NOVASFONTES"
 
 
 def _safe_make_valid(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
@@ -664,14 +707,30 @@ def _build_cnuc_code(
     idx: int,
     source_code: Optional[str],
 ) -> str:
-    source_slug = re.sub(r"[^A-Za-z0-9]+", "", source_label).upper()[:12] or "SRC"
     code = _normalize_code(source_code) if source_code else None
+    base: Optional[str] = None
     if code and re.fullmatch(r"\d{4}\.\d{2}\.\d{4}", code):
         base = code
     elif code:
-        base = f"NF.{source_slug}.{code[:24]}"
-    else:
-        base = f"NF.{source_slug}.{idx:06d}"
+        # Usa somente o ID encontrado no codigo de origem, sem metadado de fonte.
+        if code.startswith("NF.") and "." in code:
+            last_token = code.rsplit(".", 1)[-1]
+            if re.search(r"\d", last_token):
+                base = last_token
+        numeric_tail = re.search(r"([0-9]+(?:\.[0-9]+)*)$", code)
+        if numeric_tail:
+            base = base or numeric_tail.group(1)
+        else:
+            alnum_tail = re.search(r"([A-Z0-9]*\d[A-Z0-9]*)$", code)
+            if alnum_tail:
+                base = base or alnum_tail.group(1)
+            else:
+                compact = re.sub(r"[^A-Z0-9.]+", "", code).strip(".")
+                base = base or (compact[:40] if compact else None)
+
+    if not base:
+        # fallback sem informacao de fonte
+        base = str(idx + 1)
 
     candidate = base
     suffix = 2
@@ -870,8 +929,8 @@ def build_prepared_novas_fontes_ucs(
             prepared_rows.append(
                 {
                     "cnuc_code": cnuc_code,
-                    "nome_uc": _normalize_text(raw_name),
-                    "categoria": _normalize_text(category),
+                    "nome_uc": _compact_uc_nome(raw_name),
+                    "categoria": _compact_uc_categoria(category),
                     "grupo": _normalize_text(group),
                     "esfera": _normalize_text(esfera),
                     "source": source_label,

@@ -1,6 +1,7 @@
 import argparse
 import json
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
@@ -50,11 +51,26 @@ class PrepareUcsResult:
     metrics: Dict[str, int]
 
 
+RPPN_NAME_RE = re.compile(
+    r"RESERVA\s+PARTICULAR\s+DO\s+PATRIM[ÔO]NIO\s+NATURAL",
+    re.IGNORECASE,
+)
+
+
 def _normalize_text(value) -> Optional[str]:
     if value is None or pd.isna(value):
         return None
     text = str(value).strip()
     return text if text else None
+
+
+def _normalize_nome_uc(value) -> Optional[str]:
+    text = _normalize_text(value)
+    if text is None:
+        return None
+    compacted = RPPN_NAME_RE.sub("RPPN", text)
+    compacted = re.sub(r"\s+", " ", compacted).strip()
+    return compacted if compacted else None
 
 
 def normalize_cnuc_code(value) -> Optional[str]:
@@ -124,7 +140,7 @@ def _normalize_federal(federal: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     out = federal[keep_cols].copy()
     out = out.rename(columns=rename_map)
     out["cnuc_code"] = out["cnuc_code"].map(normalize_cnuc_code)
-    out["nome_uc"] = out["nome_uc"].map(_normalize_text)
+    out["nome_uc"] = out["nome_uc"].map(_normalize_nome_uc)
     if "categoria_federal" in out.columns:
         out["categoria_federal"] = out["categoria_federal"].map(_normalize_text)
     if "grupo_federal" in out.columns:
@@ -158,7 +174,8 @@ def _normalize_cnuc(cnuc: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
         }
     )
     out["cnuc_code"] = out["cnuc_code"].map(normalize_cnuc_code)
-    for col in ["nome_uc", "categoria", "grupo", "esfera", "situacao"]:
+    out["nome_uc"] = out["nome_uc"].map(_normalize_nome_uc)
+    for col in ["categoria", "grupo", "esfera", "situacao"]:
         out[col] = out[col].map(_normalize_text)
     out = gpd.GeoDataFrame(out, geometry=cnuc.geometry.name, crs=cnuc.crs)
     if out.geometry.name != "geometry":
@@ -185,7 +202,7 @@ def _validate_prepared_output(prepared: gpd.GeoDataFrame) -> None:
             raise PrepareUcsError(f"Output UCS invalido: coluna '{col}' com {null_or_blank} valor(es) nulo(s)/vazio(s).")
 
     source_series = prepared["source"].fillna("")
-    source_valid_mask = source_series.isin(ALLOWED_SOURCE_VALUES) | source_series.str.startswith("NOVASFONTES_")
+    source_valid_mask = source_series.isin(ALLOWED_SOURCE_VALUES) | source_series.str.fullmatch(r"[A-Z0-9_]{3,80}")
     invalid_source = int((~source_valid_mask).sum())
     if invalid_source:
         raise PrepareUcsError(f"Output UCS invalido: {invalid_source} linha(s) com source invalido.")
@@ -260,7 +277,8 @@ def build_prepared_ucs(
         prepared = prepared[~prepared.geometry.isna()].copy()
 
     prepared["cnuc_code"] = prepared["cnuc_code"].map(normalize_cnuc_code)
-    for col in ["nome_uc", "categoria", "grupo", "esfera", "source"]:
+    prepared["nome_uc"] = prepared["nome_uc"].map(_normalize_nome_uc)
+    for col in ["categoria", "grupo", "esfera", "source"]:
         prepared[col] = prepared[col].map(_normalize_text)
 
     prepared = prepared.sort_values(by=["cnuc_code"], ascending=True).reset_index(drop=True)
@@ -305,7 +323,8 @@ def _merge_with_novas_fontes(
     merged = pd.concat([base_prepared, novas_prepared], ignore_index=True)
     merged = gpd.GeoDataFrame(merged, geometry=base_prepared.geometry.name, crs=base_prepared.crs or novas_prepared.crs)
     merged["cnuc_code"] = merged["cnuc_code"].map(normalize_cnuc_code)
-    for col in ["nome_uc", "categoria", "grupo", "esfera", "source"]:
+    merged["nome_uc"] = merged["nome_uc"].map(_normalize_nome_uc)
+    for col in ["categoria", "grupo", "esfera", "source"]:
         merged[col] = merged[col].map(_normalize_text)
     merged = merged.sort_values(by=["cnuc_code"], ascending=True).reset_index(drop=True)
 

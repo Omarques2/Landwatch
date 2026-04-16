@@ -51,7 +51,12 @@ class PrepareUcsTest(unittest.TestCase):
         return gpd.GeoDataFrame(
             {
                 "cd_cnuc": ["0000.00.0001", "0000.00.0002", "0000.00.0003", "0000.00.0004"],
-                "nome_uc": ["Cnuc A", "Cnuc B", "Cnuc C", "Cnuc D"],
+                "nome_uc": [
+                    "Cnuc A",
+                    "Cnuc B",
+                    "Reserva Particular do Patrimônio Natural Sítio Teste",
+                    "Cnuc D",
+                ],
                 "categoria": ["PARQUE NACIONAL", "RESERVA EXTRATIVISTA", "APA", "RPPN"],
                 "grupo": ["PROTECAO INTEGRAL", "USO SUSTENTAVEL", "USO SUSTENTAVEL", "USO SUSTENTAVEL"],
                 "esfera": ["FEDERAL", "FEDERAL", "ESTADUAL", "PARTICULAR"],
@@ -81,6 +86,8 @@ class PrepareUcsTest(unittest.TestCase):
         self.assertEqual(row_a["nome_uc"], "Federal A")
         self.assertEqual(row_a["categoria"], "PARQUE NACIONAL")
         self.assertTrue(row_a.geometry.equals(fed.iloc[0].geometry))
+        row_c = out_gdf[out_gdf["cnuc_code"] == "0000.00.0003"].iloc[0]
+        self.assertEqual(row_c["nome_uc"], "RPPN Sítio Teste")
 
     def test_build_prepared_ucs_fails_when_federal_code_has_no_cnuc_category(self):
         fed = self._make_federal()
@@ -185,7 +192,7 @@ class PrepareUcsTest(unittest.TestCase):
         )
 
         out = gpd.read_file(result.output_shp)
-        row = out[out["source"].str.startswith("NOVASFONTES_")].iloc[0]
+        row = out[out["source"].str.contains("SIGA_MEIOAMBIENTE_GO_GOV_BR", regex=False)].iloc[0]
         self.assertEqual(row["categoria"], "Área de Proteção Ambiental")
         self.assertIn("novas_output_total", result.metrics)
         self.assertEqual(result.metrics["novas_output_total"], 1)
