@@ -115,6 +115,7 @@ describe('AnalysisRunnerService', () => {
         snapshot_date: null,
         feature_id: 1n,
         geom_id: 101n,
+        geometry_type: 'ST_Polygon',
         sicar_area_m2: '100',
         feature_area_m2: null,
         overlap_area_m2: null,
@@ -126,6 +127,7 @@ describe('AnalysisRunnerService', () => {
         snapshot_date: '2026-01-31',
         feature_id: 2n,
         geom_id: 202n,
+        geometry_type: 'ST_MultiPolygon',
         sicar_area_m2: '100',
         feature_area_m2: '20',
         overlap_area_m2: '5',
@@ -350,6 +352,7 @@ describe('AnalysisRunnerService', () => {
           snapshot_date: null,
           feature_id: 1n,
           geom_id: 101n,
+          geometry_type: 'ST_Polygon',
           sicar_area_m2: '100',
           feature_area_m2: null,
           overlap_area_m2: null,
@@ -361,6 +364,7 @@ describe('AnalysisRunnerService', () => {
           snapshot_date: '2026-02-01',
           feature_id: 2n,
           geom_id: 202n,
+          geometry_type: 'ST_Polygon',
           sicar_area_m2: '100',
           feature_area_m2: '20',
           overlap_area_m2: '5',
@@ -426,6 +430,7 @@ describe('AnalysisRunnerService', () => {
         snapshot_date: null,
         feature_id: 1n,
         geom_id: 101n,
+        geometry_type: 'ST_Polygon',
         sicar_area_m2: '100',
         feature_area_m2: null,
         overlap_area_m2: null,
@@ -437,6 +442,7 @@ describe('AnalysisRunnerService', () => {
         snapshot_date: '2026-01-31',
         feature_id: 7426006n,
         geom_id: 202n,
+        geometry_type: 'ST_Polygon',
         sicar_area_m2: '100',
         feature_area_m2: '20',
         overlap_area_m2: '5',
@@ -448,6 +454,7 @@ describe('AnalysisRunnerService', () => {
         snapshot_date: '2026-01-31',
         feature_id: 10n,
         geom_id: 303n,
+        geometry_type: 'ST_MultiPolygon',
         sicar_area_m2: '100',
         feature_area_m2: '20',
         overlap_area_m2: '5',
@@ -590,6 +597,7 @@ describe('AnalysisRunnerService', () => {
         snapshot_date: '2026-01-31',
         feature_id: 2n,
         geom_id: 202n,
+        geometry_type: 'ST_MultiPolygon',
         sicar_area_m2: '100',
         feature_area_m2: '20',
         overlap_area_m2: '5',
@@ -646,6 +654,7 @@ describe('AnalysisRunnerService', () => {
         snapshot_date: null,
         feature_id: 1n,
         geom_id: 101n,
+        geometry_type: 'ST_Polygon',
         sicar_area_m2: '100',
         feature_area_m2: null,
         overlap_area_m2: null,
@@ -657,6 +666,7 @@ describe('AnalysisRunnerService', () => {
         snapshot_date: '2026-01-31',
         feature_id: 2n,
         geom_id: 202n,
+        geometry_type: 'ST_Polygon',
         sicar_area_m2: '100',
         feature_area_m2: '20',
         overlap_area_m2: '5',
@@ -668,6 +678,7 @@ describe('AnalysisRunnerService', () => {
         snapshot_date: '2026-01-31',
         feature_id: 3n,
         geom_id: 303n,
+        geometry_type: 'ST_MultiPolygon',
         sicar_area_m2: '100',
         feature_area_m2: '20',
         overlap_area_m2: '5',
@@ -710,6 +721,158 @@ describe('AnalysisRunnerService', () => {
         analysisKind: AnalysisKind.DETER,
         farmId: 'farm-1',
         scheduleId: 'schedule-1',
+      }),
+    );
+  });
+
+  it('filters non-polygonal features from STANDARD current fast intersections', async () => {
+    process.env.ANALYSIS_STANDARD_CURRENT_USE_FAST_INTERSECTIONS = 'true';
+    const prisma = makePrismaMock();
+    prisma.analysis.updateMany.mockResolvedValue({ count: 1 });
+    prisma.analysis.findUnique.mockResolvedValue({
+      id: 'analysis-1',
+      carKey: 'CAR-1',
+      analysisDate: new Date('2026-02-01'),
+      analysisKind: AnalysisKind.STANDARD,
+      status: 'pending',
+      analysisDocs: [],
+    });
+    prisma.$queryRaw.mockResolvedValueOnce([
+      {
+        category_code: 'SICAR',
+        dataset_code: 'SICAR',
+        snapshot_date: null,
+        feature_id: 1n,
+        geom_id: 101n,
+        geometry_type: 'ST_MultiPolygon',
+        sicar_area_m2: '100',
+        feature_area_m2: null,
+        overlap_area_m2: null,
+        overlap_pct_of_sicar: null,
+      },
+      {
+        category_code: 'PRODES',
+        dataset_code: 'PRODES_MATA_ATLANTICA_NB_2020',
+        snapshot_date: '2026-02-01',
+        feature_id: 16136325n,
+        geom_id: 202n,
+        geometry_type: 'ST_LineString',
+        sicar_area_m2: null,
+        feature_area_m2: null,
+        overlap_area_m2: null,
+        overlap_pct_of_sicar: null,
+      },
+      {
+        category_code: 'PRODES',
+        dataset_code: 'PRODES_MATA_ATLANTICA_NB_2020',
+        snapshot_date: '2026-02-01',
+        feature_id: 15685424n,
+        geom_id: 303n,
+        geometry_type: 'ST_Polygon',
+        sicar_area_m2: null,
+        feature_area_m2: null,
+        overlap_area_m2: null,
+        overlap_pct_of_sicar: null,
+      },
+    ]);
+    const deps = makeDeps();
+
+    const runner = new AnalysisRunnerService(
+      prisma as any,
+      deps.landwatchStatus as any,
+      deps.attachments as any,
+      deps.postprocess as any,
+      () => now,
+    );
+
+    await runner.processAnalysis('analysis-1');
+
+    expect(prisma.analysisResult.createMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: [
+          expect.objectContaining({
+            categoryCode: 'SICAR',
+            featureId: 1n,
+          }),
+          expect.objectContaining({
+            categoryCode: 'PRODES',
+            featureId: 15685424n,
+          }),
+        ],
+      }),
+    );
+    expect(prisma.analysis.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'analysis-1' },
+        data: expect.objectContaining({
+          status: 'completed',
+          hasIntersections: true,
+          intersectionCount: 1,
+        }),
+      }),
+    );
+    expect(
+      deps.attachments.findApprovedJustifiedIntersectionKeys,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        intersections: [
+          expect.objectContaining({ datasetCode: 'SICAR', featureId: 1n }),
+          expect.objectContaining({
+            datasetCode: 'PRODES_MATA_ATLANTICA_NB_2020',
+            featureId: 15685424n,
+          }),
+        ],
+      }),
+    );
+  });
+
+  it('fails analysis when only non-polygonal intersection rows remain', async () => {
+    process.env.ANALYSIS_STANDARD_CURRENT_USE_FAST_INTERSECTIONS = 'true';
+    const prisma = makePrismaMock();
+    prisma.analysis.updateMany.mockResolvedValue({ count: 1 });
+    prisma.analysis.findUnique.mockResolvedValue({
+      id: 'analysis-1',
+      carKey: 'CAR-1',
+      analysisDate: new Date('2026-02-01'),
+      analysisKind: AnalysisKind.STANDARD,
+      status: 'pending',
+      analysisDocs: [],
+    });
+    prisma.$queryRaw.mockResolvedValueOnce([
+      {
+        category_code: 'PRODES',
+        dataset_code: 'PRODES_MATA_ATLANTICA_NB_2020',
+        snapshot_date: '2026-02-01',
+        feature_id: 16136325n,
+        geom_id: 202n,
+        geometry_type: 'ST_LineString',
+        sicar_area_m2: null,
+        feature_area_m2: null,
+        overlap_area_m2: null,
+        overlap_pct_of_sicar: null,
+      },
+    ]);
+    const deps = makeDeps();
+
+    const runner = new AnalysisRunnerService(
+      prisma as any,
+      deps.landwatchStatus as any,
+      deps.attachments as any,
+      deps.postprocess as any,
+      () => now,
+    );
+
+    await runner.processAnalysis('analysis-1');
+
+    expect(prisma.analysisResult.createMany).not.toHaveBeenCalled();
+    expect(prisma.analysis.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'analysis-1' },
+        data: expect.objectContaining({
+          status: 'failed',
+          hasIntersections: false,
+          intersectionCount: 0,
+        }),
       }),
     );
   });
@@ -759,6 +922,7 @@ describe('AnalysisRunnerService', () => {
     const sqlText = extractSqlText(query);
 
     expect(sqlText).toContain('"fn_intersections_current_simple"');
+    expect(sqlText).toContain('ST_GeometryType(i.geom) AS geometry_type');
     expect(sqlText).toContain('ST_Area(i.geom::geography)');
     expect(sqlText).toContain('NULL::numeric AS feature_area_m2');
     expect(sqlText).toContain('NULL::numeric AS overlap_area_m2');
@@ -785,6 +949,7 @@ describe('AnalysisRunnerService', () => {
 
     expect(sqlText).toContain('"fn_intersections_current_area"');
     expect(sqlText).not.toContain('"fn_intersections_current_simple"');
+    expect(sqlText).toContain('ST_GeometryType(i.geom) AS geometry_type');
   });
 
   it('builds DETER as-of query using lw_feature_geom_hist for past date', () => {

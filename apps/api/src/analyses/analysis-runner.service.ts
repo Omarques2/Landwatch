@@ -19,6 +19,7 @@ type IntersectionRow = {
   snapshot_date: string | Date | null;
   feature_id: string | number | bigint | null;
   geom_id: string | number | bigint | null;
+  geometry_type?: string | null;
   sicar_area_m2: string | null;
   feature_area_m2: string | null;
   overlap_area_m2: string | null;
@@ -377,7 +378,28 @@ export class AnalysisRunnerService implements OnModuleInit, OnModuleDestroy {
       ? 'fn_intersections_asof_area_legacy'
       : 'fn_intersections_asof_area';
     const fn = Prisma.raw(`"${schema}"."${functionName}"`);
-    return Prisma.sql`SELECT * FROM ${fn}(${carKey}, ${analysisDate}::date)`;
+    return Prisma.sql`
+      WITH intersections AS (
+        SELECT * FROM ${fn}(${carKey}, ${analysisDate}::date)
+      )
+      SELECT
+        i.*,
+        ST_GeometryType(i.geom) AS geometry_type
+      FROM intersections i
+    `;
+  }
+
+  private buildStandardCurrentAreaQuery(schema: string, carKey: string) {
+    const fn = Prisma.raw(`"${schema}"."fn_intersections_current_area"`);
+    return Prisma.sql`
+      WITH intersections AS (
+        SELECT * FROM ${fn}(${carKey})
+      )
+      SELECT
+        i.*,
+        ST_GeometryType(i.geom) AS geometry_type
+      FROM intersections i
+    `;
   }
 
   private buildIntersectionsQuery(
@@ -402,8 +424,7 @@ export class AnalysisRunnerService implements OnModuleInit, OnModuleDestroy {
     if (analysisDate && !this.isCurrentAnalysisDate(analysisDate)) {
       return this.buildStandardAsofAreaQuery(schema, carKey, analysisDate);
     }
-    const fn = Prisma.raw(`"${schema}"."fn_intersections_current_area"`);
-    return Prisma.sql`SELECT * FROM ${fn}(${carKey})`;
+    return this.buildStandardCurrentAreaQuery(schema, carKey);
   }
 
   private buildStandardCurrentFastQuery(schema: string, carKey: string) {
@@ -418,6 +439,7 @@ export class AnalysisRunnerService implements OnModuleInit, OnModuleDestroy {
         i.snapshot_date,
         i.feature_id,
         i.geom_id,
+        ST_GeometryType(i.geom) AS geometry_type,
         CASE
           WHEN UPPER(i.category_code) = 'SICAR'
           THEN ST_Area(i.geom::geography)
@@ -439,8 +461,7 @@ export class AnalysisRunnerService implements OnModuleInit, OnModuleDestroy {
     if (analysisDate && !this.isCurrentAnalysisDate(analysisDate)) {
       return this.buildStandardAsofAreaQuery(schema, carKey, analysisDate);
     }
-    const fn = Prisma.raw(`"${schema}"."fn_intersections_current_area"`);
-    return Prisma.sql`SELECT * FROM ${fn}(${carKey})`;
+    return this.buildStandardCurrentAreaQuery(schema, carKey);
   }
 
   private getIntersectionsStrategy(
@@ -544,6 +565,7 @@ export class AnalysisRunnerService implements OnModuleInit, OnModuleDestroy {
         NULL::date AS snapshot_date,
         f.feature_id,
         s.sicar_geom_id AS geom_id,
+        ST_GeometryType(s.sicar_geom) AS geometry_type,
         ST_Area(s.sicar_geom::geography) AS sicar_area_m2,
         NULL::numeric AS feature_area_m2,
         NULL::numeric AS overlap_area_m2,
@@ -562,6 +584,7 @@ export class AnalysisRunnerService implements OnModuleInit, OnModuleDestroy {
         v.snapshot_date AS snapshot_date,
         f.feature_id,
         a.geom_id AS geom_id,
+        ST_GeometryType(a.geom) AS geometry_type,
         ST_Area(s.sicar_geom::geography) AS sicar_area_m2,
         ST_Area(a.geom::geography) AS feature_area_m2,
         ST_Area(ST_Intersection(s.sicar_geom, a.geom)::geography) AS overlap_area_m2,
@@ -615,6 +638,7 @@ export class AnalysisRunnerService implements OnModuleInit, OnModuleDestroy {
         NULL::date AS snapshot_date,
         f.feature_id,
         s.sicar_geom_id AS geom_id,
+        ST_GeometryType(s.sicar_geom) AS geometry_type,
         ST_Area(s.sicar_geom::geography) AS sicar_area_m2,
         NULL::numeric AS feature_area_m2,
         NULL::numeric AS overlap_area_m2,
@@ -633,6 +657,7 @@ export class AnalysisRunnerService implements OnModuleInit, OnModuleDestroy {
         v.snapshot_date AS snapshot_date,
         f.feature_id,
         h.geom_id AS geom_id,
+        ST_GeometryType(g.geom) AS geometry_type,
         ST_Area(s.sicar_geom::geography) AS sicar_area_m2,
         ST_Area(g.geom::geography) AS feature_area_m2,
         ST_Area(ST_Intersection(s.sicar_geom, g.geom)::geography) AS overlap_area_m2,
@@ -780,10 +805,22 @@ export class AnalysisRunnerService implements OnModuleInit, OnModuleDestroy {
     return row.feature_area_m2 == null && row.overlap_area_m2 == null;
   }
 
+  private isPolygonalGeometry(geometryType: string | null | undefined): boolean {
+    if (!geometryType) return false;
+    const normalized = geometryType.trim().toUpperCase().replace(/^ST_/, '');
+    return normalized === 'POLYGON' || normalized === 'MULTIPOLYGON';
+  }
+
   private shouldKeepRow(row: IntersectionRow, kind: AnalysisKind): boolean {
     const category = (row.category_code ?? '').toUpperCase();
     const dataset = (row.dataset_code ?? '').toUpperCase();
     if (dataset.startsWith('CAR_') && !this.isBaseSicarIntersection(row)) {
+      return false;
+    }
+    if (
+      !this.isBaseSicarIntersection(row) &&
+      !this.isPolygonalGeometry(row.geometry_type)
+    ) {
       return false;
     }
     if (kind === AnalysisKind.DETER) {
