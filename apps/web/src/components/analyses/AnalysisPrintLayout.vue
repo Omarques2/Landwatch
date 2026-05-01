@@ -53,18 +53,66 @@
 
       <section class="print-card">
         <div class="print-section-title">Mapa da análise</div>
-        <div class="print-meta-grid">
-          <div><span class="label">Data:</span> {{ formatDate(analysis?.analysisDate) }}</div>
-          <div><span class="label">Município:</span> {{ formatMunicipio(analysis?.municipio, analysis?.uf) }}</div>
-          <div><span class="label">Bioma(s):</span> {{ formatBiomas(analysis?.biomas) }}</div>
-          <div><span class="label">Interseções:</span> {{ analysis?.intersectionCount ?? 0 }}</div>
-          <div class="span-2">
-            <span class="label">Coordenadas do CAR:</span>
-            {{ formatCoordinates(analysis?.sicarCoordinates ?? null) }}
+        <div class="print-meta-shell" :class="{ 'print-meta-shell-has-actions': printActionLinks.length > 0 }">
+          <div class="print-meta-grid">
+            <div><span class="label">Data:</span> {{ formatDate(analysis?.analysisDate) }}</div>
+            <div><span class="label">Município:</span> {{ formatMunicipio(analysis?.municipio, analysis?.uf) }}</div>
+            <div><span class="label">Bioma(s):</span> {{ formatBiomas(analysis?.biomas) }}</div>
+            <div class="print-intersections-meta">
+              <span class="label">Interseções:</span> {{ analysis?.intersectionCount ?? 0 }}
+              <template v-if="justifiedIntersectionsSummary">
+                <span class="print-meta-separator">•</span>
+                <span class="print-meta-subline"><span class="label">Justificadas:</span> {{ justifiedIntersectionsSummary }}</span>
+              </template>
+            </div>
+            <div class="span-2">
+              <span class="label">Coordenadas do CAR:</span>
+              {{ formatCoordinates(analysis?.sicarCoordinates ?? null) }}
+            </div>
+            <div class="span-2">
+              <span class="label">Área (ha):</span>
+              {{ formatAreaHa(sicarAreaHa) }}
+            </div>
           </div>
-          <div class="span-2">
-            <span class="label">Área (ha):</span>
-            {{ formatAreaHa(sicarAreaHa) }}
+          <div v-if="printActionLinks.length" class="print-action-links print-action-links-floating">
+            <a
+              v-for="action in printActionLinks"
+              :key="action.href"
+              class="print-action-link"
+              :href="action.href"
+            >
+              <span class="print-action-icon" :class="action.iconClass" aria-hidden="true">
+                <svg
+                  v-if="action.kind === 'geojson'"
+                  viewBox="0 0 24 24"
+                  class="print-action-svg"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <path d="M8 6 4 8v10l4-2 4 2 4-2 4 2V8l-4-2-4 2-4-2Z" />
+                  <path d="M8 6v10" />
+                  <path d="M16 8v10" />
+                </svg>
+                <svg
+                  v-else
+                  viewBox="0 0 24 24"
+                  class="print-action-svg"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z" />
+                  <path d="M8 11h8" />
+                  <path d="M8 15h5" />
+                </svg>
+              </span>
+              <span>{{ action.label }}</span>
+            </a>
           </div>
         </div>
 
@@ -74,20 +122,21 @@
             class="print-map-frame"
             :style="{ height: `${mapHeightPx}px` }"
           >
-            <div v-if="mapLoading" class="print-map-loading">Carregando mapa…</div>
-            <AnalysisMap
-              v-else-if="mapFeatures.length"
+          <div v-if="mapLoading" class="print-map-loading">Carregando mapa…</div>
+            <AnalysisVectorMap
+              v-else-if="vectorMap?.vectorSource"
               ref="analysisMapRef"
-              :features="mapFeatures"
+              :vector-source="vectorMap?.vectorSource ?? null"
+              :legend-items="vectorMap?.legendItems ?? []"
               :print-mode="true"
-              :show-legend="false"
+              :auth-mode="mapAuthMode"
             />
             <div v-else class="print-map-empty">Nenhuma geometria disponível.</div>
           </div>
         </div>
-        <div v-if="mapFeatures.length" class="print-legend-col">
+        <div v-if="vectorMap?.vectorSource" class="print-legend-col">
           <div class="print-section-title">Legenda</div>
-          <div class="print-legend-grid">
+          <div class="print-legend-grid" :style="printLegendStyle">
             <div v-for="item in printLegend" :key="item.code" class="print-legend-item">
               <span
                 class="print-legend-swatch"
@@ -116,7 +165,10 @@
     <section class="print-page print-page-2">
       <AnalysisWatermark />
       <section class="print-card print-breakable">
-        <div class="print-section-title">Interseções</div>
+        <div class="flex items-start justify-between gap-3">
+          <div class="print-section-title">Interseções</div>
+          <AnalysisDatasetStatusLegend :groups="analysis?.datasetGroups ?? null" compact class="ml-auto" />
+        </div>
         <div v-if="isLoading" class="print-loading">Carregando interseções…</div>
         <div v-else-if="(analysis?.datasetGroups?.length ?? 0) === 0" class="print-empty">
           Sem interseções relevantes.
@@ -136,12 +188,10 @@
                   :key="item.datasetCode"
                   class="print-chip"
                 >
-                  <span
-                    class="print-chip-icon"
-                    :class="item.hit ? 'chip-bad' : 'chip-ok'"
-                  >
-                    {{ item.hit ? "✕" : "✓" }}
-                  </span>
+                  <AnalysisDatasetStatusIcon
+                    :kind="datasetStatusKind(item)"
+                    compact
+                  />
                   <div class="print-chip-body">
                     <span class="print-chip-text">{{ formatDatasetLabelPrint(item) }}</span>
                   </div>
@@ -157,13 +207,23 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import { colorForDataset, formatDatasetLabel } from "@/features/analyses/analysis-colors";
+import { formatDatasetLabel } from "@/features/analyses/analysis-colors";
+import AnalysisDatasetStatusIcon from "@/components/analyses/AnalysisDatasetStatusIcon.vue";
+import AnalysisDatasetStatusLegend from "@/components/analyses/AnalysisDatasetStatusLegend.vue";
 import {
   buildPrintChipRows,
   formatPrintDatasetLabel,
 } from "@/features/analyses/analysis-print";
-import { buildIndigenaLegendItems, buildLegendCodes, buildUcsLegendItems } from "@/features/analyses/analysis-legend";
-import AnalysisMap from "@/components/maps/AnalysisMap.vue";
+import {
+  getAnalysisJustificationCoverageSummary,
+  getAnalysisDatasetStatusKind,
+  type AnalysisJustificationStatus,
+} from "@/features/analyses/analysis-dataset-status";
+import {
+  buildAnalysisLegendEntries,
+  type AnalysisVectorMap as AnalysisVectorMapPayload,
+} from "@/features/analyses/analysis-vector-map";
+import AnalysisVectorMap from "@/components/maps/AnalysisVectorMap.vue";
 import AnalysisWatermark from "@/components/analyses/AnalysisWatermark.vue";
 import QRCode from "qrcode";
 
@@ -205,29 +265,29 @@ type AnalysisDetail = {
   results: AnalysisResult[];
 };
 
-type DatasetGroupItem = { datasetCode: string; hit: boolean; label?: string };
+type DatasetGroupItem = {
+  datasetCode: string;
+  hit: boolean;
+  label?: string;
+  hasJustification?: boolean;
+  justificationStatus?: AnalysisJustificationStatus;
+  totalHits?: number;
+  justifiedHits?: number;
+};
 type DatasetGroup = { title: string; items: DatasetGroupItem[] };
 type PrintDatasetGroup = {
   title: string;
   rows: Array<{ columns: number; items: DatasetGroupItem[] }>;
 };
 
-type MapFeature = {
-  categoryCode: string;
-  datasetCode: string;
-  featureId?: string | null;
-  displayName?: string | null;
-  naturalId?: string | null;
-  geom: any;
-};
-
 const props = defineProps<{
   analysis: AnalysisDetail | null;
-  mapFeatures: MapFeature[];
+  vectorMap: AnalysisVectorMapPayload | null;
   mapLoading: boolean;
   isLoading: boolean;
   analysisPublicUrl: string;
   logoSrc: string;
+  mapAuthMode?: "private" | "public";
 }>();
 
 const isPreventiveDeter = computed(
@@ -238,7 +298,7 @@ const reportTitle = computed(() =>
   isPreventiveDeter.value ? "Análise Preventiva DETER" : "Análise Socioambiental",
 );
 
-const analysisMapRef = ref<InstanceType<typeof AnalysisMap> | null>(null);
+const analysisMapRef = ref<InstanceType<typeof AnalysisVectorMap> | null>(null);
 const mapFrameRef = ref<HTMLDivElement | null>(null);
 const qrCodeDataUrl = ref<string>("");
 
@@ -296,34 +356,43 @@ const sicarBadgeText = computed(() => {
   return ["SICAR", carKey, status].filter(Boolean).join(" ");
 });
 
-const indigenaLegendItems = computed(() =>
-  buildIndigenaLegendItems(props.analysis?.datasetGroups ?? [], props.mapFeatures),
-);
+const printLegend = computed(() => buildAnalysisLegendEntries(props.vectorMap));
+const PRINT_LEGEND_MAX_WIDTH_PX = 720;
+const PRINT_LEGEND_COLUMN_GAP_PX = 20;
+const PRINT_LEGEND_ITEM_BASE_PX = 28;
+const PRINT_LEGEND_CHAR_PX = 6.4;
 
-const ucsLegendItems = computed(() =>
-  buildUcsLegendItems(props.mapFeatures),
-);
+function estimateLegendItemWidth(label: string) {
+  return PRINT_LEGEND_ITEM_BASE_PX + label.length * PRINT_LEGEND_CHAR_PX;
+}
 
-const printLegend = computed(() => {
-  const codes = buildLegendCodes(props.mapFeatures, {
-    includeIndigena: indigenaLegendItems.value.length === 0,
-    includeUcs: ucsLegendItems.value.length === 0,
-  });
-  return [
-    { code: "SICAR", label: "CAR", color: "#ef4444" },
-    ...codes.map((code) => ({
-      code,
-      label: formatDatasetLabel(code),
-      color: colorForDataset(code),
-    })),
-    ...indigenaLegendItems.value,
-    ...ucsLegendItems.value,
-  ];
+const printLegendColumnCount = computed(() => {
+  const labels = printLegend.value
+    .map((item) => (item.label ?? "").trim())
+    .filter(Boolean);
+  const count = labels.length;
+  if (count <= 1) return 1;
+
+  const widestLabelPx = Math.max(...labels.map((label) => estimateLegendItemWidth(label)));
+  const maxColumns = Math.min(3, count);
+
+  for (let columns = maxColumns; columns >= 1; columns -= 1) {
+    const totalGap = PRINT_LEGEND_COLUMN_GAP_PX * (columns - 1);
+    const perColumnWidth = (PRINT_LEGEND_MAX_WIDTH_PX - totalGap) / columns;
+    if (widestLabelPx <= perColumnWidth) {
+      return columns;
+    }
+  }
+
+  return 1;
 });
+const printLegendStyle = computed(() => ({
+  "--print-legend-columns": String(printLegendColumnCount.value),
+}));
 
 const mapHeightPx = computed(() => {
   const legendCount = printLegend.value.length || 1;
-  const rows = Math.ceil(legendCount / 3);
+  const rows = Math.ceil(legendCount / Math.max(printLegendColumnCount.value, 1));
   const maxHeight = 560;
   const minHeight = 360;
   const height = maxHeight - rows * 16;
@@ -345,6 +414,47 @@ const printDatasetGroups = computed<PrintDatasetGroup[]>(() =>
     rows: buildPrintChipRows(group.items, formatDatasetLabelPrint),
   })),
 );
+
+const justifiedIntersectionsSummary = computed(() =>
+  getAnalysisJustificationCoverageSummary(props.analysis?.datasetGroups),
+);
+
+const printActionLinks = computed<Array<{
+  label: string;
+  href: string;
+  kind: "geojson" | "attachments";
+  iconClass: string;
+}>>(() => {
+  if (!props.analysis?.id || typeof window === "undefined") return [];
+  let origin = window.location.origin;
+  if (props.analysisPublicUrl) {
+    try {
+      const parsed = new URL(props.analysisPublicUrl, window.location.origin);
+      origin = parsed.origin;
+    } catch {
+      origin = window.location.origin;
+    }
+  }
+
+  const geoJsonUrl = new URL(`/v1/public/analyses/${props.analysis.id}/geojson/download`, origin);
+  const actions: Array<{ label: string; href: string; kind: "geojson" | "attachments"; iconClass: string }> = [
+    {
+      label: "GeoJSON",
+      href: geoJsonUrl.toString(),
+      kind: "geojson",
+      iconClass: "print-action-icon-geojson",
+    },
+  ];
+
+  actions.push({
+    label: "Anexos",
+    href: `${origin}/v1/public/analyses/${props.analysis.id}/attachments/zip`,
+    kind: "attachments",
+    iconClass: "print-action-icon-attachments",
+  });
+
+  return actions;
+});
 
 function formatDate(value?: string | null) {
   if (!value) return "-";
@@ -368,6 +478,14 @@ function formatBiomas(biomas?: string[] | null) {
 function formatDatasetLabelPrint(item: { datasetCode: string; label?: string }) {
   if (item.label) return formatPrintDatasetLabel(item.label);
   return formatPrintDatasetLabel(formatDatasetLabel(item.datasetCode));
+}
+
+function datasetStatusKind(item: {
+  hit: boolean;
+  hasJustification?: boolean;
+  justificationStatus?: AnalysisJustificationStatus;
+}) {
+  return getAnalysisDatasetStatusKind(item);
 }
 
 function printGridStyle(columns: number) {
@@ -473,7 +591,7 @@ onMounted(() => {
 });
 
 watch(
-  () => props.mapFeatures.length,
+  () => props.vectorMap?.vectorSource ? 1 : 0,
   async () => {
     await nextTick();
     analysisMapRef.value?.prepareForPrint();
@@ -628,6 +746,14 @@ watch(
   color: #1f2937;
 }
 
+.print-meta-shell {
+  position: relative;
+}
+
+.print-meta-shell-has-actions .print-meta-grid .span-2 {
+  padding-right: 210px;
+}
+
 .print-meta-grid .span-2 {
   grid-column: span 2;
 }
@@ -636,9 +762,78 @@ watch(
   font-weight: 600;
 }
 
+.print-intersections-meta {
+  min-width: 0;
+}
+
+.print-meta-subline {
+  color: #475569;
+}
+
+.print-meta-separator {
+  color: #94a3b8;
+}
+
 .print-map-row {
   margin-top: 12px;
   display: block;
+}
+
+.print-action-links {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.print-action-links-floating {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  z-index: 1;
+}
+
+.print-action-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  color: #0f172a;
+  padding: 4px 8px;
+  font-size: 10px;
+  font-weight: 600;
+  text-decoration: none;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.print-action-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  background: #e2e8f0;
+  color: #0f172a;
+  line-height: 1;
+}
+
+.print-action-svg {
+  width: 10px;
+  height: 10px;
+  display: block;
+}
+
+.print-action-icon-geojson {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.print-action-icon-attachments {
+  background: #dcfce7;
+  color: #166534;
 }
 
 .print-map-frame {
@@ -664,15 +859,21 @@ watch(
 }
 
 .print-legend-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 6px 10px;
+  column-count: var(--print-legend-columns, 2);
+  column-gap: 20px;
+  column-fill: balance;
 }
 
 .print-legend-item {
-  display: flex;
+  display: inline-flex;
   gap: 6px;
   align-items: center;
+  width: 100%;
+  margin: 0 0 6px;
+  break-inside: avoid;
+  page-break-inside: avoid;
+  white-space: nowrap;
+  line-height: 1.2;
 }
 
 .print-legend-swatch {
@@ -728,17 +929,6 @@ watch(
   line-height: 1.2;
 }
 
-.print-chip-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 16px;
-  height: 16px;
-  border-radius: 999px;
-  font-size: 8px;
-  font-weight: 600;
-}
-
 .print-page-footer {
   margin-top: auto;
   display: flex;
@@ -778,16 +968,6 @@ watch(
   display: block;
   width: 80px;
   height: 80px;
-}
-
-.chip-ok {
-  background: rgba(16, 185, 129, 0.15);
-  color: #047857;
-}
-
-.chip-bad {
-  background: rgba(239, 68, 68, 0.15);
-  color: #b91c1c;
 }
 
 @media print {
@@ -838,6 +1018,11 @@ watch(
     background: #e2e8f0 !important;
   }
   .print-map-frame :deep(.leaflet-control-browser-print) {
+    display: none !important;
+  }
+  .print-map-frame :deep(.maplibregl-ctrl-bottom-right),
+  .print-map-frame :deep(.maplibregl-ctrl-bottom-left),
+  .print-map-frame :deep(.maplibregl-ctrl-logo) {
     display: none !important;
   }
 }

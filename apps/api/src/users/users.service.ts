@@ -86,4 +86,22 @@ export class UsersService {
       },
     });
   }
+
+  async listMemberships(userId: string) {
+    return this.prisma.orgMembership.findMany({
+      where: { userId },
+      select: {
+        orgId: true,
+        role: true,
+        org: {
+          select: {
+            name: true,
+            slug: true,
+            status: true,
+          },
+        },
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+  }
 }

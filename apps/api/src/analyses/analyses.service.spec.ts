@@ -55,8 +55,12 @@ describe('AnalysesService', () => {
         set: jest.fn(),
         invalidate: jest.fn(),
       },
-      docInfo: {
-        updateCnpjInfoBestEffort: jest.fn(),
+      vectorMap: {
+        getVectorMapMetadataById: jest.fn(),
+        getVectorTileById: jest.fn(),
+      },
+      postprocess: {
+        enqueue: jest.fn(),
       },
       landwatchStatus: {
         assertNotRefreshing: jest.fn().mockResolvedValue(undefined),
@@ -75,7 +79,8 @@ describe('AnalysesService', () => {
       deps.runner as any,
       deps.detail as any,
       deps.cache as any,
-      deps.docInfo as any,
+      deps.vectorMap as any,
+      deps.postprocess as any,
       deps.landwatchStatus as any,
       () => now,
     );
@@ -98,8 +103,12 @@ describe('AnalysesService', () => {
     );
     expect(deps.runner.enqueue).toHaveBeenCalledWith('analysis-1');
     expect(result.status).toBe('pending');
-    expect(deps.docInfo.updateCnpjInfoBestEffort).toHaveBeenCalledWith(
-      '04252011000110',
+    expect(deps.postprocess.enqueue).toHaveBeenCalledWith(
+      expect.objectContaining({
+        jobType: 'CNPJ_REFRESH',
+        docNormalized: '04252011000110',
+        dedupeKey: 'cnpj:04252011000110',
+      }),
     );
     expect(prisma.farmDocument.upsert).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -134,7 +143,8 @@ describe('AnalysesService', () => {
       deps.runner as any,
       deps.detail as any,
       deps.cache as any,
-      deps.docInfo as any,
+      deps.vectorMap as any,
+      deps.postprocess as any,
       deps.landwatchStatus as any,
       () => now,
     );
@@ -152,7 +162,7 @@ describe('AnalysesService', () => {
         }),
       }),
     );
-    expect(deps.docInfo.updateCnpjInfoBestEffort).not.toHaveBeenCalled();
+    expect(deps.postprocess.enqueue).not.toHaveBeenCalled();
   });
 
   it('creates analysis using api key actor and propagates orgId', async () => {
@@ -166,7 +176,8 @@ describe('AnalysesService', () => {
       deps.runner as any,
       deps.detail as any,
       deps.cache as any,
-      deps.docInfo as any,
+      deps.vectorMap as any,
+      deps.postprocess as any,
       deps.landwatchStatus as any,
       () => now,
     );
@@ -209,7 +220,8 @@ describe('AnalysesService', () => {
       deps.runner as any,
       deps.detail as any,
       deps.cache as any,
-      deps.docInfo as any,
+      deps.vectorMap as any,
+      deps.postprocess as any,
       deps.landwatchStatus as any,
       () => now,
     );
@@ -236,7 +248,8 @@ describe('AnalysesService', () => {
       deps.runner as any,
       deps.detail as any,
       deps.cache as any,
-      deps.docInfo as any,
+      deps.vectorMap as any,
+      deps.postprocess as any,
       deps.landwatchStatus as any,
       () => now,
     );
@@ -261,7 +274,8 @@ describe('AnalysesService', () => {
       deps.runner as any,
       deps.detail as any,
       deps.cache as any,
-      deps.docInfo as any,
+      deps.vectorMap as any,
+      deps.postprocess as any,
       deps.landwatchStatus as any,
       () => now,
     );
@@ -290,7 +304,8 @@ describe('AnalysesService', () => {
       deps.runner as any,
       deps.detail as any,
       deps.cache as any,
-      deps.docInfo as any,
+      deps.vectorMap as any,
+      deps.postprocess as any,
       deps.landwatchStatus as any,
       () => now,
     );
@@ -317,7 +332,8 @@ describe('AnalysesService', () => {
       deps.runner as any,
       deps.detail as any,
       deps.cache as any,
-      deps.docInfo as any,
+      deps.vectorMap as any,
+      deps.postprocess as any,
       deps.landwatchStatus as any,
       () => now,
     );
@@ -351,7 +367,8 @@ describe('AnalysesService', () => {
       deps.runner as any,
       deps.detail as any,
       deps.cache as any,
-      deps.docInfo as any,
+      deps.vectorMap as any,
+      deps.postprocess as any,
       deps.landwatchStatus as any,
       () => now,
     );
@@ -380,7 +397,8 @@ describe('AnalysesService', () => {
       deps.runner as any,
       deps.detail as any,
       deps.cache as any,
-      deps.docInfo as any,
+      deps.vectorMap as any,
+      deps.postprocess as any,
       deps.landwatchStatus as any,
       () => now,
     );
@@ -389,6 +407,52 @@ describe('AnalysesService', () => {
 
     expect(result).toEqual(geojson);
     expect(deps.detail.getGeoJsonById).not.toHaveBeenCalled();
+  });
+
+  it('includes carBounds in vector map contract when metadata provides them', async () => {
+    const prisma = makePrismaMock();
+    const deps = makeDeps();
+    deps.cache.get.mockResolvedValue(null);
+    deps.vectorMap.getVectorMapMetadataById.mockResolvedValue({
+      renderMode: 'mvt',
+      bounds: [-50, -15, -49, -14],
+      carBounds: [-49.5, -14.8, -49.2, -14.2],
+      minzoom: 0,
+      maxzoom: 14,
+      sourceLayer: 'analysis_features',
+      promoteId: 'analysis_result_id',
+      legendItems: [],
+    });
+
+    const service = new AnalysesService(
+      prisma,
+      deps.runner as any,
+      deps.detail as any,
+      deps.cache as any,
+      deps.vectorMap as any,
+      deps.postprocess as any,
+      deps.landwatchStatus as any,
+      () => now,
+    );
+
+    const result = await service.getVectorMapById(
+      'analysis-1',
+      '/v1/analyses/analysis-1/tiles',
+    );
+
+    expect(result).toEqual({
+      renderMode: 'mvt',
+      vectorSource: {
+        tiles: ['/v1/analyses/analysis-1/tiles/{z}/{x}/{y}.mvt?v=2'],
+        bounds: [-50, -15, -49, -14],
+        carBounds: [-49.5, -14.8, -49.2, -14.2],
+        minzoom: 0,
+        maxzoom: 14,
+        sourceLayer: 'analysis_features',
+        promoteId: 'analysis_result_id',
+      },
+      legendItems: [],
+    });
   });
 
   it('delegates geojson to detail service when cache is missing', async () => {
@@ -414,7 +478,8 @@ describe('AnalysesService', () => {
       deps.runner as any,
       deps.detail as any,
       deps.cache as any,
-      deps.docInfo as any,
+      deps.vectorMap as any,
+      deps.postprocess as any,
       deps.landwatchStatus as any,
       () => now,
     );
@@ -438,7 +503,8 @@ describe('AnalysesService', () => {
       deps.runner as any,
       deps.detail as any,
       deps.cache as any,
-      deps.docInfo as any,
+      deps.vectorMap as any,
+      deps.postprocess as any,
       deps.landwatchStatus as any,
       () => now,
     );
@@ -469,7 +535,8 @@ describe('AnalysesService', () => {
       deps.runner as any,
       deps.detail as any,
       deps.cache as any,
-      deps.docInfo as any,
+      deps.vectorMap as any,
+      deps.postprocess as any,
       deps.landwatchStatus as any,
       () => now,
     );
@@ -501,3 +568,4 @@ describe('AnalysesService', () => {
     );
   });
 });
+

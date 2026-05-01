@@ -1,1 +1,2 @@
-export const ANALYSIS_CACHE_VERSION = 11;
+export const ANALYSIS_CACHE_VERSION = 15;
+export const ANALYSIS_VECTOR_TILE_VERSION = 2;

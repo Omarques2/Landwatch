@@ -7,6 +7,41 @@ from typing import Iterable, List
 from .common import DatasetArtifact, log_info, log_warn
 
 
+def run_pmtiles_build(dataset_codes: List[str]) -> bool:
+    if not dataset_codes:
+        return True
+    build_enabled = os.environ.get("LANDWATCH_PMTILES_BUILD_ENABLED", "0").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+    if not build_enabled:
+        return True
+
+    script = Path(__file__).resolve().parents[2] / "build_pmtiles.py"
+    if not script.exists():
+        raise FileNotFoundError(f"build_pmtiles.py nao encontrado: {script}")
+
+    python_exec = os.environ.get("LANDWATCH_PYTHON_EXECUTABLE") or sys.executable
+    cmd = [
+        python_exec,
+        str(script),
+        "--dataset-codes",
+        ",".join(sorted(set(dataset_codes))),
+    ]
+    log_info(f"Publicando PMTiles: {' '.join(cmd[:4])} ...")
+    try:
+        res = subprocess.run(cmd, check=False)
+    except Exception as exc:
+        log_warn(f"Build PMTiles falhou ({exc})")
+        return False
+    if res.returncode != 0:
+        log_warn(f"Build PMTiles falhou (exit={res.returncode})")
+        return False
+    return True
+
+
 def run_ingest(artifacts: Iterable[DatasetArtifact], snapshot_date: str) -> bool:
     artifacts = list(artifacts)
     if not artifacts:
@@ -61,4 +96,8 @@ def run_ingest(artifacts: Iterable[DatasetArtifact], snapshot_date: str) -> bool
         except Exception as exc:
             log_warn(f"Falha ao atualizar MVs: {exc}")
             ok_all = False
+        if ok_all:
+            pmtiles_ok = run_pmtiles_build([art.dataset_code for art in artifacts])
+            if not pmtiles_ok:
+                ok_all = False
     return ok_all

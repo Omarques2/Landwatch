@@ -308,6 +308,19 @@
   display: none;
 }
 
+.analysis-print-teleport--standby {
+  position: fixed;
+  left: -200vw;
+  top: 0;
+  width: 794px;
+  max-width: 794px;
+  display: block;
+  visibility: hidden;
+  pointer-events: none;
+  z-index: -1;
+  background: #ffffff;
+}
+
 @media screen {
   body.print-preview {
     background: #ffffff;
@@ -351,7 +364,13 @@
     background: #ffffff;
     overflow: visible;
     z-index: 60;
-    display: block;
+    display: block !important;
+    visibility: visible !important;
+    pointer-events: auto !important;
+    width: auto;
+    max-width: none;
+    left: auto;
+    top: auto;
   }
 
   body.print-preview .analysis-print-root > * {
@@ -363,10 +382,6 @@
     grid-template-columns: minmax(0, 1fr) 180px !important;
     align-items: start;
     gap: 12px !important;
-  }
-
-  body.print-preview .analysis-print-root .print-legend-col .grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
   }
 
   body.print-preview .analysis-print-root .mx-auto {
@@ -405,7 +420,10 @@
 
   body.print-preview .analysis-print-root .analysis-map-legend,
   body.print-preview .analysis-map-frame .leaflet-control-container,
-  body.print-preview .analysis-map-frame .leaflet-control-attribution {
+  body.print-preview .analysis-map-frame .leaflet-control-attribution,
+  body.print-preview .analysis-map-frame .maplibregl-ctrl-bottom-right,
+  body.print-preview .analysis-map-frame .maplibregl-ctrl-bottom-left,
+  body.print-preview .analysis-map-frame .maplibregl-ctrl-logo {
     display: none !important;
   }
 }
@@ -420,5 +438,12 @@
     height: auto !important;
     overflow: visible !important;
     background: #ffffff !important;
+    display: block !important;
+    visibility: visible !important;
+    pointer-events: auto !important;
+    left: auto !important;
+    top: auto !important;
+    width: auto !important;
+    max-width: none !important;
   }
 }

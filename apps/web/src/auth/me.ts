@@ -3,6 +3,7 @@ import { http } from "@/api/http";
 import { unwrapData, type ApiEnvelope } from "@/api/envelope";
 import { isRetryableHttpError, runWithRetryBackoff } from "./resilience";
 import { acquireApiToken } from "./auth";
+import { isLocalAuthBypassEnabled } from "./local-bypass";
 
 export type MeResponse = {
   id?: string;
@@ -49,6 +50,9 @@ export async function getMeCached(force = false): Promise<MeResponse | null> {
       const res = await runWithRetryBackoff(
         async () => {
           const token = await acquireApiToken({ reason: "/v1/users/me" });
+          if (!token && isLocalAuthBypassEnabled()) {
+            return http.get("/v1/users/me");
+          }
           return http.get("/v1/users/me", {
             headers: {
               Authorization: `Bearer ${token}`,

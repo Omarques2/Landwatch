@@ -56,4 +56,21 @@ describe('AnalysisCacheService', () => {
       where: { analysisId: 'a3' },
     });
   });
+
+  it('swallows cleanup timer failures instead of leaking rejections', async () => {
+    const prisma = createPrismaMock();
+    const now = new Date('2026-02-01T00:00:00Z');
+    prisma.analysisCache.deleteMany.mockRejectedValue(new Error('db timeout'));
+    const service = new AnalysisCacheService(prisma as any, () => now);
+    const loggerSpy = jest
+      .spyOn((service as any).logger, 'error')
+      .mockImplementation(() => undefined);
+
+    await (service as any).runCleanupExpiredSafely();
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(loggerSpy).toHaveBeenCalledWith(
+      expect.stringContaining('"event":"analysis.cache.cleanup.failed"'),
+    );
+  });
 });

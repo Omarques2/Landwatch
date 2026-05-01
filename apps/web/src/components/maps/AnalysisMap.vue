@@ -8,16 +8,17 @@
     >
       <div class="mb-2 text-xs font-semibold">Legenda</div>
       <div class="flex flex-col gap-1">
-        <div
+        <button
           v-for="item in legend"
           :key="item.code"
-          class="flex items-center gap-2 cursor-pointer rounded-md px-1 py-0.5"
-          :class="selectedDatasetRef === item.code ? 'bg-accent' : ''"
+          type="button"
+          class="flex items-center gap-2 rounded-md px-1 py-0.5 text-left transition-colors"
+          :class="currentLegendCode === item.code ? 'bg-accent' : 'hover:bg-muted/70'"
           @click="toggleDataset(item.code)"
         >
           <span class="h-3 w-3 rounded-sm" :style="{ backgroundColor: item.color }"></span>
           {{ item.label }}
-        </div>
+        </button>
       </div>
     </div>
   </div>
@@ -29,7 +30,6 @@ import L from "leaflet";
 import { colorForDataset, formatDatasetLabel } from "@/features/analyses/analysis-colors";
 import {
   buildUcsLegendItems,
-  getUcsDisplayName,
   getUcsLegendCode,
   isUcsFeature,
 } from "@/features/analyses/analysis-legend";
@@ -37,9 +37,13 @@ import {
 type MapFeature = {
   categoryCode: string;
   datasetCode: string;
+  datasetLabel?: string | null;
   featureId?: string | null;
+  featureKey?: string | null;
   displayName?: string | null;
   naturalId?: string | null;
+  snapshotDate?: string | null;
+  isSicar?: boolean;
   geom: any;
 };
 
@@ -47,23 +51,58 @@ const props = defineProps<{
   features: MapFeature[];
   printMode?: boolean;
   showLegend?: boolean;
+  autoFitMode?: "always" | "once" | "never";
+  fitSessionKey?: string | number | null;
+  activeLegendCode?: string | null;
+  carKey?: string | null;
+}>();
+const emit = defineEmits<{
+  (
+    event: "feature-contextmenu",
+    payload: {
+      datasetCode: string;
+      categoryCode: string;
+      featureId?: string | null;
+      featureKey?: string | null;
+      displayName?: string | null;
+      naturalId?: string | null;
+      isSicar: boolean;
+      latlng: { lat: number; lng: number };
+      screen: { x: number; y: number };
+    },
+  ): void;
+  (event: "active-legend-change", value: string | null): void;
 }>();
 
 const mapEl = ref<HTMLDivElement | null>(null);
 const legendEl = ref<HTMLDivElement | null>(null);
-const selectedDatasetRef = ref<string | null>(null);
+const internalLegendCode = ref<string | null>(null);
 let map: L.Map | null = null;
 let sicarLayer: L.GeoJSON<any> | null = null;
 let sicarOutlineLayer: L.GeoJSON<any> | null = null;
 let otherLayer: L.GeoJSON<any> | null = null;
+let sicarRenderer: L.SVG | null = null;
+let sicarOutlineRenderer: L.SVG | null = null;
+let featureRenderer: L.SVG | null = null;
 let selectedKey: string | null = null;
-let selectedDataset: string | null = null;
 let printModeState = false;
+let hasAutoFitApplied = false;
+let userInteractedWithMap = false;
+let suppressInteractionTracking = false;
+const DEFAULT_CENTER: L.LatLngExpression = [-14.235, -51.9253];
+const DEFAULT_ZOOM = 4;
+const SICAR_PANE = "analysisSicarPane";
+const SICAR_OUTLINE_PANE = "analysisSicarOutlinePane";
+const FEATURE_PANE = "analysisFeaturePane";
 
 const ucsLegendItems = computed(() => buildUcsLegendItems(props.features));
 const ucsColorByCode = computed(() => {
   return new Map(ucsLegendItems.value.map((item) => [item.code, item.color]));
 });
+
+const currentLegendCode = computed(
+  () => props.activeLegendCode ?? internalLegendCode.value ?? null,
+);
 
 function colorForFeatureCode(datasetCode: string, legendCode?: string | null) {
   if (legendCode && legendCode.startsWith("UCS_")) {
@@ -76,7 +115,7 @@ const legend = computed(() => {
   const codes = Array.from(
     new Set(
       props.features
-        .filter((f) => f.categoryCode !== "SICAR" && !isUcsFeature(f))
+        .filter((f) => !isFeatureSicar(f) && !isUcsFeature(f))
         .map((f) => f.datasetCode),
     ),
   );
@@ -93,6 +132,23 @@ const legend = computed(() => {
 
 const legendVisible = computed(() => props.showLegend !== false);
 
+function isFeatureSicar(feature?: MapFeature | null) {
+  if (!feature) return false;
+  if (feature.isSicar === true) return true;
+  return (feature.categoryCode ?? "").toUpperCase() === "SICAR";
+}
+
+function resolveLegendCode(feature: MapFeature) {
+  return getUcsLegendCode(feature) ?? feature.datasetCode;
+}
+
+function isFeatureVisibleForLegend(feature: MapFeature) {
+  const active = currentLegendCode.value;
+  if (!active) return true;
+  if (isFeatureSicar(feature)) return true;
+  return resolveLegendCode(feature) === active;
+}
+
 function buildFeatureCollection(
   features: MapFeature[],
   filter: (f: MapFeature) => boolean,
@@ -105,19 +161,22 @@ function buildFeatureCollection(
   return {
     type: "FeatureCollection",
     features: filtered.map((f, idx) => ({
-        type: "Feature",
-        geometry: f.geom,
-        properties: {
-          datasetCode: f.datasetCode,
-          categoryCode: f.categoryCode,
-          displayName: f.displayName ?? null,
-          naturalId: f.naturalId ?? null,
-          legendCode: getUcsLegendCode(f) ?? f.datasetCode,
-          isSicar: f.categoryCode === "SICAR",
-          featureId: f.featureId ?? null,
-          __key: f.featureId ? `${f.datasetCode}-${f.featureId}` : `${f.datasetCode}-${idx}`,
-        },
-      })),
+      type: "Feature",
+      geometry: f.geom,
+      properties: {
+        datasetCode: f.datasetCode,
+        datasetLabel: f.datasetLabel ?? formatDatasetLabel(f.datasetCode),
+        categoryCode: f.categoryCode,
+        displayName: f.displayName ?? null,
+        naturalId: f.naturalId ?? null,
+        featureKey: f.featureKey ?? null,
+        snapshotDate: f.snapshotDate ?? null,
+        legendCode: resolveLegendCode(f),
+        isSicar: isFeatureSicar(f),
+        featureId: f.featureId ?? null,
+        __key: f.featureId ? `${f.datasetCode}-${f.featureId}` : `${f.datasetCode}-${idx}`,
+      },
+    })),
   } as GeoJSON.FeatureCollection;
 }
 
@@ -161,6 +220,109 @@ function estimateArea(geom: any) {
   return 0;
 }
 
+function escapeHtml(value: string) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function buildTooltipHtml(properties: Record<string, unknown>) {
+  const isSicar = Boolean(properties.isSicar);
+  const datasetCode = String(properties.datasetCode ?? "").trim();
+  const datasetLabel = String(properties.datasetLabel ?? datasetCode).trim();
+  const categoryCode = String(properties.categoryCode ?? "").trim();
+  const displayName = String(properties.displayName ?? "").trim();
+  const naturalId = String(properties.naturalId ?? "").trim();
+  const featureKey = String(properties.featureKey ?? "").trim();
+  const featureId = String(properties.featureId ?? "").trim();
+  const snapshotDate = String(properties.snapshotDate ?? "").trim();
+
+  const title = isSicar
+    ? "CAR"
+    : displayName || naturalId || featureKey || datasetLabel || datasetCode;
+
+  const lines: string[] = [];
+  if (isSicar) {
+    if ((props.carKey ?? "").trim()) {
+      lines.push(`CAR: ${escapeHtml((props.carKey ?? "").trim())}`);
+    }
+    if (datasetCode) {
+      lines.push(`Dataset: ${escapeHtml(datasetCode)}`);
+    }
+  } else {
+    if (datasetLabel && datasetLabel !== title) {
+      lines.push(`Dataset: ${escapeHtml(datasetLabel)}`);
+    }
+    if (categoryCode) {
+      lines.push(`Categoria: ${escapeHtml(categoryCode)}`);
+    }
+    if (snapshotDate) {
+      lines.push(`Data: ${escapeHtml(snapshotDate.slice(0, 10))}`);
+    }
+    if (featureId) {
+      lines.push(`Feature ID: ${escapeHtml(featureId)}`);
+    }
+  }
+
+  const body = lines.length
+    ? `<div class="analysis-map-tooltip__meta">${lines
+        .map((line) => `<div>${line}</div>`)
+        .join("")}</div>`
+    : "";
+
+  return `
+    <div class="analysis-map-tooltip">
+      <div class="analysis-map-tooltip__title">${escapeHtml(title)}</div>
+      ${body}
+    </div>
+  `;
+}
+
+function bindFeatureEvents(feature: any, layer: L.Layer) {
+  const datasetCode = feature.properties?.datasetCode ?? "";
+  const categoryCode = feature.properties?.categoryCode ?? "";
+  const isSicar = Boolean(feature.properties?.isSicar);
+
+  if ("bindTooltip" in layer && typeof (layer as any).bindTooltip === "function") {
+    (layer as any).bindTooltip(buildTooltipHtml(feature.properties ?? {}), {
+      sticky: true,
+      direction: "top",
+      opacity: 0.96,
+    });
+  }
+
+  layer.on("click", () => {
+    const key = feature.properties?.__key ?? null;
+    selectedKey = selectedKey && key === selectedKey ? null : key;
+    applyStyles();
+  });
+
+  layer.on("contextmenu", (event: any) => {
+    event?.originalEvent?.preventDefault?.();
+    event?.originalEvent?.stopPropagation?.();
+    emit("feature-contextmenu", {
+      datasetCode,
+      categoryCode,
+      featureId: feature.properties?.featureId ?? null,
+      featureKey: feature.properties?.featureKey ?? null,
+      displayName: feature.properties?.displayName ?? null,
+      naturalId: feature.properties?.naturalId ?? null,
+      isSicar,
+      latlng: {
+        lat: Number(event?.latlng?.lat ?? 0),
+        lng: Number(event?.latlng?.lng ?? 0),
+      },
+      screen: {
+        x: Number(event?.originalEvent?.clientX ?? 0),
+        y: Number(event?.originalEvent?.clientY ?? 0),
+      },
+    });
+  });
+}
+
 function updateLayers() {
   if (!map) return;
   if (sicarLayer) {
@@ -176,14 +338,26 @@ function updateLayers() {
     otherLayer = null;
   }
 
-  const sicarFeatures = buildFeatureCollection(props.features, (f) => f.categoryCode === "SICAR");
+  const visibleFeatures = props.features.filter((feature) =>
+    isFeatureVisibleForLegend(feature),
+  );
+  const visibleKeys = new Set(
+    visibleFeatures.map((feature, index) =>
+      feature.featureId ? `${feature.datasetCode}-${feature.featureId}` : `${feature.datasetCode}-${index}`,
+    ),
+  );
+  if (selectedKey && !visibleKeys.has(selectedKey)) {
+    selectedKey = null;
+  }
+
+  const sicarFeatures = buildFeatureCollection(visibleFeatures, (f) => isFeatureSicar(f));
   const otherFeatures = buildFeatureCollection(
-    props.features,
-    (f) => f.categoryCode !== "SICAR",
+    visibleFeatures,
+    (f) => !isFeatureSicar(f),
     (a, b) => estimateArea(b.geom) - estimateArea(a.geom),
   );
 
-  const sicarSelected = selectedDataset === "SICAR";
+  const sicarSelected = currentLegendCode.value === "SICAR";
   if (sicarFeatures.features.length) {
     sicarLayer = L.geoJSON(sicarFeatures as any, {
       style: () => {
@@ -194,7 +368,7 @@ function updateLayers() {
           fillOpacity: sicarSelected ? 0.35 : 0.25,
         };
       },
-      pointToLayer: (_feature, latlng) =>
+      pointToLayer: (_feature: any, latlng: L.LatLng) =>
         L.circleMarker(latlng, {
           radius: 0,
           color: "#dc2626",
@@ -203,23 +377,10 @@ function updateLayers() {
           fillOpacity: 0,
           opacity: 0,
         }),
-      onEachFeature: (feature, layer) => {
-        const code = feature.properties?.datasetCode ?? "SICAR";
-        layer.bindTooltip(code, { sticky: true });
-        layer.on("click", () => {
-          if (selectedDataset === "SICAR") {
-            selectedDataset = null;
-            selectedKey = null;
-          } else {
-            selectedDataset = "SICAR";
-            selectedKey = null;
-          }
-          selectedDatasetRef.value = selectedDataset;
-          applyStyles();
-        });
-      },
-      pane: "sicarPane",
-    }).addTo(map);
+      onEachFeature: (feature: any, layer: L.Layer) => bindFeatureEvents(feature, layer),
+      pane: SICAR_PANE,
+      renderer: sicarRenderer ?? undefined,
+    } as any).addTo(map);
     sicarLayer.bringToBack();
   }
 
@@ -230,15 +391,14 @@ function updateLayers() {
         const legendCode = feature?.properties?.legendCode ?? code;
         const key = feature?.properties?.__key ?? "";
         const isSelected = key && key === selectedKey;
-        const isDatasetActive = selectedDataset ? legendCode === selectedDataset : true;
         return {
           color: isSelected ? "#0f172a" : "#111827",
           weight: isSelected ? 2.5 : 1,
           fillColor: colorForFeatureCode(code, legendCode),
-          fillOpacity: isSelected ? 0.75 : isDatasetActive ? 0.6 : 0.15,
+          fillOpacity: isSelected ? 0.75 : 0.6,
         };
       },
-      pointToLayer: (feature: any, latlng) => {
+      pointToLayer: (feature: any, latlng: L.LatLng) => {
         const code = feature?.properties?.datasetCode ?? "";
         const legendCode = feature?.properties?.legendCode ?? code;
         const color = colorForFeatureCode(code, legendCode);
@@ -251,37 +411,10 @@ function updateLayers() {
           opacity: 0,
         });
       },
-      onEachFeature: (feature, layer) => {
-        const code = feature.properties?.datasetCode ?? "";
-        const category = feature.properties?.categoryCode ?? "";
-        const label = isUcsFeature({
-          categoryCode: category,
-          datasetCode: code,
-        })
-          ? getUcsDisplayName({
-              categoryCode: category,
-              datasetCode: code,
-              featureId: feature.properties?.featureId ?? null,
-              displayName: feature.properties?.displayName ?? null,
-              naturalId: feature.properties?.naturalId ?? null,
-            }) ?? formatDatasetLabel(code)
-          : formatDatasetLabel(code);
-        layer.bindTooltip(`${label} (${category})`, { sticky: true });
-        layer.on("click", () => {
-          const key = feature.properties?.__key ?? null;
-          if (selectedKey && key === selectedKey) {
-            selectedKey = null;
-            selectedDataset = null;
-          } else {
-            selectedKey = key;
-            selectedDataset = feature.properties?.legendCode ?? feature.properties?.datasetCode ?? null;
-          }
-          selectedDatasetRef.value = selectedDataset;
-          applyStyles();
-        });
-      },
-      pane: "overlayPane",
-    }).addTo(map);
+      onEachFeature: (feature: any, layer: L.Layer) => bindFeatureEvents(feature, layer),
+      pane: FEATURE_PANE,
+      renderer: featureRenderer ?? undefined,
+    } as any).addTo(map);
   }
 
   if (sicarFeatures.features.length) {
@@ -293,57 +426,90 @@ function updateLayers() {
         fillOpacity: 0,
       },
       interactive: false,
-      pane: "sicarOutlinePane",
-    }).addTo(map);
+      pane: SICAR_OUTLINE_PANE,
+      renderer: sicarOutlineRenderer ?? undefined,
+    } as any).addTo(map);
     sicarOutlineLayer.bringToFront();
   }
 
   const sicarBounds = L.geoJSON(sicarFeatures as any).getBounds();
-  if (sicarBounds.isValid()) {
-    if (printModeState) {
-      map.fitBounds(sicarBounds, { padding: [2, 2] });
-    } else {
-      const padding = L.point(1, 1);
-      const zoom = map.getBoundsZoom(sicarBounds, false, padding);
-      map.setView(sicarBounds.getCenter(), zoom);
-    }
-    if (!printModeState) {
-      const legendRect = legendEl.value?.getBoundingClientRect();
-      const mapRect = mapEl.value?.getBoundingClientRect();
-      if (legendRect && mapRect) {
-        const shiftX = Math.min(legendRect.width / 2 + 10, mapRect.width * 0.2);
-        const shiftY = Math.min(legendRect.height / 2 + 10, mapRect.height * 0.2);
-        map.panBy([shiftX, -shiftY], { animate: false });
+  const otherBounds = L.geoJSON(otherFeatures as any).getBounds();
+  const targetBounds = sicarBounds.isValid()
+    ? sicarBounds
+    : otherBounds.isValid()
+      ? otherBounds
+      : null;
+
+  const mapInstance = map;
+  if (targetBounds && mapInstance && shouldAutoFitToBounds()) {
+    withSuppressedInteractionTracking(() => {
+      if (printModeState) {
+        mapInstance.fitBounds(targetBounds, { padding: [2, 2] });
+      } else {
+        const padding = L.point(1, 1);
+        const zoom = mapInstance.getBoundsZoom(targetBounds, false, padding);
+        mapInstance.setView(targetBounds.getCenter(), zoom);
       }
-    }
+      if (!printModeState) {
+        const legendRect = legendEl.value?.getBoundingClientRect();
+        const mapRect = mapEl.value?.getBoundingClientRect();
+        if (legendRect && mapRect) {
+          const shiftX = Math.min(legendRect.width / 2 + 10, mapRect.width * 0.2);
+          const shiftY = Math.min(legendRect.height / 2 + 10, mapRect.height * 0.2);
+          mapInstance.panBy([shiftX, -shiftY], { animate: false });
+        }
+      }
+    });
+    hasAutoFitApplied = true;
   }
+}
+
+function withSuppressedInteractionTracking(fn: () => void) {
+  suppressInteractionTracking = true;
+  try {
+    fn();
+  } finally {
+    window.setTimeout(() => {
+      suppressInteractionTracking = false;
+    }, 0);
+  }
+}
+
+function shouldAutoFitToBounds() {
+  if (printModeState) return true;
+  const mode = props.autoFitMode ?? "always";
+  if (mode === "never") return false;
+  if (mode === "once") {
+    if (hasAutoFitApplied) return false;
+    if (userInteractedWithMap) return false;
+  }
+  return true;
+}
+
+function markUserInteraction() {
+  if (suppressInteractionTracking) return;
+  userInteractedWithMap = true;
 }
 
 function toggleDataset(code: string) {
-  if (selectedDataset === code) {
-    selectedDataset = null;
-    selectedKey = null;
-  } else {
-    selectedDataset = code;
-    selectedKey = null;
-  }
-  selectedDatasetRef.value = selectedDataset;
-  applyStyles();
+  const nextValue = currentLegendCode.value === code ? null : code;
+  internalLegendCode.value = nextValue;
+  emit("active-legend-change", nextValue);
+  updateLayers();
 }
 
 function applyStyles() {
-  const sicarSelected = selectedDataset === "SICAR";
+  const sicarSelected = currentLegendCode.value === "SICAR";
   otherLayer?.setStyle((feat: any) => {
     const featCode = feat?.properties?.datasetCode ?? "";
     const legendCode = feat?.properties?.legendCode ?? featCode;
     const featKey = feat?.properties?.__key ?? "";
     const isSelected = featKey && featKey === selectedKey;
-    const isDatasetActive = selectedDataset ? legendCode === selectedDataset : true;
     return {
       color: isSelected ? "#0f172a" : "#111827",
       weight: isSelected ? 2.5 : 1,
       fillColor: colorForFeatureCode(featCode, legendCode),
-      fillOpacity: isSelected ? 0.75 : isDatasetActive ? 0.6 : 0.15,
+      fillOpacity: isSelected ? 0.75 : 0.6,
     };
   });
   if (sicarLayer) {
@@ -374,19 +540,28 @@ onMounted(async () => {
     zoomSnap: 0.25,
     zoomDelta: 0.5,
   });
+  map.setView(DEFAULT_CENTER, DEFAULT_ZOOM);
 
-  map.createPane("sicarPane");
-  map.getPane("sicarPane")!.style.zIndex = "400";
-  map.createPane("sicarOutlinePane");
-  map.getPane("sicarOutlinePane")!.style.zIndex = "420";
-  map.createPane("overlayPane");
-  map.getPane("overlayPane")!.style.zIndex = "410";
+  map.createPane(SICAR_PANE);
+  map.getPane(SICAR_PANE)!.style.zIndex = "410";
+  map.createPane(FEATURE_PANE);
+  map.getPane(FEATURE_PANE)!.style.zIndex = "430";
+  map.createPane(SICAR_OUTLINE_PANE);
+  map.getPane(SICAR_OUTLINE_PANE)!.style.zIndex = "440";
+  sicarRenderer = L.svg({ pane: SICAR_PANE });
+  featureRenderer = L.svg({ pane: FEATURE_PANE });
+  sicarOutlineRenderer = L.svg({ pane: SICAR_OUTLINE_PANE });
 
   L.tileLayer("https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}", {
     maxZoom: 19,
     attribution: "Google",
   }).addTo(map);
 
+  map.on("dragstart", markUserInteraction);
+  map.on("zoomstart", markUserInteraction);
+  map.on("mousedown", markUserInteraction);
+  map.on("touchstart", markUserInteraction);
+  map.on("wheel", markUserInteraction);
 
   await nextTick();
   updateLayers();
@@ -403,12 +578,27 @@ watch(
 watch(
   () => props.features,
   () => updateLayers(),
-  { deep: true },
+);
+
+watch(
+  () => props.activeLegendCode,
+  () => updateLayers(),
+);
+
+watch(
+  () => props.fitSessionKey,
+  () => {
+    hasAutoFitApplied = false;
+    userInteractedWithMap = false;
+  },
 );
 
 onBeforeUnmount(() => {
   map?.remove();
   map = null;
+  sicarRenderer = null;
+  featureRenderer = null;
+  sicarOutlineRenderer = null;
 });
 
 function prepareForPrint() {
@@ -451,5 +641,18 @@ defineExpose({ prepareForPrint, resetAfterPrint, refresh });
 }
 :global(.leaflet-interactive:focus) {
   outline: none;
+}
+:global(.analysis-map-tooltip) {
+  display: grid;
+  gap: 2px;
+  min-width: 160px;
+}
+:global(.analysis-map-tooltip__title) {
+  font-weight: 600;
+}
+:global(.analysis-map-tooltip__meta) {
+  color: rgb(71 85 105);
+  font-size: 11px;
+  line-height: 1.35;
 }
 </style>

@@ -72,7 +72,7 @@
     <div class="flex-1 overflow-auto bg-card" :class="padList">
       <div class="space-y-1">
         <button
-          v-for="item in items"
+          v-for="item in mainItems"
           :key="item.key"
           class="sidebar-nav-item group flex w-full items-center rounded-xl py-2 transition hover:bg-accent"
           :class="[
@@ -92,6 +92,29 @@
           <span v-if="!collapsed" class="truncate text-sm font-medium">{{ item.label }}</span>
         </button>
       </div>
+    </div>
+
+    <div v-if="bottomItems.length" class="border-t border-border bg-card" :class="padSection">
+      <button
+        v-for="item in bottomItems"
+        :key="item.key"
+        class="sidebar-nav-item group flex w-full items-center rounded-xl py-2 transition hover:bg-accent"
+        :class="[
+          collapsed
+            ? 'justify-center px-0 text-center'
+            : 'justify-start gap-3 px-3 text-left',
+          item.key === activeKey ? 'bg-accent text-foreground' : '',
+        ]"
+        :title="collapsed ? item.label : ''"
+        @click="handleSelect(item.key)"
+      >
+        <component
+          :is="item.icon"
+          class="sidebar-nav-icon h-5 w-5 shrink-0"
+          :class="collapsed ? 'mx-auto' : ''"
+        />
+        <span v-if="!collapsed" class="truncate text-sm font-medium">{{ item.label }}</span>
+      </button>
     </div>
 
     <div class="mt-auto border-t border-border bg-card" :class="padSection">
@@ -137,7 +160,7 @@ import { LogOut, Plus, X } from "lucide-vue-next";
 import HamburgerIcon from "./icons/HamburgerIcon.vue";
 import logoUrl from "../assets/logo.png";
 
-type NavItem = { key: string; label: string; icon: any };
+type NavItem = { key: string; label: string; icon: any; placement?: "main" | "bottom" };
 
 const props = defineProps<{
   mode: "desktop" | "mobile";
@@ -165,6 +188,8 @@ const padList = computed(() => (props.mode === "mobile" ? "px-2 pb-4" : "px-2 pb
 const userNameOrFallback = computed(() => (props.userName ?? "").trim() || "Usuário");
 const userEmailOrFallback = computed(() => (props.userEmail ?? "").trim() || "—");
 const newAnalysisDisabled = computed(() => Boolean(props.disableNewAnalysis));
+const mainItems = computed(() => props.items.filter((item) => item.placement !== "bottom"));
+const bottomItems = computed(() => props.items.filter((item) => item.placement === "bottom"));
 
 const userInitials = computed(() => {
   const base = (props.userName ?? props.userEmail ?? "").trim();

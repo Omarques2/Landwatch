@@ -1,0 +1,19 @@
+.git
+.github
+.agents
+.codex
+.vscode
+docs
+vendor
+Function App
+UCs-shps
+
+apps/api
+apps/web
+
+apps/Versionamento/.venv
+apps/Versionamento/__pycache__
+apps/Versionamento/Dados
+apps/Versionamento/Dados-prod
+apps/Versionamento/work
+apps/Versionamento/.env

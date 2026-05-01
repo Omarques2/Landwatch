@@ -17,6 +17,7 @@ export class UsersController {
     }
 
     const user = await this.usersService.upsertFromClaims(claims);
+    const memberships = await this.usersService.listMemberships(user.id);
 
     return {
       id: user.id,
@@ -25,6 +26,7 @@ export class UsersController {
       displayName: user.displayName ?? null,
       status: user.status,
       lastLoginAt: user.lastLoginAt ?? null,
+      memberships,
     };
   }
 }

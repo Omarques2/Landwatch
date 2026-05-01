@@ -39,6 +39,10 @@ type DatasetItem = {
   datasetCode: string;
   hit: boolean;
   label?: string;
+  hasJustification?: boolean;
+  justificationStatus?: 'none' | 'partial' | 'full';
+  totalHits?: number;
+  justifiedHits?: number;
 };
 
 type DatasetGroup = {
@@ -46,11 +50,19 @@ type DatasetGroup = {
   items: DatasetItem[];
 };
 
+type JustificationCoverage = {
+  totalHits: number;
+  justifiedHits: number;
+  justificationStatus: 'none' | 'partial' | 'full';
+};
+
 export type AnalysisMapRow = {
   categoryCode: string;
   datasetCode: string;
+  datasetLabel: string;
   snapshotDate: Date | null;
   featureId: string | null;
+  featureKey: string | null;
   displayName: string | null;
   naturalId: string | null;
   geom: Record<string, unknown>;
@@ -127,7 +139,8 @@ export class AnalysisDetailService {
     private readonly docInfo: DocInfoService,
     @Optional() @Inject(NOW_PROVIDER) nowProvider?: () => Date,
   ) {
-    this.nowProvider = nowProvider ?? (() => new Date());
+    this.nowProvider =
+      typeof nowProvider === 'function' ? nowProvider : () => new Date();
   }
 
   private getSchema(): string {
@@ -174,6 +187,10 @@ export class AnalysisDetailService {
       return null;
     };
 
+    if (analysis.status !== 'completed') {
+      return this.buildIncompleteDetailResponse(analysis);
+    }
+
     const { farm, results, ...rest } = analysis;
     const analysisKind = analysis.analysisKind ?? AnalysisKind.STANDARD;
     const isBaseSicarResult = (row: (typeof results)[number]) => {
@@ -188,23 +205,31 @@ export class AnalysisDetailService {
       ? analysis.analysisDate.toISOString().slice(0, 10)
       : this.nowProvider().toISOString().slice(0, 10);
     const schema = this.getSchema();
-    const sicarCoordinates = await this.fetchSicarCoordinates(
-      schema,
-      analysis.carKey,
-      analysisDate,
-    );
-    const biomas = await this.fetchBiomas(
-      schema,
-      analysis.carKey,
-      analysisDate,
-    );
     const sicarRow = filteredResults.find((row) => isBaseSicarResult(row));
-    const sicarMeta = await this.fetchSicarMeta(
-      schema,
-      sicarRow?.datasetCode ?? null,
-      sicarRow?.featureId ?? null,
-      analysisDate,
-    );
+    const analysisDocs = this.normalizeAnalysisDocs(analysis.analysisDocs);
+
+    const [
+      sicarCoordinates,
+      biomas,
+      sicarMeta,
+      datasets,
+      justificationCoverage,
+      docMatches,
+    ] = await Promise.all([
+      this.fetchSicarCoordinates(schema, analysis.carKey, analysisDate),
+      this.fetchBiomas(schema, analysis.carKey, analysisDate),
+      this.fetchSicarMeta(
+        schema,
+        sicarRow?.datasetCode ?? null,
+        sicarRow?.featureId ?? null,
+        analysisDate,
+      ),
+      this.fetchDatasets(schema),
+      this.fetchJustificationCoverage(schema, analysis.id, analysisDate),
+      analysisDocs.length
+        ? this.fetchDocMatches(schema, analysisDocs, analysisDate)
+        : Promise.resolve([]),
+    ]);
 
     if (analysisKind === AnalysisKind.DETER) {
       return {
@@ -230,12 +255,6 @@ export class AnalysisDetailService {
         })),
       };
     }
-
-    const analysisDocs = this.normalizeAnalysisDocs(analysis.analysisDocs);
-    const docMatches = analysisDocs.length
-      ? await this.fetchDocMatches(schema, analysisDocs, analysisDate)
-      : [];
-    const datasets = await this.fetchDatasets(schema);
 
     const indigenaDatasetCodes = datasets
       .filter((dataset) =>
@@ -264,33 +283,37 @@ export class AnalysisDetailService {
     );
     const docHits = new Set(docMatches.map((row) => row.dataset_code));
     const docFlagsByDoc = this.buildDocFlags(docMatches);
-    const indigenaPhases = await this.fetchIndigenaPhases(
-      schema,
-      analysisDate,
-      indigenaDatasetCodes.length ? indigenaDatasetCodes : undefined,
-    );
     const targets = filteredResults.map((row) => ({
       categoryCode: row.categoryCode,
       datasetCode: row.datasetCode,
       featureId: row.featureId ? row.featureId.toString() : null,
     }));
-    const indigenaHits = await this.fetchIndigenaPhaseHits(
-      schema,
-      analysisDate,
-      targets,
-      indigenaDatasetCodes.length ? indigenaDatasetCodes : undefined,
-    );
-    const ucsCategories = await this.fetchUcsCategories(
-      schema,
-      analysisDate,
-      ucsDatasetCodes.length ? ucsDatasetCodes : undefined,
-    );
-    const ucsHits = await this.fetchUcsCategoryHits(
-      schema,
-      analysisDate,
-      targets,
-      ucsDatasetCodes.length ? ucsDatasetCodes : undefined,
-    );
+    const [indigenaPhases, ucsCategories] = await Promise.all([
+      this.fetchIndigenaPhases(
+        schema,
+        analysisDate,
+        indigenaDatasetCodes.length ? indigenaDatasetCodes : undefined,
+      ),
+      this.fetchUcsCategories(
+        schema,
+        analysisDate,
+        ucsDatasetCodes.length ? ucsDatasetCodes : undefined,
+      ),
+    ]);
+    const [indigenaHits, ucsHits] = await Promise.all([
+      this.fetchIndigenaPhaseHits(
+        schema,
+        analysisDate,
+        targets,
+        indigenaDatasetCodes.length ? indigenaDatasetCodes : undefined,
+      ),
+      this.fetchUcsCategoryHits(
+        schema,
+        analysisDate,
+        targets,
+        ucsDatasetCodes.length ? ucsDatasetCodes : undefined,
+      ),
+    ]);
     const datasetGroups = this.buildDatasetGroups(
       datasets,
       spatialHits,
@@ -301,6 +324,10 @@ export class AnalysisDetailService {
         ucsCategories,
         ucsHits,
       },
+    );
+    const datasetGroupsWithJustification = this.applyJustificationCoverage(
+      datasetGroups,
+      justificationCoverage,
     );
     const docInfos = analysisDocs.length
       ? await this.buildDocInfos(analysisDocs, docFlagsByDoc)
@@ -315,7 +342,7 @@ export class AnalysisDetailService {
       sicarStatus: sicarMeta.status,
       sicarCoordinates,
       biomas,
-      datasetGroups,
+      datasetGroups: datasetGroupsWithJustification,
       docInfos,
       results: filteredResults.map((row) => ({
         ...row,
@@ -329,16 +356,44 @@ export class AnalysisDetailService {
       })),
     };
   }
+
+  private buildIncompleteDetailResponse(
+    analysis: {
+      farm?: { name: string | null } | null;
+      results?: unknown[];
+      [key: string]: unknown;
+    } | null,
+  ) {
+    if (!analysis) return null;
+    const { farm, results: _results, ...rest } = analysis;
+    return {
+      ...rest,
+      pdfPath: undefined,
+      farmName: farm?.name ?? null,
+      municipio: null,
+      uf: null,
+      sicarStatus: null,
+      sicarCoordinates: null,
+      biomas: [],
+      datasetGroups: [],
+      docInfos: [],
+      results: [],
+    };
+  }
+
   async getMapById(id: string, tolerance?: number): Promise<AnalysisMapRow[]> {
     const analysis = await this.prisma.analysis.findUnique({
       where: { id },
-      select: { id: true, analysisDate: true, analysisKind: true },
+      select: { id: true, status: true, analysisDate: true, analysisKind: true },
     });
     if (!analysis) {
       throw new BadRequestException({
         code: 'ANALYSIS_NOT_FOUND',
         message: 'Analysis not found',
       });
+    }
+    if (analysis.status !== 'completed') {
+      return [];
     }
 
     const schema = this.getSchema();
@@ -355,44 +410,43 @@ export class AnalysisDetailService {
       ? Prisma.sql`AND h_attr.valid_from <= ${analysisDate}::date
           AND (h_attr.valid_to IS NULL OR h_attr.valid_to > ${analysisDate}::date)`
       : Prisma.sql`AND h_attr.valid_to IS NULL`;
-    const isUcsSql = Prisma.sql`(
-      UPPER(r.category_code) LIKE '%UCS%'
-      OR UPPER(r.category_code) LIKE '%CONSERVAC%'
-      OR UPPER(r.dataset_code) LIKE '%UCS%'
-      OR UPPER(r.dataset_code) LIKE '%CONSERVAC%'
-    )`;
-
     const sql = Prisma.sql`
       SELECT
         r.category_code,
         r.dataset_code,
+        COALESCE(NULLIF(d.description, ''), r.dataset_code) AS dataset_label,
         r.snapshot_date,
         r.feature_id,
         r.geom_id,
-        CASE
-          WHEN ${isUcsSql} THEN COALESCE(
-            NULLIF(f.feature_key, ''),
-            NULLIF(p.pack_json->>'cnuc_code', ''),
-            NULLIF(p.pack_json->>'cd_cnuc', ''),
-            NULLIF(p.pack_json->>'Cnuc', ''),
-            NULLIF(p.pack_json->>'id', ''),
-            NULLIF(p.pack_json->>'objectid', '')
-          )
-          ELSE NULL
-        END AS natural_id,
-        CASE
-          WHEN ${isUcsSql} THEN COALESCE(
-            NULLIF(p.pack_json->>'nome_uc', ''),
-            NULLIF(p.pack_json->>'nome', ''),
-            NULLIF(p.pack_json->>'NOME', ''),
-            NULLIF(p.pack_json->>'nm', ''),
-            NULLIF(p.pack_json->>'NM', ''),
-            NULLIF(p.pack_json->>'denominacao', ''),
-            NULLIF(p.pack_json->>'descricao', ''),
-            NULLIF(f.feature_key, '')
-          )
-          ELSE NULL
-        END AS display_name,
+        f.feature_key,
+        COALESCE(
+          NULLIF(f.feature_key, ''),
+          NULLIF(p.pack_json->>'cnuc_code', ''),
+          NULLIF(p.pack_json->>'cd_cnuc', ''),
+          NULLIF(p.pack_json->>'Cnuc', ''),
+          NULLIF(p.pack_json->>'terrai_cod', ''),
+          NULLIF(p.pack_json->>'TERRAI_COD', ''),
+          NULLIF(p.pack_json->>'id', ''),
+          NULLIF(p.pack_json->>'ID', ''),
+          NULLIF(p.pack_json->>'objectid', ''),
+          NULLIF(p.pack_json->>'OBJECTID', '')
+        ) AS natural_id,
+        COALESCE(
+          NULLIF(p.pack_json->>'nome_uc', ''),
+          NULLIF(p.pack_json->>'nome', ''),
+          NULLIF(p.pack_json->>'NOME', ''),
+          NULLIF(p.pack_json->>'nm', ''),
+          NULLIF(p.pack_json->>'NM', ''),
+          NULLIF(p.pack_json->>'denominacao', ''),
+          NULLIF(p.pack_json->>'descricao', ''),
+          NULLIF(p.pack_json->>'terrai_nom', ''),
+          NULLIF(p.pack_json->>'TERRAI_NOM', ''),
+          NULLIF(p.pack_json->>'etnia_nome', ''),
+          NULLIF(p.pack_json->>'ETNIA_NOME', ''),
+          NULLIF(p.pack_json->>'undadm_nom', ''),
+          NULLIF(p.pack_json->>'UNDADM_NOM', ''),
+          NULLIF(f.feature_key, '')
+        ) AS display_name,
         ST_AsGeoJSON(
           ST_SimplifyPreserveTopology(g.geom, ${safeTolerance})
         ) AS geom
@@ -418,9 +472,11 @@ export class AnalysisDetailService {
     type MapRow = {
       category_code: string;
       dataset_code: string;
+      dataset_label: string | null;
       snapshot_date: string | Date | null;
       feature_id: string | number | bigint | null;
       geom_id: string | number | bigint | null;
+      feature_key: string | null;
       display_name: string | null;
       natural_id: string | null;
       geom: string | null;
@@ -443,43 +499,39 @@ export class AnalysisDetailService {
         SELECT
           r.category_code,
           r.dataset_code,
+          COALESCE(NULLIF(d.description, ''), r.dataset_code) AS dataset_label,
           r.snapshot_date,
           r.feature_id,
           NULL::bigint AS geom_id,
-          CASE
-            WHEN (
-              UPPER(r.category_code) LIKE '%UCS%'
-              OR UPPER(r.category_code) LIKE '%CONSERVAC%'
-              OR UPPER(r.dataset_code) LIKE '%UCS%'
-              OR UPPER(r.dataset_code) LIKE '%CONSERVAC%'
-            ) THEN COALESCE(
-              NULLIF(f.feature_key, ''),
-              NULLIF(p.pack_json->>'cnuc_code', ''),
-              NULLIF(p.pack_json->>'cd_cnuc', ''),
-              NULLIF(p.pack_json->>'Cnuc', ''),
-              NULLIF(p.pack_json->>'id', ''),
-              NULLIF(p.pack_json->>'objectid', '')
-            )
-            ELSE NULL
-          END AS natural_id,
-          CASE
-            WHEN (
-              UPPER(r.category_code) LIKE '%UCS%'
-              OR UPPER(r.category_code) LIKE '%CONSERVAC%'
-              OR UPPER(r.dataset_code) LIKE '%UCS%'
-              OR UPPER(r.dataset_code) LIKE '%CONSERVAC%'
-            ) THEN COALESCE(
-              NULLIF(p.pack_json->>'nome_uc', ''),
-              NULLIF(p.pack_json->>'nome', ''),
-              NULLIF(p.pack_json->>'NOME', ''),
-              NULLIF(p.pack_json->>'nm', ''),
-              NULLIF(p.pack_json->>'NM', ''),
-              NULLIF(p.pack_json->>'denominacao', ''),
-              NULLIF(p.pack_json->>'descricao', ''),
-              NULLIF(f.feature_key, '')
-            )
-            ELSE NULL
-          END AS display_name,
+          f.feature_key,
+          COALESCE(
+            NULLIF(f.feature_key, ''),
+            NULLIF(p.pack_json->>'cnuc_code', ''),
+            NULLIF(p.pack_json->>'cd_cnuc', ''),
+            NULLIF(p.pack_json->>'Cnuc', ''),
+            NULLIF(p.pack_json->>'terrai_cod', ''),
+            NULLIF(p.pack_json->>'TERRAI_COD', ''),
+            NULLIF(p.pack_json->>'id', ''),
+            NULLIF(p.pack_json->>'ID', ''),
+            NULLIF(p.pack_json->>'objectid', ''),
+            NULLIF(p.pack_json->>'OBJECTID', '')
+          ) AS natural_id,
+          COALESCE(
+            NULLIF(p.pack_json->>'nome_uc', ''),
+            NULLIF(p.pack_json->>'nome', ''),
+            NULLIF(p.pack_json->>'NOME', ''),
+            NULLIF(p.pack_json->>'nm', ''),
+            NULLIF(p.pack_json->>'NM', ''),
+            NULLIF(p.pack_json->>'denominacao', ''),
+            NULLIF(p.pack_json->>'descricao', ''),
+            NULLIF(p.pack_json->>'terrai_nom', ''),
+            NULLIF(p.pack_json->>'TERRAI_NOM', ''),
+            NULLIF(p.pack_json->>'etnia_nome', ''),
+            NULLIF(p.pack_json->>'ETNIA_NOME', ''),
+            NULLIF(p.pack_json->>'undadm_nom', ''),
+            NULLIF(p.pack_json->>'UNDADM_NOM', ''),
+            NULLIF(f.feature_key, '')
+          ) AS display_name,
           ST_AsGeoJSON(
             ST_SimplifyPreserveTopology(g.geom, ${safeTolerance})
           ) AS geom
@@ -523,17 +575,18 @@ export class AnalysisDetailService {
         );
       })
       .map((row) => {
-        const isUcs = this.isUcsDataset(row.category_code, row.dataset_code);
         const displayName = row.display_name?.trim() || null;
         const naturalId = row.natural_id?.trim() || null;
         return {
           categoryCode: row.category_code,
           datasetCode: row.dataset_code,
+          datasetLabel: row.dataset_label?.trim() || row.dataset_code,
           snapshotDate: row.snapshot_date ? new Date(row.snapshot_date) : null,
           featureId:
             this.normalizeFeatureId(row.feature_id)?.toString() ?? null,
-          displayName: isUcs ? displayName : null,
-          naturalId: isUcs ? naturalId : null,
+          featureKey: row.feature_key?.trim() || null,
+          displayName,
+          naturalId,
           geom: JSON.parse(row.geom as string) as Record<string, unknown>,
           isSicar: row.category_code === 'SICAR',
         };
@@ -550,6 +603,7 @@ export class AnalysisDetailService {
       where: { id },
       select: {
         id: true,
+        status: true,
         carKey: true,
         analysisDate: true,
         analysisKind: true,
@@ -560,6 +614,35 @@ export class AnalysisDetailService {
         code: 'ANALYSIS_NOT_FOUND',
         message: 'Analysis not found',
       });
+    }
+    if (analysis.status !== 'completed') {
+      return {
+        type: 'FeatureCollection',
+        properties: {
+          analysisId: analysis.id,
+          carKey: analysis.carKey,
+          analysisDate: analysis.analysisDate
+            ? analysis.analysisDate.toISOString().slice(0, 10)
+            : this.nowProvider().toISOString().slice(0, 10),
+          analysisKind:
+            (analysis.analysisKind ?? AnalysisKind.STANDARD) === AnalysisKind.DETER
+              ? 'DETER'
+              : 'STANDARD',
+          generatedAt: this.nowProvider().toISOString(),
+          geomMode: 'feature_geom',
+          tolerance:
+            typeof tolerance === 'number' && Number.isFinite(tolerance)
+              ? Math.min(Math.max(tolerance, 0), 0.01)
+              : 0.0001,
+          totals: {
+            features: 0,
+            intersections: 0,
+            datasets: 0,
+            overlapAreaM2: 0,
+          },
+        },
+        features: [],
+      };
     }
 
     const schema = this.getSchema();
@@ -772,7 +855,8 @@ export class AnalysisDetailService {
       }
     }
 
-    const features = rows
+    const features = this.sortGeoJsonFeaturesForDrawOrder(
+      rows
       .map((row, idx): AnalysisGeoJsonFeature | null => {
         if (!row.geom) return null;
         const geometry = JSON.parse(row.geom) as Record<string, unknown>;
@@ -791,7 +875,16 @@ export class AnalysisDetailService {
             ? Number((overlapAreaM2 / 10000).toFixed(6))
             : null;
         const isSicar = (row.category_code ?? '').toUpperCase() === 'SICAR';
-        const hasIntersection = !isSicar && (overlapAreaM2 ?? 0) > 0;
+        const hasIntersection =
+          !isSicar &&
+          ((overlapAreaM2 ?? 0) > 0 ||
+            this.isFastStandardCurrentIntersection({
+              analysisKind,
+              analysisDate,
+              isSicar,
+              featureAreaM2,
+              overlapAreaM2,
+            }));
 
         return {
           type: 'Feature',
@@ -826,7 +919,8 @@ export class AnalysisDetailService {
           },
         };
       })
-      .filter((value): value is AnalysisGeoJsonFeature => Boolean(value));
+      .filter((value): value is AnalysisGeoJsonFeature => Boolean(value)),
+    );
 
     const overlapAreaM2Total = Number(
       features
@@ -963,6 +1057,205 @@ export class AnalysisDetailService {
     ];
   }
 
+  private applyJustificationCoverage(
+    groups: DatasetGroup[],
+    coverage: Map<string, JustificationCoverage>,
+  ): DatasetGroup[] {
+    return groups.map((group) => ({
+      ...group,
+      items: group.items.map((item) => {
+        const itemCoverage = coverage.get(item.datasetCode);
+        if (!itemCoverage) {
+          return {
+            ...item,
+            hasJustification: false,
+            justificationStatus: 'none' as const,
+            totalHits: 0,
+            justifiedHits: 0,
+          };
+        }
+        return {
+          ...item,
+          hasJustification: itemCoverage.justificationStatus === 'full',
+          justificationStatus: itemCoverage.justificationStatus,
+          totalHits: itemCoverage.totalHits,
+          justifiedHits: itemCoverage.justifiedHits,
+        };
+      }),
+    }));
+  }
+
+  private async fetchJustificationCoverage(
+    schema: string,
+    analysisId: string,
+    analysisDate: string,
+  ) {
+    type Row = {
+      item_key: string | null;
+      total_hits: bigint | number | string;
+      justified_hits: bigint | number | string;
+    };
+
+    const rows = await this.prisma.$queryRaw<Row[]>(Prisma.sql`
+      WITH result_rows AS (
+        SELECT
+          r.dataset_code,
+          r.category_code,
+          r.feature_id,
+          f.feature_key,
+          COALESCE(
+            NULLIF(f.feature_key, ''),
+            NULLIF(p.pack_json->>'cnuc_code', ''),
+            NULLIF(p.pack_json->>'cd_cnuc', ''),
+            NULLIF(p.pack_json->>'Cnuc', ''),
+            NULLIF(p.pack_json->>'id', ''),
+            NULLIF(p.pack_json->>'objectid', '')
+          ) AS natural_id,
+          NULLIF(
+            COALESCE(
+              p.pack_json->>'fase_ti',
+              p.pack_json->>'FASE_TI',
+              p.pack_json->>'faseTi',
+              p.pack_json->>'FASETI',
+              p.pack_json->>'fase_it',
+              p.pack_json->>'FASE_IT',
+              p.pack_json->>'faseIt',
+              p.pack_json->>'FASEIT'
+            ),
+            ''
+          ) AS fase_ti,
+          NULLIF(
+            COALESCE(
+              p.pack_json->>'categoria_uc',
+              p.pack_json->>'CATEGORIA_UC',
+              p.pack_json->>'categoria',
+              p.pack_json->>'Categoria',
+              p.pack_json->>'CATEGORIA'
+            ),
+            ''
+          ) AS categoria_uc
+        FROM "app"."analysis_result" r
+        JOIN ${Prisma.raw(`"${schema}"."lw_dataset"`)} d
+          ON d.code = r.dataset_code
+        LEFT JOIN ${Prisma.raw(`"${schema}"."lw_feature"`)} f
+          ON f.dataset_id = d.dataset_id
+         AND f.feature_id = r.feature_id
+        LEFT JOIN ${Prisma.raw(`"${schema}"."lw_feature_attr_pack_hist"`)} h
+          ON h.dataset_id = d.dataset_id
+         AND h.feature_id = r.feature_id
+         AND h.valid_from <= ${analysisDate}::date
+         AND (h.valid_to IS NULL OR h.valid_to > ${analysisDate}::date)
+        LEFT JOIN ${Prisma.raw(`"${schema}"."lw_attr_pack"`)} p
+          ON p.pack_id = h.pack_id
+        WHERE r.analysis_id = ${analysisId}
+          AND r.category_code NOT IN ('SICAR', 'BIOMAS', 'DETER')
+      )
+      SELECT
+        item_key,
+        COUNT(*) AS total_hits,
+        COUNT(*) FILTER (
+          WHERE EXISTS (
+            SELECT 1
+            FROM "app"."analysis_attachment_effective" e
+            WHERE e.analysis_id = ${analysisId}
+              AND e.captured_is_justification = TRUE
+              AND e.captured_target_status = 'APPROVED'
+              AND e.dataset_code = rr.dataset_code
+              AND (
+                (e.feature_id IS NOT NULL AND e.feature_id = rr.feature_id)
+                OR (e.feature_key IS NOT NULL AND e.feature_key = rr.feature_key)
+                OR (e.natural_id IS NOT NULL AND e.natural_id = rr.natural_id)
+              )
+          )
+        ) AS justified_hits
+      FROM (
+        SELECT
+          CASE
+            WHEN (
+              UPPER(COALESCE(category_code, '')) LIKE 'LDI%'
+              OR UPPER(COALESCE(dataset_code, '')) LIKE '%LDI%'
+            ) THEN 'LDI_SEMAS'
+            WHEN (
+              UPPER(COALESCE(category_code, '')) = 'TI'
+              OR UPPER(COALESCE(category_code, '')) LIKE '%INDIGEN%'
+              OR UPPER(COALESCE(dataset_code, '')) LIKE 'TI_%'
+              OR UPPER(COALESCE(dataset_code, '')) LIKE 'TI-%'
+              OR (
+                UPPER(COALESCE(dataset_code, '')) LIKE '%TERRA%'
+                AND UPPER(COALESCE(dataset_code, '')) LIKE '%INDIG%'
+              )
+            ) AND fase_ti IS NOT NULL
+              THEN 'INDIGENAS_' || UPPER(BTRIM(
+                REGEXP_REPLACE(
+                  TRANSLATE(fase_ti, 'ÁÀÂÃÄáàâãäÉÈÊËéèêëÍÌÎÏíìîïÓÒÔÕÖóòôõöÚÙÛÜúùûüÇç', 'AAAAAaaaaaEEEEeeeeIIIIiiiiOOOOOoooooUUUUuuuuCc'),
+                  '[^A-Za-z0-9]+',
+                  '_',
+                  'g'
+                ),
+                '_'
+              ))
+            WHEN (
+              UPPER(COALESCE(category_code, '')) LIKE '%UCS%'
+              OR UPPER(COALESCE(category_code, '')) LIKE '%CONSERVAC%'
+              OR UPPER(COALESCE(dataset_code, '')) LIKE '%UCS%'
+              OR UPPER(COALESCE(dataset_code, '')) LIKE '%CONSERVAC%'
+            ) AND categoria_uc IS NOT NULL
+              THEN 'UCS_' || UPPER(BTRIM(
+                REGEXP_REPLACE(
+                  TRANSLATE(categoria_uc, 'ÁÀÂÃÄáàâãäÉÈÊËéèêëÍÌÎÏíìîïÓÒÔÕÖóòôõöÚÙÛÜúùûüÇç', 'AAAAAaaaaaEEEEeeeeIIIIiiiiOOOOOoooooUUUUuuuuCc'),
+                  '[^A-Za-z0-9]+',
+                  '_',
+                  'g'
+                ),
+                '_'
+              ))
+            ELSE dataset_code
+          END AS item_key,
+          dataset_code,
+          feature_id,
+          feature_key,
+          natural_id
+        FROM result_rows
+      ) rr
+      GROUP BY item_key
+    `);
+
+    const toCount = (value: bigint | number | string) => {
+      if (typeof value === 'bigint') return Number(value);
+      if (typeof value === 'number') return value;
+      return Number(value);
+    };
+
+    return new Map(
+      (rows ?? [])
+        .map((row) => {
+          const itemKey = (row.item_key ?? '').trim();
+          if (!itemKey) return null;
+          const totalHits = toCount(row.total_hits);
+          const justifiedHits = toCount(row.justified_hits);
+          const justificationStatus =
+            totalHits > 0 && justifiedHits === totalHits
+              ? 'full'
+              : justifiedHits > 0
+                ? 'partial'
+                : 'none';
+          return [
+            itemKey,
+            {
+              totalHits,
+              justifiedHits,
+              justificationStatus,
+            } satisfies JustificationCoverage,
+          ] as const;
+        })
+        .filter(
+          (
+            value,
+          ): value is readonly [string, JustificationCoverage] => value !== null,
+        ),
+    );
+  }
+
   private normalizeFeatureId(
     value: string | number | bigint | null,
   ): bigint | null {
@@ -980,6 +1273,54 @@ export class AnalysisDetailService {
     }
     const parsed = Number(value);
     return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  private isFastStandardCurrentIntersection(input: {
+    analysisKind: AnalysisKind;
+    analysisDate: string;
+    isSicar: boolean;
+    featureAreaM2: number | null;
+    overlapAreaM2: number | null;
+  }): boolean {
+    if (input.analysisKind !== AnalysisKind.STANDARD) return false;
+    if (!this.isCurrentAnalysisDate(input.analysisDate)) return false;
+    if (input.isSicar) return false;
+    return input.featureAreaM2 === null && input.overlapAreaM2 === null;
+  }
+
+  private sortGeoJsonFeaturesForDrawOrder(
+    features: AnalysisGeoJsonFeature[],
+  ): AnalysisGeoJsonFeature[] {
+    return [...features].sort((a, b) => {
+      const aIsSicar = Boolean(a.properties.isSicar);
+      const bIsSicar = Boolean(b.properties.isSicar);
+      if (aIsSicar !== bIsSicar) return aIsSicar ? -1 : 1;
+
+      const datasetCompare = (a.properties.datasetCode ?? '').localeCompare(
+        b.properties.datasetCode ?? '',
+        undefined,
+        { numeric: true, sensitivity: 'base' },
+      );
+      if (datasetCompare !== 0) return datasetCompare;
+
+      const aSnapshot = a.properties.snapshotDate ?? '';
+      const bSnapshot = b.properties.snapshotDate ?? '';
+      const snapshotCompare = aSnapshot.localeCompare(bSnapshot);
+      if (snapshotCompare !== 0) return snapshotCompare;
+
+      const aFeatureId = a.properties.featureId ?? '';
+      const bFeatureId = b.properties.featureId ?? '';
+      const featureCompare = aFeatureId.localeCompare(bFeatureId, undefined, {
+        numeric: true,
+        sensitivity: 'base',
+      });
+      if (featureCompare !== 0) return featureCompare;
+
+      return String(a.id ?? '').localeCompare(String(b.id ?? ''), undefined, {
+        numeric: true,
+        sensitivity: 'base',
+      });
+    });
   }
 
   private async queryRawWithRetry<T>(
@@ -1471,7 +1812,7 @@ export class AnalysisDetailService {
     const unique = Array.from(new Set(cleaned));
     const effective = unique.length ? unique : Array.from(hits);
     const items = effective.map((phase) => ({
-      datasetCode: `INDIGENAS_${phase}`,
+      datasetCode: this.buildIndigenaItemKey(phase),
       hit: hits.has(phase),
       label: `Terra Indigena ${phase}`,
     }));
@@ -1500,20 +1841,30 @@ export class AnalysisDetailService {
     }
 
     const effective = unique.length ? unique : Array.from(hits);
-    const toDatasetToken = (value: string) =>
-      value
-        .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '')
-        .replace(/[^A-Za-z0-9]+/g, '_')
-        .replace(/^_+|_+$/g, '')
-        .toUpperCase();
     const items = effective.map((category) => ({
-      datasetCode: `UCS_${toDatasetToken(category) || 'CATEGORIA'}`,
+      datasetCode: this.buildUcsItemKey(category),
       hit: hitSet.has(normalize(category)),
       label: category,
     }));
     items.sort((a, b) => (a.label ?? '').localeCompare(b.label ?? ''));
     return items;
+  }
+
+  private buildIndigenaItemKey(phase: string) {
+    return `INDIGENAS_${this.toDatasetToken(phase) || 'FASE'}`;
+  }
+
+  private buildUcsItemKey(category: string) {
+    return `UCS_${this.toDatasetToken(category) || 'CATEGORIA'}`;
+  }
+
+  private toDatasetToken(value: string) {
+    return value
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^A-Za-z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '')
+      .toUpperCase();
   }
 
   private async fetchIndigenaPhases(

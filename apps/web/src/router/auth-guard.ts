@@ -1,4 +1,5 @@
 import type { RouteLocationNormalized } from "vue-router";
+import { isLocalAuthBypassEnabled } from "@/auth/local-bypass";
 
 type AuthGuardDeps = {
   ensureSession: () => Promise<unknown | null>;
@@ -10,25 +11,6 @@ type AuthGuardResult = true | string;
 
 const EXCHANGE_RETRY_ATTEMPTS = 2;
 const LOGIN_EXCHANGE_RETRY_ATTEMPTS = 1;
-
-function isLocalhostHost(hostname: string): boolean {
-  const normalized = hostname.trim().toLowerCase();
-  return (
-    normalized === "localhost" ||
-    normalized === "127.0.0.1" ||
-    normalized === "::1"
-  );
-}
-
-function isLocalAuthBypassEnabled(): boolean {
-  const raw = import.meta.env.VITE_AUTH_BYPASS_LOCALHOST as string | undefined;
-  const enabled =
-    typeof raw === "string" &&
-    ["true", "1", "yes", "on"].includes(raw.trim().toLowerCase());
-
-  if (!enabled || typeof window === "undefined") return false;
-  return isLocalhostHost(window.location.hostname);
-}
 
 function canAccessApp(me: { status?: string } | null): boolean {
   return Boolean(me && me.status !== "disabled");

@@ -1,20 +1,20 @@
 <template>
   <div class="analysis-print-root relative mx-auto flex max-w-6xl flex-col gap-6 px-6 py-6 overflow-hidden">
     <Teleport to="body">
-      <div v-if="isPrintMode" class="analysis-print-teleport">
+      <div class="analysis-print-teleport analysis-print-teleport--standby">
         <AnalysisPrintLayout
           ref="printLayoutRef"
           :analysis="analysis"
-          :map-features="mapFeatures"
+          :vector-map="vectorMap"
           :map-loading="mapLoading"
           :is-loading="isLoading"
           :analysis-public-url="analysisPublicUrl"
           :logo-src="printLogo"
+          map-auth-mode="private"
         />
       </div>
     </Teleport>
     <div class="relative z-10">
-    <template v-if="!isPrintMode">
     <header class="screen-only flex flex-wrap items-center justify-between gap-4">
       <div>
         <div class="text-2xl font-semibold">{{ pageTitle }}</div>
@@ -87,6 +87,14 @@
         <UiButton
           variant="outline"
           size="sm"
+          :disabled="!analysis?.id"
+          @click="openAttachmentsModal"
+        >
+          Anexos
+        </UiButton>
+        <UiButton
+          variant="outline"
+          size="sm"
           :disabled="!canDownloadGeoJson"
           @click="downloadGeoJson"
         >
@@ -94,6 +102,14 @@
         </UiButton>
         <UiButton size="sm" :disabled="!canDownloadPdf" :class="!canDownloadPdf ? 'opacity-50' : ''" @click="printPdf">
           Baixar PDF
+        </UiButton>
+        <UiButton
+          variant="outline"
+          size="sm"
+          :disabled="analysis?.status !== 'completed'"
+          @click="downloadAnalysisAttachmentsZip"
+        >
+          Baixar ZIP anexos
         </UiButton>
       </div>
     </header>
@@ -122,7 +138,15 @@
           <span class="font-semibold">Bioma(s):</span>
           {{ formatBiomas(analysis?.biomas) }}
         </div>
-        <div><span class="font-semibold">Interseções:</span> {{ analysis?.intersectionCount ?? 0 }}</div>
+        <div>
+          <span class="font-semibold">Interseções:</span> {{ analysis?.intersectionCount ?? 0 }}
+          <template v-if="justifiedIntersectionsSummary">
+            <span class="mx-1 text-muted-foreground">•</span>
+            <span class="text-muted-foreground">
+              <span class="font-semibold">Justificadas:</span> {{ justifiedIntersectionsSummary }}
+            </span>
+          </template>
+        </div>
         <div>
           <span class="font-semibold">Coordenadas do CAR:</span>
           {{ formatCoordinates(analysis?.sicarCoordinates ?? null) }}
@@ -141,7 +165,7 @@
       <div class="print-map-row mt-4">
         <div
           class="analysis-map-frame print-map-col relative h-[560px]"
-          :style="[printMapStyle, isPrintMode ? { height: `${mapHeightPx}px` } : undefined]"
+          :style="printMapStyle"
         >
           <div
             v-if="mapLoading"
@@ -153,12 +177,16 @@
               <div class="text-xs text-muted-foreground">Carregando mapa...</div>
             </div>
           </div>
-            <AnalysisMap
-            v-else-if="mapFeatures.length"
+          <AnalysisVectorMap
+            v-else-if="vectorMap?.vectorSource"
             ref="analysisMapRef"
-            :features="mapFeatures"
-            :print-mode="isPrintMode"
-            :show-legend="false"
+            :vector-source="vectorMap?.vectorSource ?? null"
+            :legend-items="vectorMap?.legendItems ?? []"
+            :active-legend-code="activeLegendCode"
+            :car-key="analysis?.carKey ?? null"
+            auth-mode="private"
+            :enable-context-menu="true"
+            @feature-contextmenu="onMapFeatureContextMenu"
           />
           <div
             v-else-if="analysis?.status === 'completed'"
@@ -181,7 +209,7 @@
             </div>
           </div>
         </div>
-        <div v-if="mapFeatures.length" class="print-only print-legend-col">
+        <div v-if="vectorMap?.vectorSource" class="print-only print-legend-col">
           <div class="text-sm font-semibold">Legenda</div>
           <div class="mt-2 grid gap-2 text-xs">
             <div
@@ -198,26 +226,41 @@
           </div>
         </div>
       </div>
-      <div v-if="mapFeatures.length" class="screen-only mt-4">
+      <div v-if="vectorMap?.vectorSource" class="screen-only mt-4">
         <div class="text-sm font-semibold">Legenda</div>
-        <div class="mt-2 grid gap-2 text-xs sm:grid-cols-2">
-          <div
+        <div class="analysis-screen-legend mt-2 flex flex-wrap gap-2 text-xs">
+          <button
             v-for="item in printLegend"
             :key="item.code"
-            class="flex items-center gap-2"
-          >
+            type="button"
+            class="inline-flex max-w-full items-center gap-2 rounded-md border px-2 py-1 text-left transition-colors"
+            :class="
+              activeLegendCode === item.code
+                ? 'border-border bg-accent text-foreground'
+                : activeLegendCode
+                  ? 'border-border/60 bg-background text-muted-foreground'
+                  : 'border-border bg-background text-foreground hover:bg-muted'
+            "
+            @click="toggleLegendFilter(item.code)"
+            >
             <span
               class="h-3 w-3 rounded-sm border"
-              :style="{ backgroundColor: item.color, borderColor: item.color }"
+              :style="{
+                backgroundColor: activeLegendCode && activeLegendCode !== item.code ? '#cbd5e1' : item.color,
+                borderColor: activeLegendCode && activeLegendCode !== item.code ? '#cbd5e1' : item.color,
+              }"
             ></span>
-            {{ item.label }}
-          </div>
+            <span class="min-w-0 whitespace-normal break-words leading-snug">{{ item.label }}</span>
+          </button>
         </div>
       </div>
     </section>
 
     <section class="print-card print-page-2 rounded-2xl border border-border bg-card p-6 shadow-sm">
-      <div class="text-lg font-semibold">{{ intersectionsSectionTitle }}</div>
+      <div class="flex flex-wrap items-start justify-between gap-3">
+        <div class="text-lg font-semibold">{{ intersectionsSectionTitle }}</div>
+        <AnalysisDatasetStatusLegend :groups="analysis?.datasetGroups ?? null" class="ml-auto" />
+      </div>
       <div v-if="showIntersectionsSkeleton" class="mt-4 grid gap-4">
         <div class="h-4 w-40 animate-pulse rounded-full bg-muted"></div>
         <div class="intersections-grid grid gap-1.5 sm:grid-cols-3 xl:grid-cols-4">
@@ -238,13 +281,14 @@
               :key="item.datasetCode"
               class="print-intersection-item flex items-start gap-2 rounded-lg border border-border px-2.5 py-1.5 text-[11px]"
             >
-              <span
-                class="inline-flex h-5 w-5 items-center justify-center rounded-full text-xs font-semibold"
-                :class="item.hit ? 'bg-red-500/15 text-red-600' : 'bg-emerald-500/15 text-emerald-600'"
-              >
-                {{ item.hit ? "✕" : "✓" }}
-              </span>
-              <div class="flex flex-col gap-1">
+              <AnalysisDatasetStatusIcon
+                :kind="datasetStatusKind(item)"
+                :clickable="isDatasetJustificationClickable(item)"
+                :title="datasetStatusTitle(item)"
+                :aria-label="isDatasetJustificationClickable(item) ? 'Abrir justificativas do dataset' : null"
+                @click="isDatasetJustificationClickable(item) ? openAttachmentsModal() : undefined"
+              />
+              <div class="min-w-0 flex-1">
                 <span class="font-semibold">{{ formatDatasetLabelForMode(item) }}</span>
               </div>
             </div>
@@ -258,21 +302,96 @@
     >
       Esta análise preventiva usa alertas DETER para prevenção de possíveis desmatamentos no CAR. Use a análise completa para avaliação socioambiental oficial.
     </footer>
-    </template>
+
+    <UiDialog :open="attachmentsOpen" max-width-class="max-w-3xl" @close="attachmentsOpen = false">
+      <div class="flex max-h-[82vh] min-h-[420px] flex-col">
+        <div class="flex items-center justify-between gap-3 border-b border-border px-6 py-5">
+          <div class="text-lg font-semibold text-foreground">Anexos da análise</div>
+          <UiButton variant="ghost" size="sm" @click="attachmentsOpen = false">Fechar</UiButton>
+        </div>
+        <div class="min-h-0 flex-1 overflow-auto px-6 py-5">
+          <div v-if="attachmentsLoading" class="text-sm text-muted-foreground">Carregando anexos...</div>
+          <div v-else-if="analysisAttachments.length === 0" class="rounded-2xl border border-dashed border-border px-4 py-8 text-sm text-muted-foreground">
+            Nenhum anexo efetivo para esta análise.
+          </div>
+          <div v-else class="grid gap-3">
+            <article
+              v-for="attachment in analysisAttachments"
+              :key="`${attachment.id}:${attachment.target.id}`"
+              class="rounded-2xl border border-border bg-card p-4 text-sm"
+            >
+              <div class="flex flex-wrap items-start justify-between gap-3">
+                <div class="min-w-0">
+                  <div class="truncate font-semibold text-foreground">{{ attachment.originalFilename }}</div>
+                  <div class="mt-1 text-xs text-muted-foreground">
+                    {{ attachment.categoryName }} • {{ attachment.target.datasetCode }} • featureId={{ attachment.target.featureId ?? '-' }}
+                  </div>
+                </div>
+                <span
+                  class="inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold"
+                  :class="attachment.isJustification ? 'border-amber-200 bg-amber-50 text-amber-700' : 'border-sky-200 bg-sky-50 text-sky-700'"
+                >
+                  {{ attachment.isJustification ? 'Justificativa' : 'Informativo' }}
+                </span>
+              </div>
+              <div class="mt-3">
+                <UiButton variant="outline" size="sm" @click="downloadAnalysisAttachment(attachment.id, attachment.originalFilename)">
+                  Baixar
+                </UiButton>
+              </div>
+            </article>
+          </div>
+        </div>
+        <div class="flex flex-wrap items-center justify-end gap-2 border-t border-border px-6 py-4">
+          <UiButton variant="outline" :disabled="analysisAttachments.length === 0" @click="downloadAnalysisAttachmentsZip">
+            Baixar ZIP
+          </UiButton>
+          <UiButton variant="outline" @click="goToAttachmentsFromAnalysisModal">
+            Gerenciar no módulo de Anexos
+          </UiButton>
+        </div>
+      </div>
+    </UiDialog>
+    <div
+      v-if="featureContextMenu.open"
+      ref="featureContextMenuEl"
+      class="fixed z-[60] min-w-[180px] rounded-xl border border-border bg-background/95 p-1 shadow-lg backdrop-blur"
+      :style="featureContextMenuStyle"
+      @contextmenu.prevent
+    >
+      <button
+        type="button"
+        class="flex w-full items-center rounded-lg px-3 py-2 text-sm text-foreground hover:bg-muted"
+        @click="goToAttachmentsFromContextMenu"
+      >
+        Ir para Anexos
+      </button>
+    </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import { useRoute } from "vue-router";
-import { Button as UiButton } from "@/components/ui";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { useRoute, useRouter } from "vue-router";
+import { Button as UiButton, Dialog as UiDialog } from "@/components/ui";
 import { http } from "@/api/http";
 import { unwrapData, type ApiEnvelope } from "@/api/envelope";
-import { colorForDataset, formatDatasetLabel } from "@/features/analyses/analysis-colors";
-import { buildIndigenaLegendItems, buildLegendCodes, buildUcsLegendItems } from "@/features/analyses/analysis-legend";
+import { formatDatasetLabel } from "@/features/analyses/analysis-colors";
+import AnalysisDatasetStatusIcon from "@/components/analyses/AnalysisDatasetStatusIcon.vue";
+import AnalysisDatasetStatusLegend from "@/components/analyses/AnalysisDatasetStatusLegend.vue";
 import { getAnalysisMapCache, setAnalysisMapCache } from "@/features/analyses/analysis-map-cache";
-import AnalysisMap from "@/components/maps/AnalysisMap.vue";
+import {
+  getAnalysisDatasetCoverageSummary,
+  getAnalysisDatasetStatusKind,
+  getAnalysisJustificationCoverageSummary,
+  type AnalysisJustificationStatus,
+} from "@/features/analyses/analysis-dataset-status";
+import {
+  buildAnalysisLegendEntries,
+  type AnalysisVectorMap as AnalysisVectorMapPayload,
+} from "@/features/analyses/analysis-vector-map";
+import AnalysisVectorMap from "@/components/maps/AnalysisVectorMap.vue";
 import AnalysisPrintLayout from "@/components/analyses/AnalysisPrintLayout.vue";
 import printLogo from "@/assets/logo.png";
 
@@ -308,22 +427,37 @@ type AnalysisDetail = {
   sicarStatus?: string | null;
   datasetGroups?: Array<{
     title: string;
-    items: Array<{ datasetCode: string; hit: boolean; label?: string }>;
+    items: Array<{
+      datasetCode: string;
+      hit: boolean;
+      label?: string;
+      hasJustification?: boolean;
+      justificationStatus?: AnalysisJustificationStatus;
+      totalHits?: number;
+      justifiedHits?: number;
+    }>;
   }>;
   docInfos?: DocInfo[];
   analysisDate: string;
   status: string;
   intersectionCount?: number;
+  hasIntersections?: boolean;
+  createdAt?: string;
+  completedAt?: string | null;
   results: AnalysisResult[];
 };
 
-type MapFeature = {
-  categoryCode: string;
-  datasetCode: string;
-  featureId?: string | null;
-  displayName?: string | null;
-  naturalId?: string | null;
-  geom: any;
+type AnalysisStatusPayload = {
+  id: string;
+  carKey: string;
+  analysisDate: string;
+  analysisKind: "STANDARD" | "DETER";
+  farmName: string | null;
+  status: string;
+  intersectionCount: number;
+  hasIntersections: boolean;
+  createdAt: string;
+  completedAt: string | null;
 };
 
 type GeoJsonCollection = {
@@ -337,18 +471,59 @@ type GeoJsonCollection = {
   }>;
 };
 
+type AnalysisAttachment = {
+  id: string;
+  categoryCode: string;
+  categoryName: string;
+  isJustification: boolean;
+  visibility: "PUBLIC" | "PRIVATE";
+  originalFilename: string;
+  contentType: string;
+  sizeBytes: string;
+  target: {
+    id: string;
+    datasetCode: string;
+    featureId: string | null;
+    featureKey: string | null;
+    naturalId: string | null;
+    carKey: string | null;
+    scope: string;
+    validFrom: string;
+    validTo: string | null;
+  };
+};
+
 const route = useRoute();
+const router = useRouter();
 const analysis = ref<AnalysisDetail | null>(null);
-const mapFeatures = ref<MapFeature[]>([]);
+const vectorMap = ref<AnalysisVectorMapPayload | null>(null);
 const mapLoading = ref(false);
 const isLoading = ref(false);
 const loadError = ref<string | null>(null);
 let pollTimer: number | null = null;
+let pollBackoffMs = 1000;
 const printRequested = ref(route.query.print === "1");
-const analysisMapRef = ref<InstanceType<typeof AnalysisMap> | null>(null);
+const analysisMapRef = ref<InstanceType<typeof AnalysisVectorMap> | null>(null);
 const printLayoutRef = ref<InstanceType<typeof AnalysisPrintLayout> | null>(null);
-const isPrintMode = ref(false);
+const featureContextMenuEl = ref<HTMLDivElement | null>(null);
+const attachmentsOpen = ref(false);
+const attachmentsLoading = ref(false);
+const analysisAttachments = ref<AnalysisAttachment[]>([]);
+const activeLegendCode = ref<string | null>(null);
 const originalTitle = ref<string | null>(null);
+const featureContextMenu = ref<{
+  open: boolean;
+  x: number;
+  y: number;
+  datasetCode: string;
+  featureId: string | null;
+}>({
+  open: false,
+  x: 0,
+  y: 0,
+  datasetCode: "",
+  featureId: null,
+});
 
 const showAnalysisOverlay = computed(() => {
   const status = displayStatus.value;
@@ -361,6 +536,10 @@ const showSicarWarning = computed(() => {
   if (!status) return false;
   return status.toUpperCase() !== "AT";
 });
+
+const justifiedIntersectionsSummary = computed(() =>
+  getAnalysisJustificationCoverageSummary(analysis.value?.datasetGroups),
+);
 
 const sicarStatusOk = computed(() => {
   const status = analysis.value?.sicarStatus;
@@ -456,7 +635,7 @@ const sicarBadgeText = computed(() => {
 
 const analysisPublicUrl = computed(() => {
   if (typeof window === "undefined") return "";
-  return `${window.location.origin}/analyses/${route.params.id}/public`;
+  return new URL(`/analyses/${String(route.params.id ?? "")}/public`, window.location.origin).toString();
 });
 
 const canDownloadGeoJson = computed(() => analysis.value?.status === "completed");
@@ -466,47 +645,45 @@ const canDownloadPdf = computed(() => {
   return analysis.value?.status === "completed";
 });
 
-const onBeforePrint = () => {
-  if (isPrintMode.value) {
-    printLayoutRef.value?.prepareForPrint();
-    return;
+function preparePrintLayoutSafely() {
+  const layout = printLayoutRef.value as
+    | { prepareForPrint?: (() => void) | undefined; refresh?: (() => void) | undefined }
+    | null;
+  if (typeof layout?.refresh === "function") {
+    layout.refresh();
   }
-  analysisMapRef.value?.prepareForPrint();
+  if (typeof layout?.prepareForPrint === "function") {
+    layout.prepareForPrint();
+  }
+}
+
+const onBeforePrint = () => {
+  setBodyPrintMode(true);
+  setPrintTitle();
+  preparePrintLayoutSafely();
 };
 const onAfterPrint = () => {
-  if (isPrintMode.value) {
-    printLayoutRef.value?.resetAfterPrint();
-    restoreTitle();
-    return;
+  setBodyPrintMode(false);
+  const layout = printLayoutRef.value as
+    | { resetAfterPrint?: (() => void) | undefined }
+    | null;
+  if (typeof layout?.resetAfterPrint === "function") {
+    layout.resetAfterPrint();
   }
-  analysisMapRef.value?.resetAfterPrint();
+  window.requestAnimationFrame(() => {
+    window.requestAnimationFrame(() => {
+      const mapRef = analysisMapRef.value as
+        | { resetAfterPrint?: (() => void) | undefined }
+        | null;
+      if (typeof mapRef?.resetAfterPrint === "function") {
+        mapRef.resetAfterPrint();
+      }
+    });
+  });
   restoreTitle();
 };
 
-const indigenaLegendItems = computed(() =>
-  buildIndigenaLegendItems(analysis.value?.datasetGroups ?? [], mapFeatures.value),
-);
-
-const ucsLegendItems = computed(() =>
-  buildUcsLegendItems(mapFeatures.value),
-);
-
-const printLegend = computed(() => {
-  const codes = buildLegendCodes(mapFeatures.value, {
-    includeIndigena: indigenaLegendItems.value.length === 0,
-    includeUcs: ucsLegendItems.value.length === 0,
-  });
-  return [
-    { code: "SICAR", label: "CAR", color: "#ef4444" },
-    ...codes.map((code) => ({
-      code,
-      label: formatDatasetLabel(code),
-      color: colorForDataset(code),
-    })),
-    ...indigenaLegendItems.value,
-    ...ucsLegendItems.value,
-  ];
-});
+const printLegend = computed(() => buildAnalysisLegendEntries(vectorMap.value));
 
 const mapHeightPx = computed(() => {
   const legendCount = printLegend.value.length || 1;
@@ -520,6 +697,18 @@ const mapHeightPx = computed(() => {
 const printMapStyle = computed(() => ({
   "--print-map-height": `${mapHeightPx.value}px`,
 }) as Record<string, string>);
+const featureContextMenuStyle = computed(() => {
+  const width = 196;
+  const height = 56;
+  const viewportWidth = typeof window !== "undefined" ? window.innerWidth : 1280;
+  const viewportHeight = typeof window !== "undefined" ? window.innerHeight : 720;
+  const left = Math.max(8, Math.min(featureContextMenu.value.x, viewportWidth - width - 8));
+  const top = Math.max(8, Math.min(featureContextMenu.value.y, viewportHeight - height - 8));
+  return {
+    left: `${left}px`,
+    top: `${top}px`,
+  };
+});
 
 function formatDate(value?: string | null) {
   if (!value) return "-";
@@ -613,17 +802,116 @@ function fixMojibake(value: string) {
   }
 }
 
-function formatDatasetLabelPrint(code: string) {
-  const label = formatDatasetLabel(code);
-  return label.replace(/\\bProdes\\b\\s*/i, "").trim();
-}
-
-function formatDatasetLabelForMode(item: { datasetCode: string; label?: string }) {
+function formatDatasetLabelForMode(item: { datasetCode: string; label?: string; hasJustification?: boolean }) {
   if (item.label) return item.label;
-  return isPrintMode.value ? formatDatasetLabelPrint(item.datasetCode) : formatDatasetLabel(item.datasetCode);
+  return formatDatasetLabel(item.datasetCode);
 }
 
-async function loadAnalysis() {
+function datasetStatusKind(item: {
+  hit: boolean;
+  hasJustification?: boolean;
+  justificationStatus?: AnalysisJustificationStatus;
+}) {
+  return getAnalysisDatasetStatusKind(item);
+}
+
+function isDatasetJustificationClickable(item: {
+  hasJustification?: boolean;
+  justificationStatus?: AnalysisJustificationStatus;
+}) {
+  return item.hasJustification || item.justificationStatus === "partial";
+}
+
+function datasetStatusTitle(item: {
+  hit: boolean;
+  hasJustification?: boolean;
+  justificationStatus?: AnalysisJustificationStatus;
+  totalHits?: number;
+  justifiedHits?: number;
+}) {
+  const summary = getAnalysisDatasetCoverageSummary(item);
+  if (isDatasetJustificationClickable(item)) {
+    return summary
+      ? `${summary}. Clique para abrir os anexos da análise.`
+      : "Existe justificativa aprovada para esta interseção. Clique para abrir os anexos da análise.";
+  }
+  return summary;
+}
+
+function buildPendingAnalysis(status: AnalysisStatusPayload): AnalysisDetail {
+  return {
+    id: status.id,
+    carKey: status.carKey,
+    analysisDate: status.analysisDate,
+    analysisKind: status.analysisKind,
+    farmName: status.farmName,
+    status: status.status,
+    intersectionCount: status.intersectionCount,
+    hasIntersections: status.hasIntersections,
+    createdAt: status.createdAt,
+    completedAt: status.completedAt,
+    municipio: null,
+    uf: null,
+    sicarCoordinates: null,
+    biomas: [],
+    sicarStatus: null,
+    datasetGroups: [],
+    docInfos: [],
+    results: [],
+  };
+}
+
+async function loadStatus(id: string) {
+  const res = await http.get<ApiEnvelope<AnalysisStatusPayload>>(`/v1/analyses/${id}/status`);
+  const statusPayload = unwrapData(res.data);
+  if (analysis.value?.status === "completed" && statusPayload.status === "completed") {
+    analysis.value = {
+      ...analysis.value,
+      ...statusPayload,
+      analysisDate: statusPayload.analysisDate,
+    };
+  } else {
+    analysis.value = buildPendingAnalysis(statusPayload);
+  }
+  if (statusPayload.status !== "completed") {
+    vectorMap.value = null;
+    activeLegendCode.value = null;
+    closeFeatureContextMenu();
+  }
+  return statusPayload;
+}
+
+async function loadVectorMap(id: string, forceReload = false) {
+  if (!forceReload) {
+    const cached = getAnalysisMapCache<AnalysisVectorMapPayload>(id, undefined);
+    if (cached) {
+      vectorMap.value = cached;
+      return cached;
+    }
+  }
+  const res = await http.get<ApiEnvelope<AnalysisVectorMapPayload>>(`/v1/analyses/${id}/vector-map`);
+  const payload = unwrapData(res.data);
+  vectorMap.value = payload;
+  setAnalysisMapCache(id, undefined, payload);
+  return payload;
+}
+
+async function loadCompletedAnalysis(id: string, forceReload = false) {
+  mapLoading.value = true;
+  try {
+    const [detailRes] = await Promise.all([
+      http.get<ApiEnvelope<AnalysisDetail>>(`/v1/analyses/${id}`),
+      loadVectorMap(id, forceReload),
+    ]);
+    analysis.value = unwrapData(detailRes.data);
+    activeLegendCode.value = null;
+    closeFeatureContextMenu();
+  } finally {
+    mapLoading.value = false;
+  }
+}
+
+async function loadAnalysis(forceCompletedReload = false) {
   const id = route.params.id as string;
   isLoading.value = true;
   loadError.value = null;
@@ -631,19 +919,16 @@ async function loadAnalysis() {
     if (!id) {
       loadError.value = "ID da análise inválido.";
       analysis.value = null;
-      mapFeatures.value = [];
+      vectorMap.value = null;
       return;
     }
-    const res = await http.get<ApiEnvelope<AnalysisDetail>>(`/v1/analyses/${id}`);
-    analysis.value = unwrapData(res.data);
-    if (analysis.value?.status === "completed") {
-      await loadMap(id);
-    } else {
-      mapFeatures.value = [];
+    const status = await loadStatus(id);
+    if (status.status === "completed") {
+      await loadCompletedAnalysis(id, forceCompletedReload);
     }
   } catch (err: any) {
     analysis.value = null;
-    mapFeatures.value = [];
+    vectorMap.value = null;
     const apiMessage =
       err?.response?.data?.error?.message ??
       err?.response?.data?.message ??
@@ -651,25 +936,6 @@ async function loadAnalysis() {
     loadError.value = apiMessage;
   } finally {
     isLoading.value = false;
-  }
-}
-
-async function loadMap(id: string) {
-  mapLoading.value = true;
-  try {
-    const cached = getAnalysisMapCache<MapFeature[]>(id, undefined);
-    if (cached && cached.length) {
-      mapFeatures.value = cached;
-      return;
-    }
-    const res = await http.get<ApiEnvelope<MapFeature[]>>(`/v1/analyses/${id}/map`);
-    const features = unwrapData(res.data);
-    mapFeatures.value = features;
-    if (features.length) {
-      setAnalysisMapCache(id, undefined, features);
-    }
-  } finally {
-    mapLoading.value = false;
   }
 }
 
@@ -682,6 +948,19 @@ function buildExportFileBase() {
   const id = analysis.value?.id ?? "";
   const suffix = [farm, date, id].filter(Boolean).join("-");
   return suffix ? `Sigfarm-LandWatch-${suffix}` : "Sigfarm-LandWatch";
+}
+
+function setPrintTitle() {
+  if (typeof document === "undefined") return;
+  if (!originalTitle.value) originalTitle.value = document.title;
+  document.title = buildExportFileBase();
+}
+
+function restoreTitle() {
+  if (typeof document === "undefined") return;
+  if (!originalTitle.value) return;
+  document.title = originalTitle.value;
+  originalTitle.value = null;
 }
 
 async function downloadGeoJson() {
@@ -710,30 +989,207 @@ async function downloadGeoJson() {
   URL.revokeObjectURL(url);
 }
 
+function saveBlobAsFile(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+async function loadAnalysisAttachments() {
+  const id = analysis.value?.id;
+  if (!id) return;
+  attachmentsLoading.value = true;
+  try {
+    const res = await http.get<ApiEnvelope<AnalysisAttachment[]>>(
+      `/v1/attachments/analysis/${id}`,
+    );
+    analysisAttachments.value = unwrapData(res.data);
+  } finally {
+    attachmentsLoading.value = false;
+  }
+}
+
+async function openAttachmentsModal() {
+  attachmentsOpen.value = true;
+  await loadAnalysisAttachments();
+}
+
+async function downloadAnalysisAttachment(attachmentId: string, filename: string) {
+  const res = await http.get(`/v1/attachments/${attachmentId}/download`, {
+    responseType: "blob",
+  });
+  saveBlobAsFile(res.data as Blob, filename);
+}
+
+async function downloadAnalysisAttachmentsZip() {
+  const id = analysis.value?.id;
+  if (!id) return;
+  const res = await http.post(`/v1/attachments/analysis/${id}/zip`, {}, {
+    responseType: "blob",
+  });
+  saveBlobAsFile(res.data as Blob, `analysis-${id}-attachments.zip`);
+}
+
+async function goToAttachmentsFromAnalysisModal() {
+  const id = analysis.value?.id;
+  if (!id) return;
+  attachmentsOpen.value = false;
+  await router.push({
+    path: "/attachments",
+    query: {
+      tab: "explore",
+      fromAnalysisId: id,
+      carKey: analysis.value?.carKey ?? undefined,
+    },
+  });
+}
+
 async function printPdf() {
   if (!canDownloadPdf.value) return;
-  isPrintMode.value = true;
-  await nextTick();
-  printLayoutRef.value?.prepareForPrint();
+  setBodyPrintMode(true);
   setPrintTitle();
-  window.setTimeout(() => window.print(), 450);
+  preparePrintLayoutSafely();
+  window.print();
+}
+
+async function onMapFeatureContextMenu(payload: {
+  datasetCode: string;
+  isSicar: boolean;
+  featureId?: string | null;
+  screen: { x: number; y: number };
+}) {
+  if (payload.isSicar) {
+    closeFeatureContextMenu();
+    return;
+  }
+  featureContextMenu.value = {
+    open: true,
+    x: payload.screen.x,
+    y: payload.screen.y,
+    datasetCode: payload.datasetCode,
+    featureId: payload.featureId ?? null,
+  };
+}
+
+function toggleLegendFilter(code: string) {
+  activeLegendCode.value = activeLegendCode.value === code ? null : code;
+}
+
+function closeFeatureContextMenu() {
+  if (!featureContextMenu.value.open) return;
+  featureContextMenu.value = {
+    open: false,
+    x: 0,
+    y: 0,
+    datasetCode: "",
+    featureId: null,
+  };
+}
+
+async function goToAttachmentsFromContextMenu() {
+  const analysisId = analysis.value?.id;
+  const datasetCode = featureContextMenu.value.datasetCode;
+  if (!analysisId || !datasetCode) return;
+  const featureId = featureContextMenu.value.featureId;
+  closeFeatureContextMenu();
+  await router.push({
+    path: "/attachments",
+    query: {
+      tab: "explore",
+      fromAnalysisId: analysisId,
+      datasetCode,
+      featureId: featureId ?? undefined,
+      carKey: analysis.value?.carKey ?? undefined,
+    },
+  });
+}
+
+function handleGlobalPointerDown(event: MouseEvent) {
+  const target = event.target as Node | null;
+  if (featureContextMenuEl.value && target && featureContextMenuEl.value.contains(target)) {
+    return;
+  }
+  closeFeatureContextMenu();
+}
+
+function handleGlobalKeydown(event: KeyboardEvent) {
+  if (event.key === "Escape") {
+    closeFeatureContextMenu();
+  }
+}
+
+function handleVisibilityChange() {
+  if (!analysis.value) return;
+  if (document.visibilityState === "hidden") {
+    clearPolling();
+    return;
+  }
+  startPolling();
+}
+
+function clearPolling() {
+  if (pollTimer) {
+    window.clearTimeout(pollTimer);
+    pollTimer = null;
+  }
+}
+
+function schedulePolling(delayMs = 1000) {
+  clearPolling();
+  pollTimer = window.setTimeout(() => {
+    void tickPolling();
+  }, delayMs);
+}
+
+async function tickPolling() {
+  if (!analysis.value) return;
+  if (analysis.value.status === "completed" || analysis.value.status === "failed") {
+    clearPolling();
+    return;
+  }
+  if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+    schedulePolling(1000);
+    return;
+  }
+  try {
+    const id = String(route.params.id ?? "");
+    const status = await loadStatus(id);
+    pollBackoffMs = 1000;
+    if (status.status === "completed") {
+      await loadCompletedAnalysis(id, true);
+      clearPolling();
+      return;
+    }
+    if (status.status === "failed") {
+      clearPolling();
+      return;
+    }
+    schedulePolling(1000);
+  } catch {
+    pollBackoffMs = Math.min(pollBackoffMs * 2, 5000);
+    schedulePolling(pollBackoffMs);
+  }
 }
 
 function startPolling() {
-  if (pollTimer) return;
-  pollTimer = window.setInterval(async () => {
-    if (!analysis.value) return;
-    if (analysis.value.status !== "completed") {
-      await loadAnalysis();
-    }
-  }, 10_000);
+  if (!analysis.value) return;
+  if (analysis.value.status === "completed" || analysis.value.status === "failed") {
+    clearPolling();
+    return;
+  }
+  schedulePolling(1000);
 }
 
 async function tryAutoPrint() {
   if (!printRequested.value) return;
   if (!analysis.value || analysis.value.status !== "completed") return;
   if (mapLoading.value) return;
-  if (!mapFeatures.value.length) return;
+  if (!vectorMap.value?.vectorSource) return;
   printRequested.value = false;
   await printPdf();
 }
@@ -744,65 +1200,30 @@ onMounted(async () => {
   tryAutoPrint();
   window.addEventListener("beforeprint", onBeforePrint);
   window.addEventListener("afterprint", onAfterPrint);
+  window.addEventListener("mousedown", handleGlobalPointerDown);
+  window.addEventListener("keydown", handleGlobalKeydown);
+  document.addEventListener("visibilitychange", handleVisibilityChange);
 });
 
 watch(
-  () => [analysis.value?.status, mapLoading.value, mapFeatures.value.length],
+  () => [analysis.value?.status, mapLoading.value, vectorMap.value?.vectorSource ? 1 : 0],
   () => tryAutoPrint(),
 );
 
-
 onBeforeUnmount(() => {
-  if (pollTimer) window.clearInterval(pollTimer);
+  clearPolling();
   window.removeEventListener("beforeprint", onBeforePrint);
   window.removeEventListener("afterprint", onAfterPrint);
-  restoreTitle();
+  window.removeEventListener("mousedown", handleGlobalPointerDown);
+  window.removeEventListener("keydown", handleGlobalKeydown);
+  document.removeEventListener("visibilitychange", handleVisibilityChange);
   setBodyPrintMode(false);
+  restoreTitle();
 });
 
 function setBodyPrintMode(active: boolean) {
   if (typeof document === "undefined") return;
   document.body.classList.toggle("print-preview", active);
 }
-
-function setPrintTitle() {
-  if (typeof document === "undefined") return;
-  if (!originalTitle.value) originalTitle.value = document.title;
-  const farm = (analysis.value?.farmName || "Analise")
-    .replace(/[^\w\s-]/g, "")
-    .trim()
-    .replace(/\s+/g, "-");
-  const date = analysis.value?.analysisDate?.slice(0, 10) ?? "";
-  const id = analysis.value?.id ?? "";
-  const suffix = [farm, date, id].filter(Boolean).join("-");
-  document.title = suffix ? `Sigfarm-LandWatch-${suffix}` : "Sigfarm-LandWatch";
-}
-
-function restoreTitle() {
-  if (typeof document === "undefined") return;
-  if (!originalTitle.value) return;
-  document.title = originalTitle.value;
-  originalTitle.value = null;
-}
-
-watch(
-  () => isPrintMode.value,
-  (value) => {
-    setBodyPrintMode(value);
-    if (!value) return;
-    window.addEventListener(
-      "afterprint",
-      () => {
-        isPrintMode.value = false;
-        if (isPrintMode.value) {
-          printLayoutRef.value?.resetAfterPrint();
-        } else {
-          analysisMapRef.value?.resetAfterPrint();
-        }
-      },
-      { once: true },
-    );
-  },
-);
 
 </script>

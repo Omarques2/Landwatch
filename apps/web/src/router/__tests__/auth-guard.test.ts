@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createAuthNavigationGuard } from "@/router/auth-guard";
 
 type MockRoute = {
@@ -13,6 +13,14 @@ function route(path: string, requiresAuth = true): MockRoute {
 }
 
 describe("createAuthNavigationGuard", () => {
+  beforeEach(() => {
+    vi.stubEnv("VITE_AUTH_BYPASS_LOCALHOST", "false");
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   it("bypasses authentication flow on localhost when VITE_AUTH_BYPASS_LOCALHOST is enabled", async () => {
     vi.stubEnv("VITE_AUTH_BYPASS_LOCALHOST", "true");
 
@@ -32,8 +40,6 @@ describe("createAuthNavigationGuard", () => {
     expect(ensureSession).not.toHaveBeenCalled();
     expect(exchangeSession).not.toHaveBeenCalled();
     expect(getMeCached).not.toHaveBeenCalled();
-
-    vi.unstubAllEnvs();
   });
 
   it("redirects protected route to pending when session exists but profile is unavailable", async () => {

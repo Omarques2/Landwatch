@@ -51,9 +51,36 @@ function pickMessageFromData(data: any): string | undefined {
   return undefined;
 }
 
+function getFriendlyBackendMessage(status?: number, code?: string, fallback?: string): string | undefined {
+  if (code === "DATABASE_TIMEOUT") {
+    return "Banco de dados indisponível no momento. Tente novamente em instantes.";
+  }
+  if (code === "DATABASE_UNAVAILABLE" || code === "DATABASE_ENGINE_UNAVAILABLE") {
+    return "Serviço temporariamente indisponível. Tente novamente em instantes.";
+  }
+  if (status === 503) {
+    return "Serviço temporariamente indisponível. Tente novamente em instantes.";
+  }
+  if (fallback && /operation has timed out|sockettimeout|can't reach database server/i.test(fallback)) {
+    return "Banco de dados indisponível no momento. Tente novamente em instantes.";
+  }
+  return undefined;
+}
+
+function isAxiosLikeError(
+  err: unknown,
+): err is {
+  response?: { status?: number; data?: unknown; headers?: unknown };
+  config?: { method?: string; url?: string };
+  code?: string;
+  message?: string;
+} {
+  return Boolean(err && typeof err === "object" && ("response" in err || "config" in err));
+}
+
 export function normalizeApiError(err: unknown): NormalizedApiError {
   // Axios
-  if (axios.isAxiosError(err)) {
+  if (axios.isAxiosError(err) || isAxiosLikeError(err)) {
     const status = err.response?.status;
     const code = err.code ?? undefined;
 
@@ -79,9 +106,15 @@ export function normalizeApiError(err: unknown): NormalizedApiError {
       data && typeof data === "object" && typeof (data as any).correlationId === "string"
         ? (data as any).correlationId
         : undefined;
+    const friendlyMessage = getFriendlyBackendMessage(
+      status,
+      envelopeError?.code,
+      msgFromData ?? err.message,
+    );
 
     // Mensagem humana prioriza backend -> status -> axios -> genérico
     const message =
+      friendlyMessage ??
       msgFromData ??
       (status ? `Falha na requisição (HTTP ${status})` : undefined) ??
       err.message ??

@@ -24,6 +24,13 @@ from urllib.parse import urlparse
 # ============================================================
 load_dotenv()
 
+
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in ("1", "true", "yes", "on")
+
 ROOT_DIR = os.environ.get("LANDWATCH_INGEST_ROOT_DIR", "Dados")
 DEFAULT_SNAPSHOT_DATE = os.environ.get(
     "LANDWATCH_DEFAULT_SNAPSHOT_DATE",
@@ -96,6 +103,8 @@ DB_MAX_RETRIES = int(os.environ.get("LANDWATCH_DB_MAX_RETRIES", "3").strip() or 
 DB_RETRY_BASE_SECONDS = float(os.environ.get("LANDWATCH_DB_RETRY_BASE_SECONDS", "3").strip() or "3")
 DB_RETRY_MAX_SECONDS = float(os.environ.get("LANDWATCH_DB_RETRY_MAX_SECONDS", "60").strip() or "60")
 DB_RETRY_JITTER = float(os.environ.get("LANDWATCH_DB_RETRY_JITTER", "0.3").strip() or "0.3")
+MV_REFRESH_CONCURRENTLY = _env_bool("LANDWATCH_MV_REFRESH_CONCURRENTLY", False)
+MV_ANALYZE_AFTER_REFRESH = _env_bool("LANDWATCH_MV_ANALYZE_AFTER_REFRESH", True)
 _LEVELS = {"DEBUG": 10, "INFO": 20, "WARN": 30, "ERROR": 40}
 
 
@@ -1137,6 +1146,8 @@ def _refresh_mvs():
     mv_views = [
         "landwatch.mv_feature_geom_active",
         "landwatch.mv_feature_active_attrs_light",
+        "landwatch.mv_feature_geom_tile_active",
+        "landwatch.mv_feature_tooltip_active",
         "landwatch.mv_sicar_meta_active",
         "landwatch.mv_indigena_phase_active",
         "landwatch.mv_ucs_sigla_active",
@@ -1149,7 +1160,24 @@ def _refresh_mvs():
                     attempt += 1
                     with get_conn() as conn:
                         conn.autocommit = True
-                        exec_sql(conn, f"REFRESH MATERIALIZED VIEW {view}")
+                        refresh_sql = (
+                            f"REFRESH MATERIALIZED VIEW CONCURRENTLY {view}"
+                            if MV_REFRESH_CONCURRENTLY
+                            else f"REFRESH MATERIALIZED VIEW {view}"
+                        )
+                        try:
+                            exec_sql(conn, refresh_sql)
+                        except Exception as refresh_error:
+                            if MV_REFRESH_CONCURRENTLY:
+                                log_warn(
+                                    f"Falha no refresh CONCURRENTLY ({view}): {refresh_error}. "
+                                    "Executando fallback sem CONCURRENTLY."
+                                )
+                                exec_sql(conn, f"REFRESH MATERIALIZED VIEW {view}")
+                            else:
+                                raise
+                        if MV_ANALYZE_AFTER_REFRESH:
+                            exec_sql(conn, f"ANALYZE {view}")
                         log_info(f"MV atualizada: {view}")
                     break
                 except Exception as e:

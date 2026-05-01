@@ -10,8 +10,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     g++ \
     make \
+    curl \
+    golang-go \
     gdal-bin \
     libgdal-dev \
+    tippecanoe \
     tesseract-ocr \
     tesseract-ocr-por \
     libgl1 \
@@ -26,6 +29,9 @@ RUN pip install --no-cache-dir -r /app/requirements.txt
 
 # SICAR package from GitHub
 RUN pip install --no-cache-dir git+https://github.com/urbanogilson/SICAR
+
+RUN GOBIN=/usr/local/bin go install github.com/protomaps/go-pmtiles@v1.27.1 \
+    && ln -sf /usr/local/bin/go-pmtiles /usr/local/bin/pmtiles
 
 COPY apps/Versionamento /app
 

@@ -112,6 +112,8 @@ import {
   LocateFixed,
   CalendarClock,
   Beef,
+  Paperclip,
+  Shield,
 } from "lucide-vue-next";
 import { logout } from "@/auth/auth";
 import { getMeCached, type MeResponse } from "@/auth/me";
@@ -121,8 +123,10 @@ import {
   startLandwatchStatusPolling,
   stopLandwatchStatusPolling,
 } from "@/state/landwatch-status";
+import { hydrateActiveOrgFromMemberships } from "@/state/org-context";
 import SidebarNav from "@/components/SidebarNav.vue";
 import HamburgerIcon from "@/components/icons/HamburgerIcon.vue";
+import { getAdminCapabilities } from "@/features/attachments/api";
 
 const router = useRouter();
 const route = useRoute();
@@ -131,16 +135,23 @@ const sidebarOpen = ref(true);
 const drawerOpen = ref(false);
 const me = ref<MeResponse | null>(null);
 const meLoading = ref(true);
+const canAccessAdmin = ref(false);
 
-const navItems = [
+const baseNavItems = [
   { key: "dashboard", label: "Dashboard", icon: LayoutDashboard },
   { key: "farms", label: "Fazendas", icon: MapPin },
   { key: "analyses", label: "Análises", icon: FileText },
   { key: "schedules", label: "Agendamento", icon: CalendarClock },
+  { key: "attachments", label: "Anexos", icon: Paperclip },
   { key: "fornecedores", label: "Fornecedores", icon: Beef },
   { key: "new-analysis", label: "Nova análise", icon: ClipboardPlus },
   { key: "car-search", label: "Buscar CAR", icon: LocateFixed },
 ];
+
+const navItems = computed(() => [
+  ...baseNavItems,
+  ...(canAccessAdmin.value ? [{ key: "admin", label: "Painel Admin", icon: Shield, placement: "bottom" as const }] : []),
+]);
 
 const activeKey = computed(() => {
   if (route.path.startsWith("/dashboard")) return "dashboard";
@@ -148,6 +159,8 @@ const activeKey = computed(() => {
   if (route.path.startsWith("/analyses/search")) return "car-search";
   if (route.path.startsWith("/analyses")) return "analyses";
   if (route.path.startsWith("/schedules")) return "schedules";
+  if (route.path.startsWith("/attachments")) return "attachments";
+  if (route.path.startsWith("/admin")) return "admin";
   if (route.path.startsWith("/fornecedores")) return "fornecedores";
   if (route.path.startsWith("/farms")) return "farms";
   return "dashboard";
@@ -159,6 +172,8 @@ const pageSubtitle = computed(() => {
   if (activeKey.value === "farms") return "Gerencie fazendas e propriedades";
   if (activeKey.value === "analyses") return "Histórico de análises e PDFs";
   if (activeKey.value === "schedules") return "Configure análises recorrentes";
+  if (activeKey.value === "attachments") return "Gerencie anexos por feição ativa";
+  if (activeKey.value === "admin") return "Organizações e usuários";
   if (activeKey.value === "fornecedores") return "Pendências de GTA por fornecedor";
   if (activeKey.value === "new-analysis") return "Selecione o CAR e rode a análise";
   if (activeKey.value === "car-search") return "Busque CARs por coordenada";
@@ -169,8 +184,15 @@ async function loadMe() {
   meLoading.value = true;
   try {
     me.value = await getMeCached(true);
+    hydrateActiveOrgFromMemberships(me.value?.memberships as any);
+    try {
+      canAccessAdmin.value = (await getAdminCapabilities()).canAccessAdmin;
+    } catch {
+      canAccessAdmin.value = false;
+    }
   } catch {
     me.value = null;
+    canAccessAdmin.value = false;
   } finally {
     meLoading.value = false;
   }
@@ -185,6 +207,8 @@ async function navigate(key: string) {
   if (key === "farms") await router.push("/farms");
   if (key === "analyses") await router.push("/analyses");
   if (key === "schedules") await router.push("/schedules");
+  if (key === "attachments") await router.push("/attachments");
+  if (key === "admin") await router.push("/admin");
   if (key === "fornecedores") await router.push("/fornecedores");
   if (key === "new-analysis") await router.push("/analyses/new");
   if (key === "car-search") await router.push("/analyses/search");

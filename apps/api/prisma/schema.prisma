@@ -8,21 +8,32 @@ datasource db {
 }
 
 model User {
-  id          String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  identityUserId String? @unique @map("identity_user_id") @db.Uuid
-  entraSub    String     @unique @map("entra_sub")
-  entraOid    String?    @unique @map("entra_oid") @db.Uuid
-  email       String?    @map("email")
-  displayName String?    @map("display_name")
-  status      UserStatus @default(active)
-  createdAt   DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
-  lastLoginAt DateTime?  @map("last_login_at") @db.Timestamptz(6)
+  id             String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  identityUserId String?    @unique @map("identity_user_id") @db.Uuid
+  entraSub       String     @unique @map("entra_sub")
+  entraOid       String?    @unique @map("entra_oid") @db.Uuid
+  email          String?    @map("email")
+  displayName    String?    @map("display_name")
+  status         UserStatus @default(active)
+  createdAt      DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  lastLoginAt    DateTime?  @map("last_login_at") @db.Timestamptz(6)
 
-  memberships OrgMembership[]
-  groupMemberships OrgGroupMembership[]
-  farms Farm[]
-  analyses Analysis[] @relation("UserAnalyses")
-  schedules AnalysisSchedule[] @relation("UserSchedules")
+  memberships                 OrgMembership[]
+  groupMemberships            OrgGroupMembership[]
+  farms                       Farm[]
+  analyses                    Analysis[]                  @relation("UserAnalyses")
+  schedules                   AnalysisSchedule[]          @relation("UserSchedules")
+  orgPermissions              OrgUserPermission[]         @relation("OrgUserPermissionUser")
+  orgPermissionsGranted       OrgUserPermission[]         @relation("OrgUserPermissionGrantedBy")
+  attachmentCategoriesCreated AttachmentCategory[]        @relation("AttachmentCategoryCreatedBy")
+  attachmentsCreated          Attachment[]                @relation("AttachmentCreatedBy")
+  attachmentsDeleted          Attachment[]                @relation("AttachmentDeletedBy")
+  attachmentsRevoked          Attachment[]                @relation("AttachmentRevokedBy")
+  attachmentTargetsCreated    AttachmentTarget[]          @relation("AttachmentTargetCreatedBy")
+  attachmentTargetsReviewed   AttachmentTarget[]          @relation("AttachmentTargetReviewedBy")
+  attachmentEvents            AttachmentEvent[]           @relation("AttachmentEventActorUser")
+  attachmentMapFilterSessions AttachmentMapFilterSession[] @relation("AttachmentMapFilterSessionUser")
+  carMapSearchSessions       CarMapSearchSession[]        @relation("CarMapSearchSessionUser")
 
   @@index([email], map: "idx_app_user_email")
   @@map("app_user")
@@ -39,28 +50,34 @@ enum UserStatus {
 }
 
 model Org {
-  id        String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   name      String
-  slug      String        @unique
-  status    OrgStatus     @default(active)
-  createdAt DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  slug      String    @unique
+  status    OrgStatus @default(active)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  memberships OrgMembership[]
-  groups      OrgGroup[]
-  apiClients  ApiClient[]
-  farms       Farm[]
-  analyses    Analysis[]
+  memberships                    OrgMembership[]
+  groups                         OrgGroup[]
+  apiClients                     ApiClient[]
+  farms                          Farm[]
+  analyses                       Analysis[]
+  orgUserPermissions             OrgUserPermission[]
+  ownedAttachments               Attachment[]                  @relation("AttachmentOwnerOrg")
+  attachmentTargets              AttachmentTarget[]            @relation("AttachmentTargetAppliesOrg")
+  attachmentEvents               AttachmentEvent[]             @relation("AttachmentEventActorOrg")
+  analysisAttachmentEffectiveOrg AnalysisAttachmentEffective[] @relation("AnalysisAttachmentEffectiveCapturedOrg")
+  attachmentMapFilterSessions    AttachmentMapFilterSession[]  @relation("AttachmentMapFilterSessionOrg")
 
   @@map("org")
   @@schema("app")
 }
 
 model OrgMembership {
-  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orgId     String    @map("org_id") @db.Uuid
-  userId    String    @map("user_id") @db.Uuid
-  role      OrgRole   @default(member)
-  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId     String   @map("org_id") @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  role      OrgRole  @default(member)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   org  Org  @relation(fields: [orgId], references: [id], onDelete: Cascade)
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -71,12 +88,12 @@ model OrgMembership {
 }
 
 model OrgGroup {
-  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orgId     String    @map("org_id") @db.Uuid
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId     String   @map("org_id") @db.Uuid
   name      String
-  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  org         Org                @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  org         Org                  @relation(fields: [orgId], references: [id], onDelete: Cascade)
   memberships OrgGroupMembership[]
 
   @@unique([orgId, name], map: "org_group_org_name_key")
@@ -85,11 +102,11 @@ model OrgGroup {
 }
 
 model OrgGroupMembership {
-  id        String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  groupId   String     @map("group_id") @db.Uuid
-  userId    String     @map("user_id") @db.Uuid
-  role      GroupRole  @default(member)
-  createdAt DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  groupId   String    @map("group_id") @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  role      GroupRole @default(member)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
 
   group OrgGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
   user  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -100,14 +117,14 @@ model OrgGroupMembership {
 }
 
 model ApiClient {
-  id        String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  id        String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   name      String
-  orgId     String?        @map("org_id") @db.Uuid
+  orgId     String?         @map("org_id") @db.Uuid
   status    ApiClientStatus @default(active)
-  createdAt DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdAt DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  org   Org?     @relation(fields: [orgId], references: [id], onDelete: SetNull)
-  keys  ApiKey[]
+  org  Org?     @relation(fields: [orgId], references: [id], onDelete: SetNull)
+  keys ApiKey[]
 
   @@map("api_client")
   @@schema("app")
@@ -141,11 +158,11 @@ model Farm {
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  owner User @relation(fields: [ownerUserId], references: [id], onDelete: Restrict)
-  org   Org? @relation(fields: [orgId], references: [id], onDelete: SetNull)
-  analyses Analysis[]
+  owner     User               @relation(fields: [ownerUserId], references: [id], onDelete: Restrict)
+  org       Org?               @relation(fields: [orgId], references: [id], onDelete: SetNull)
+  analyses  Analysis[]
   schedules AnalysisSchedule[]
-  alerts AnalysisAlert[]
+  alerts    AnalysisAlert[]
   documents FarmDocument[]
 
   @@unique([carKey], map: "farm_car_key_key")
@@ -164,11 +181,11 @@ enum FarmDocType {
 }
 
 model FarmDocument {
-  id            String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  farmId        String     @map("farm_id") @db.Uuid
+  id            String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  farmId        String      @map("farm_id") @db.Uuid
   docType       FarmDocType @map("doc_type")
-  docNormalized String     @map("doc_normalized")
-  createdAt     DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  docNormalized String      @map("doc_normalized")
+  createdAt     DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
 
   farm Farm @relation(fields: [farmId], references: [id], onDelete: Cascade)
 
@@ -180,33 +197,37 @@ model FarmDocument {
 }
 
 model Analysis {
-  id             String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  carKey         String         @map("car_key")
-  analysisDocs   Json           @map("analysis_docs") @default("[]")
-  analysisDate   DateTime       @map("analysis_date") @db.Date
-  status         AnalysisStatus @default(pending)
-  createdByUserId String        @map("created_by_user_id") @db.Uuid
-  orgId          String?        @map("org_id") @db.Uuid
-  createdAt      DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
-  completedAt    DateTime?      @map("completed_at") @db.Timestamptz(6)
-  farmId         String?        @map("farm_id") @db.Uuid
-  pdfStatus      AnalysisPdfStatus? @map("pdf_status")
-  pdfPath        String?        @map("pdf_path")
-  pdfGeneratedAt DateTime?      @map("pdf_generated_at") @db.Timestamptz(6)
-  pdfExpiresAt   DateTime?      @map("pdf_expires_at") @db.Timestamptz(6)
-  pdfError       String?        @map("pdf_error")
-  hasIntersections Boolean      @default(false) @map("has_intersections")
-  intersectionCount Int         @default(0) @map("intersection_count")
-  analysisKind   AnalysisKind   @default(STANDARD) @map("analysis_kind")
-  scheduleId     String?        @map("schedule_id") @db.Uuid
+  id                String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  carKey            String             @map("car_key")
+  analysisDocs      Json               @default("[]") @map("analysis_docs")
+  analysisDate      DateTime           @map("analysis_date") @db.Date
+  status            AnalysisStatus     @default(pending)
+  createdByUserId   String             @map("created_by_user_id") @db.Uuid
+  orgId             String?            @map("org_id") @db.Uuid
+  createdAt         DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  attachmentsSnapshotCutoffAt   DateTime? @map("attachments_snapshot_cutoff_at") @db.Timestamptz(6)
+  attachmentsSnapshotCapturedAt DateTime? @map("attachments_snapshot_captured_at") @db.Timestamptz(6)
+  completedAt       DateTime?          @map("completed_at") @db.Timestamptz(6)
+  farmId            String?            @map("farm_id") @db.Uuid
+  pdfStatus         AnalysisPdfStatus? @map("pdf_status")
+  pdfPath           String?            @map("pdf_path")
+  pdfGeneratedAt    DateTime?          @map("pdf_generated_at") @db.Timestamptz(6)
+  pdfExpiresAt      DateTime?          @map("pdf_expires_at") @db.Timestamptz(6)
+  pdfError          String?            @map("pdf_error")
+  hasIntersections  Boolean            @default(false) @map("has_intersections")
+  intersectionCount Int                @default(0) @map("intersection_count")
+  analysisKind      AnalysisKind       @default(STANDARD) @map("analysis_kind")
+  scheduleId        String?            @map("schedule_id") @db.Uuid
 
-  results AnalysisResult[]
-  cache AnalysisCache?
-  alerts AnalysisAlert[]
-  createdBy User @relation("UserAnalyses", fields: [createdByUserId], references: [id], onDelete: Restrict)
-  org Org? @relation(fields: [orgId], references: [id], onDelete: SetNull)
-  farm Farm? @relation(fields: [farmId], references: [id], onDelete: SetNull)
-  schedule AnalysisSchedule? @relation("ScheduleAnalyses", fields: [scheduleId], references: [id], onDelete: SetNull)
+  results               AnalysisResult[]
+  cache                 AnalysisCache?
+  alerts                AnalysisAlert[]
+  attachmentSnapshots   AnalysisAttachmentEffective[]
+  postprocessJobs       AnalysisPostprocessJob[]
+  createdBy             User                          @relation("UserAnalyses", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  org                   Org?                          @relation(fields: [orgId], references: [id], onDelete: SetNull)
+  farm                  Farm?                         @relation(fields: [farmId], references: [id], onDelete: SetNull)
+  schedule              AnalysisSchedule?             @relation("ScheduleAnalyses", fields: [scheduleId], references: [id], onDelete: SetNull)
 
   @@index([carKey], map: "analysis_car_key_idx")
   @@index([createdByUserId], map: "analysis_created_by_idx")
@@ -220,25 +241,72 @@ model Analysis {
 }
 
 model AnalysisResult {
-  id                 String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  analysisId         String   @map("analysis_id") @db.Uuid
-  categoryCode       String   @map("category_code")
-  datasetCode        String   @map("dataset_code")
-  snapshotDate       DateTime? @map("snapshot_date") @db.Date
-  featureId          BigInt?  @map("feature_id")
-  geomId             BigInt?  @map("geom_id")
-  isSicar            Boolean  @default(false) @map("is_sicar")
-  sicarAreaM2        Decimal? @map("sicar_area_m2")
-  featureAreaM2      Decimal? @map("feature_area_m2")
-  overlapAreaM2      Decimal? @map("overlap_area_m2")
-  overlapPctOfSicar  Decimal? @map("overlap_pct_of_sicar")
-  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  analysisId        String    @map("analysis_id") @db.Uuid
+  categoryCode      String    @map("category_code")
+  datasetCode       String    @map("dataset_code")
+  snapshotDate      DateTime? @map("snapshot_date") @db.Date
+  featureId         BigInt?   @map("feature_id")
+  geomId            BigInt?   @map("geom_id")
+  isSicar           Boolean   @default(false) @map("is_sicar")
+  sicarAreaM2       Decimal?  @map("sicar_area_m2")
+  featureAreaM2     Decimal?  @map("feature_area_m2")
+  overlapAreaM2     Decimal?  @map("overlap_area_m2")
+  overlapPctOfSicar Decimal?  @map("overlap_pct_of_sicar")
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
 
   analysis Analysis @relation(fields: [analysisId], references: [id], onDelete: Cascade)
 
   @@index([analysisId], map: "analysis_result_analysis_id_idx")
+  @@index([analysisId, geomId], map: "analysis_result_analysis_geom_idx")
+  @@index([analysisId, datasetCode, featureId], map: "analysis_result_analysis_dataset_feature_idx")
   @@index([categoryCode], map: "analysis_result_category_idx")
   @@map("analysis_result")
+  @@schema("app")
+}
+
+enum AnalysisPostprocessJobType {
+  CNPJ_REFRESH
+  ALERTS_BUILD
+  ATTACHMENTS_EFFECTIVE_CAPTURE
+  ANALYSIS_CACHE_BUILD
+
+  @@map("analysis_postprocess_job_type")
+  @@schema("app")
+}
+
+enum AnalysisPostprocessJobStatus {
+  PENDING
+  RUNNING
+  RETRY
+  COMPLETED
+  FAILED
+
+  @@map("analysis_postprocess_job_status")
+  @@schema("app")
+}
+
+model AnalysisPostprocessJob {
+  id           String                       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  jobType      AnalysisPostprocessJobType  @map("job_type")
+  analysisId   String?                      @map("analysis_id") @db.Uuid
+  docNormalized String?                     @map("doc_normalized")
+  dedupeKey    String?                      @map("dedupe_key")
+  status       AnalysisPostprocessJobStatus @default(PENDING)
+  attemptCount Int                          @default(0) @map("attempt_count")
+  runAfter     DateTime                     @default(now()) @map("run_after") @db.Timestamptz(6)
+  lockedAt     DateTime?                    @map("locked_at") @db.Timestamptz(6)
+  lastError    String?                      @map("last_error")
+  payload      Json                         @default("{}")
+  createdAt    DateTime                     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime                     @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  analysis Analysis? @relation(fields: [analysisId], references: [id], onDelete: Cascade)
+
+  @@index([status, runAfter], map: "analysis_postprocess_job_status_run_after_idx")
+  @@index([analysisId], map: "analysis_postprocess_job_analysis_id_idx")
+  @@index([jobType], map: "analysis_postprocess_job_type_idx")
+  @@map("analysis_postprocess_job")
   @@schema("app")
 }
 
@@ -255,9 +323,9 @@ model AnalysisSchedule {
   createdAt       DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt       DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  farm      Farm          @relation(fields: [farmId], references: [id], onDelete: Cascade)
-  createdBy User          @relation("UserSchedules", fields: [createdByUserId], references: [id], onDelete: Restrict)
-  analyses  Analysis[]    @relation("ScheduleAnalyses")
+  farm      Farm            @relation(fields: [farmId], references: [id], onDelete: Cascade)
+  createdBy User            @relation("UserSchedules", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  analyses  Analysis[]      @relation("ScheduleAnalyses")
   alerts    AnalysisAlert[]
 
   @@index([farmId], map: "analysis_schedule_farm_id_idx")
@@ -268,17 +336,17 @@ model AnalysisSchedule {
 }
 
 model AnalysisAlert {
-  id                   String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  farmId               String            @map("farm_id") @db.Uuid
-  scheduleId           String            @map("schedule_id") @db.Uuid
-  analysisId           String            @map("analysis_id") @db.Uuid
-  analysisKind         AnalysisKind      @map("analysis_kind")
-  alertType            AnalysisAlertType @map("alert_type")
-  newIntersectionCount Int               @map("new_intersection_count")
-  payload              Json              @default("{}")
+  id                   String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  farmId               String              @map("farm_id") @db.Uuid
+  scheduleId           String              @map("schedule_id") @db.Uuid
+  analysisId           String              @map("analysis_id") @db.Uuid
+  analysisKind         AnalysisKind        @map("analysis_kind")
+  alertType            AnalysisAlertType   @map("alert_type")
+  newIntersectionCount Int                 @map("new_intersection_count")
+  payload              Json                @default("{}")
   status               AnalysisAlertStatus @default(NEW)
-  createdAt            DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
-  resolvedAt           DateTime?         @map("resolved_at") @db.Timestamptz(6)
+  createdAt            DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+  resolvedAt           DateTime?           @map("resolved_at") @db.Timestamptz(6)
 
   farm     Farm             @relation(fields: [farmId], references: [id], onDelete: Cascade)
   schedule AnalysisSchedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
@@ -305,6 +373,215 @@ model AnalysisCache {
   @@schema("app")
 }
 
+model OrgUserPermission {
+  id              String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId           String        @map("org_id") @db.Uuid
+  userId          String        @map("user_id") @db.Uuid
+  permission      OrgPermission
+  grantedByUserId String        @map("granted_by_user_id") @db.Uuid
+  createdAt       DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  org           Org  @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user          User @relation("OrgUserPermissionUser", fields: [userId], references: [id], onDelete: Cascade)
+  grantedByUser User @relation("OrgUserPermissionGrantedBy", fields: [grantedByUserId], references: [id], onDelete: Restrict)
+
+  @@unique([orgId, userId, permission], map: "org_user_permission_org_user_permission_key")
+  @@index([orgId, permission], map: "org_user_permission_org_idx")
+  @@index([userId, permission], map: "org_user_permission_user_idx")
+  @@map("org_user_permission")
+  @@schema("app")
+}
+
+model AttachmentCategory {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code             String   @unique
+  name             String
+  description      String?
+  isJustification  Boolean  @default(false) @map("is_justification")
+  requiresApproval Boolean  @default(false) @map("requires_approval")
+  isPublicDefault  Boolean  @default(true) @map("is_public_default")
+  isActive         Boolean  @default(true) @map("is_active")
+  createdByUserId  String   @map("created_by_user_id") @db.Uuid
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  createdByUser User         @relation("AttachmentCategoryCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  attachments   Attachment[]
+
+  @@index([isActive], map: "attachment_category_active_idx")
+  @@map("attachment_category")
+  @@schema("app")
+}
+
+model Attachment {
+  id               String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  categoryId       String               @map("category_id") @db.Uuid
+  ownerOrgId       String?              @map("owner_org_id") @db.Uuid
+  createdByUserId  String               @map("created_by_user_id") @db.Uuid
+  originalFilename String               @map("original_filename")
+  contentType      String               @map("content_type")
+  sizeBytes        BigInt               @map("size_bytes")
+  sha256           String
+  blobProvider     String               @default("AZURE_BLOB") @map("blob_provider")
+  blobContainer    String               @map("blob_container")
+  blobPath         String               @unique @map("blob_path")
+  blobEtag         String?              @map("blob_etag")
+  visibility       AttachmentVisibility @default(PUBLIC)
+  status           AttachmentStatus     @default(PENDING)
+  isDeletedLogical Boolean              @default(false) @map("is_deleted_logical")
+  deletedAt        DateTime?            @map("deleted_at") @db.Timestamptz(6)
+  deletedByUserId  String?              @map("deleted_by_user_id") @db.Uuid
+  createdAt        DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime             @updatedAt @map("updated_at") @db.Timestamptz(6)
+  submittedAt      DateTime             @default(now()) @map("submitted_at") @db.Timestamptz(6)
+  revokedAt        DateTime?            @map("revoked_at") @db.Timestamptz(6)
+  revokedByUserId  String?              @map("revoked_by_user_id") @db.Uuid
+
+  category           AttachmentCategory            @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  ownerOrg           Org?                          @relation("AttachmentOwnerOrg", fields: [ownerOrgId], references: [id], onDelete: SetNull)
+  createdByUser      User                          @relation("AttachmentCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  deletedByUser      User?                         @relation("AttachmentDeletedBy", fields: [deletedByUserId], references: [id], onDelete: SetNull)
+  revokedByUser      User?                         @relation("AttachmentRevokedBy", fields: [revokedByUserId], references: [id], onDelete: SetNull)
+  targets            AttachmentTarget[]
+  events             AttachmentEvent[]
+  effectiveSnapshots AnalysisAttachmentEffective[]
+
+  @@index([ownerOrgId, createdAt(sort: Desc)], map: "attachment_owner_org_idx")
+  @@index([status], map: "attachment_status_idx")
+  @@index([categoryId], map: "attachment_category_idx")
+  @@map("attachment")
+  @@schema("app")
+}
+
+model AttachmentTarget {
+  id               String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  attachmentId     String                 @map("attachment_id") @db.Uuid
+  datasetCode      String                 @map("dataset_code")
+  featureId        BigInt?                @map("feature_id")
+  featureKey       String?                @map("feature_key")
+  naturalId        String?                @map("natural_id")
+  carKey           String?                @map("car_key")
+  scope            AttachmentScope
+  appliesOrgId     String?                @map("applies_org_id") @db.Uuid
+  validFrom        DateTime               @map("valid_from") @db.Date
+  validTo          DateTime?              @map("valid_to") @db.Date
+  status           AttachmentTargetStatus @default(PENDING)
+  reviewedByUserId String?                @map("reviewed_by_user_id") @db.Uuid
+  reviewedAt       DateTime?              @map("reviewed_at") @db.Timestamptz(6)
+  reviewReason     String?                @map("review_reason")
+  createdByUserId  String                 @map("created_by_user_id") @db.Uuid
+  createdAt        DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime               @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  attachment         Attachment                    @relation(fields: [attachmentId], references: [id], onDelete: Cascade)
+  appliesOrg         Org?                          @relation("AttachmentTargetAppliesOrg", fields: [appliesOrgId], references: [id], onDelete: SetNull)
+  reviewedByUser     User?                         @relation("AttachmentTargetReviewedBy", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
+  createdByUser      User                          @relation("AttachmentTargetCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  events             AttachmentEvent[]
+  effectiveSnapshots AnalysisAttachmentEffective[]
+
+  @@index([attachmentId], map: "attachment_target_attachment_idx")
+  @@index([datasetCode, featureId, featureKey, naturalId], map: "attachment_target_feature_lookup_idx")
+  @@index([carKey], map: "attachment_target_car_idx")
+  @@index([scope, appliesOrgId], map: "attachment_target_scope_org_idx")
+  @@index([status, validFrom, validTo], map: "attachment_target_validity_idx")
+  @@map("attachment_target")
+  @@schema("app")
+}
+
+model AttachmentEvent {
+  id                 String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  attachmentId       String              @map("attachment_id") @db.Uuid
+  attachmentTargetId String?             @map("attachment_target_id") @db.Uuid
+  eventType          AttachmentEventType @map("event_type")
+  actorUserId        String?             @map("actor_user_id") @db.Uuid
+  actorOrgId         String?             @map("actor_org_id") @db.Uuid
+  actorIp            String?             @map("actor_ip") @db.Inet
+  payload            Json                @default("{}")
+  createdAt          DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  attachment       Attachment        @relation(fields: [attachmentId], references: [id], onDelete: Cascade)
+  attachmentTarget AttachmentTarget? @relation(fields: [attachmentTargetId], references: [id], onDelete: SetNull)
+  actorUser        User?             @relation("AttachmentEventActorUser", fields: [actorUserId], references: [id], onDelete: SetNull)
+  actorOrg         Org?              @relation("AttachmentEventActorOrg", fields: [actorOrgId], references: [id], onDelete: SetNull)
+
+  @@index([attachmentId, createdAt(sort: Desc)], map: "attachment_event_attachment_idx")
+  @@index([attachmentTargetId, createdAt(sort: Desc)], map: "attachment_event_target_idx")
+  @@map("attachment_event")
+  @@schema("app")
+}
+
+model AttachmentMapFilterSession {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  filterHash      String   @map("filter_hash")
+  filterVersion   Int      @default(1) @map("filter_version")
+  scopeKey        String   @map("scope_key")
+  actorUserId     String   @map("actor_user_id") @db.Uuid
+  actorOrgId      String?  @map("actor_org_id") @db.Uuid
+  isPlatformAdmin Boolean  @default(false) @map("is_platform_admin")
+  filtersJson     Json     @map("filters_json")
+  expiresAt       DateTime @map("expires_at") @db.Timestamptz(6)
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  actorUser User @relation("AttachmentMapFilterSessionUser", fields: [actorUserId], references: [id], onDelete: Cascade)
+  actorOrg  Org? @relation("AttachmentMapFilterSessionOrg", fields: [actorOrgId], references: [id], onDelete: Cascade)
+
+  @@index([filterHash, filterVersion, scopeKey], map: "attachment_map_filter_session_lookup_idx")
+  @@index([expiresAt], map: "attachment_map_filter_session_expires_idx")
+  @@index([actorUserId, createdAt(sort: Desc)], map: "attachment_map_filter_session_user_idx")
+  @@map("attachment_map_filter_session")
+  @@schema("app")
+}
+
+model CarMapSearchSession {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  actorUserId    String   @map("actor_user_id") @db.Uuid
+  searchVersion  Int      @default(1) @map("search_version")
+  paramsJson     Json     @map("params_json")
+  expiresAt      DateTime @map("expires_at") @db.Timestamptz(6)
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  actorUser User @relation("CarMapSearchSessionUser", fields: [actorUserId], references: [id], onDelete: Cascade)
+
+  @@index([actorUserId, createdAt(sort: Desc)], map: "car_map_search_session_user_idx")
+  @@index([expiresAt], map: "car_map_search_session_expires_idx")
+  @@map("car_map_search_session")
+  @@schema("app")
+}
+
+model AnalysisAttachmentEffective {
+  id                      String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  analysisId              String                 @map("analysis_id") @db.Uuid
+  attachmentId            String                 @map("attachment_id") @db.Uuid
+  attachmentTargetId      String                 @map("attachment_target_id") @db.Uuid
+  datasetCode             String                 @map("dataset_code")
+  featureId               BigInt?                @map("feature_id")
+  featureKey              String?                @map("feature_key")
+  naturalId               String?                @map("natural_id")
+  carKey                  String?                @map("car_key")
+  capturedScope           AttachmentScope        @map("captured_scope")
+  capturedAppliesOrgId    String?                @map("captured_applies_org_id") @db.Uuid
+  capturedVisibility      AttachmentVisibility   @map("captured_visibility")
+  capturedTargetStatus    AttachmentTargetStatus @map("captured_target_status")
+  capturedValidFrom       DateTime               @map("captured_valid_from") @db.Date
+  capturedValidTo         DateTime?              @map("captured_valid_to") @db.Date
+  capturedIsJustification Boolean                @map("captured_is_justification")
+  capturedAt              DateTime               @default(now()) @map("captured_at") @db.Timestamptz(6)
+
+  analysis           Analysis         @relation(fields: [analysisId], references: [id], onDelete: Cascade)
+  attachment         Attachment       @relation(fields: [attachmentId], references: [id], onDelete: Restrict)
+  attachmentTarget   AttachmentTarget @relation(fields: [attachmentTargetId], references: [id], onDelete: Restrict)
+  capturedAppliesOrg Org?             @relation("AnalysisAttachmentEffectiveCapturedOrg", fields: [capturedAppliesOrgId], references: [id], onDelete: SetNull)
+
+  @@unique([analysisId, attachmentTargetId], map: "analysis_attachment_effective_analysis_target_key")
+  @@index([analysisId], map: "analysis_attachment_effective_analysis_idx")
+  @@index([datasetCode, featureId, featureKey, naturalId], map: "analysis_attachment_effective_feature_idx")
+  @@map("analysis_attachment_effective")
+  @@schema("app")
+}
+
 model CnpjInfo {
   cnpj      String   @id @map("cnpj")
   nome      String?  @map("nome")
@@ -316,7 +593,6 @@ model CnpjInfo {
   @@map("cnpj_info")
   @@schema("app")
 }
-
 
 enum OrgStatus {
   active
@@ -340,6 +616,13 @@ enum GroupRole {
   member
 
   @@map("org_group_role")
+  @@schema("app")
+}
+
+enum OrgPermission {
+  ATTACHMENT_REVIEW
+
+  @@map("org_permission")
   @@schema("app")
 }
 
@@ -411,5 +694,66 @@ enum AnalysisAlertStatus {
   ACKNOWLEDGED
 
   @@map("analysis_alert_status")
+  @@schema("app")
+}
+
+enum AttachmentVisibility {
+  PUBLIC
+  PRIVATE
+
+  @@map("attachment_visibility")
+  @@schema("app")
+}
+
+enum AttachmentScope {
+  ORG_FEATURE
+  ORG_CAR
+  PLATFORM_FEATURE
+  PLATFORM_CAR
+
+  @@map("attachment_scope")
+  @@schema("app")
+}
+
+enum AttachmentStatus {
+  PENDING
+  PARTIALLY_APPROVED
+  APPROVED
+  REJECTED
+  REVOKED
+
+  @@map("attachment_status")
+  @@schema("app")
+}
+
+enum AttachmentTargetStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  REMOVED
+
+  @@map("attachment_target_status")
+  @@schema("app")
+}
+
+enum AttachmentEventType {
+  CREATED
+  UPDATED
+  TARGET_ADDED
+  TARGET_UPDATED
+  TARGET_APPROVED
+  TARGET_REJECTED
+  TARGET_REMOVED
+  SCOPE_CHANGED
+  VALIDITY_CHANGED
+  VISIBILITY_CHANGED
+  STATUS_CHANGED
+  REVOKED
+  DOWNLOADED
+  ZIP_DOWNLOADED
+  PUBLIC_ACCESS_GRANTED
+  PUBLIC_ACCESS_DENIED
+
+  @@map("attachment_event_type")
   @@schema("app")
 }

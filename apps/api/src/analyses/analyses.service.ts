@@ -6,7 +6,12 @@ import {
   Logger,
 } from '@nestjs/common';
 import { Inject, Optional } from '@nestjs/common';
-import { AnalysisKind, FarmDocType, Prisma } from '@prisma/client';
+import {
+  AnalysisKind,
+  AnalysisPostprocessJobType,
+  FarmDocType,
+  Prisma,
+} from '@prisma/client';
 import type { Claims } from '../auth/claims.type';
 import type { ApiKeyPrincipal } from '../auth/authed-request.type';
 import { PrismaService } from '../prisma/prisma.service';
@@ -16,10 +21,18 @@ import {
   type AnalysisGeoJsonCollection,
 } from './analysis-detail.service';
 import { AnalysisCacheService } from './analysis-cache.service';
-import { DocInfoService } from './doc-info.service';
+import {
+  AnalysisVectorMapService,
+  type AnalysisVectorMapContract,
+  type AnalysisVectorMapMetadata,
+} from './analysis-vector-map.service';
+import { AnalysisPostprocessService } from './analysis-postprocess.service';
 import { LandwatchStatusService } from '../landwatch-status/landwatch-status.service';
 import { isValidCpfCnpj, sanitizeDoc } from '../common/validators/cpf-cnpj';
-import { ANALYSIS_CACHE_VERSION } from './analysis-cache.constants';
+import {
+  ANALYSIS_CACHE_VERSION,
+  ANALYSIS_VECTOR_TILE_VERSION,
+} from './analysis-cache.constants';
 
 type CreateAnalysisInput = {
   carKey: string;
@@ -51,6 +64,20 @@ type AnalysisCachePayload = {
   detail?: Record<string, unknown>;
   map?: { tolerance: number; rows: AnalysisMapRow[] };
   geojson?: { tolerance: number; collection: AnalysisGeoJsonCollection };
+  vectorMap?: AnalysisVectorMapMetadata;
+};
+
+type AnalysisStatusPayload = {
+  id: string;
+  carKey: string;
+  analysisDate: Date;
+  analysisKind: AnalysisKind;
+  farmName: string | null;
+  status: string;
+  intersectionCount: number;
+  hasIntersections: boolean;
+  createdAt: Date;
+  completedAt: Date | null;
 };
 
 function assertIdentifier(value: string, name: string): string {
@@ -73,11 +100,13 @@ export class AnalysesService {
     private readonly runner: AnalysisRunnerService,
     private readonly detail: AnalysisDetailService,
     private readonly cache: AnalysisCacheService,
-    private readonly docInfo: DocInfoService,
+    private readonly vectorMap: AnalysisVectorMapService,
+    private readonly postprocess: AnalysisPostprocessService,
     private readonly landwatchStatus: LandwatchStatusService,
     @Optional() @Inject(NOW_PROVIDER) nowProvider?: () => Date,
   ) {
-    this.nowProvider = nowProvider ?? (() => new Date());
+    this.nowProvider =
+      typeof nowProvider === 'function' ? nowProvider : () => new Date();
   }
 
   private getSchema(): string {
@@ -268,9 +297,6 @@ export class AnalysesService {
     const cnpjDocs = documents
       .filter((doc) => doc.docType === FarmDocType.CNPJ)
       .map((doc) => doc.docNormalized);
-    for (const cnpj of cnpjDocs) {
-      await this.docInfo.updateCnpjInfoBestEffort(cnpj);
-    }
 
     let farmId = farm?.id ?? null;
     const analysis = await this.prisma.$transaction(async (tx) => {
@@ -330,6 +356,15 @@ export class AnalysesService {
     });
 
     this.runner.enqueue(analysis.id);
+    await Promise.all(
+      cnpjDocs.map((docNormalized) =>
+        this.postprocess.enqueue({
+          jobType: AnalysisPostprocessJobType.CNPJ_REFRESH,
+          docNormalized,
+          dedupeKey: `cnpj:${docNormalized}`,
+        }),
+      ),
+    );
 
     return {
       analysisId: analysis.id,
@@ -393,6 +428,18 @@ export class AnalysesService {
     });
 
     this.runner.enqueue(analysis.id);
+    const cnpjDocs = docs
+      .filter((doc) => doc.docType === FarmDocType.CNPJ)
+      .map((doc) => doc.docNormalized);
+    await Promise.all(
+      cnpjDocs.map((docNormalized) =>
+        this.postprocess.enqueue({
+          jobType: AnalysisPostprocessJobType.CNPJ_REFRESH,
+          docNormalized,
+          dedupeKey: `cnpj:${docNormalized}`,
+        }),
+      ),
+    );
     return analysis;
   }
 
@@ -498,6 +545,34 @@ export class AnalysesService {
     return { ...detail, biomas: normalized };
   }
 
+  private buildVectorMapContract(
+    metadata: AnalysisVectorMapMetadata,
+    tileBasePath: string,
+  ): AnalysisVectorMapContract {
+    if (!metadata.bounds) {
+      return {
+        renderMode: 'mvt',
+        vectorSource: null,
+        legendItems: metadata.legendItems,
+      };
+    }
+    return {
+      renderMode: 'mvt',
+      vectorSource: {
+        tiles: [
+          `${tileBasePath}/{z}/{x}/{y}.mvt?v=${ANALYSIS_VECTOR_TILE_VERSION}`,
+        ],
+        bounds: metadata.bounds,
+        carBounds: metadata.carBounds,
+        minzoom: metadata.minzoom,
+        maxzoom: metadata.maxzoom,
+        sourceLayer: metadata.sourceLayer,
+        promoteId: metadata.promoteId,
+      },
+      legendItems: metadata.legendItems,
+    };
+  }
+
   async getById(id: string) {
     const cached = await this.cache.get<AnalysisCachePayload>(id);
     if (cached?.cacheVersion === ANALYSIS_CACHE_VERSION && cached.detail) {
@@ -506,14 +581,63 @@ export class AnalysesService {
     if (cached && cached.cacheVersion !== ANALYSIS_CACHE_VERSION) {
       await this.cache.invalidate(id);
     }
+
+    const status = await this.prisma.analysis.findUnique({
+      where: { id },
+      select: { status: true },
+    });
+    if (!status) {
+      throw new BadRequestException({
+        code: 'ANALYSIS_NOT_FOUND',
+        message: 'Analysis not found',
+      });
+    }
+
     const detail = await this.detail.getById(id);
-    if (detail?.status === 'completed') {
+    if (status.status === 'completed') {
       await this.cache.set(id, {
         cacheVersion: ANALYSIS_CACHE_VERSION,
         detail,
       });
     }
     return detail;
+  }
+
+  async getStatusById(id: string) {
+    const analysis = await this.prisma.analysis.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        carKey: true,
+        analysisDate: true,
+        analysisKind: true,
+        status: true,
+        intersectionCount: true,
+        hasIntersections: true,
+        createdAt: true,
+        completedAt: true,
+        farm: { select: { name: true } },
+      },
+    });
+    if (!analysis) {
+      throw new BadRequestException({
+        code: 'ANALYSIS_NOT_FOUND',
+        message: 'Analysis not found',
+      });
+    }
+    const payload: AnalysisStatusPayload = {
+      id: analysis.id,
+      carKey: analysis.carKey,
+      analysisDate: analysis.analysisDate,
+      analysisKind: analysis.analysisKind ?? AnalysisKind.STANDARD,
+      farmName: analysis.farm?.name ?? null,
+      status: analysis.status,
+      intersectionCount: analysis.intersectionCount,
+      hasIntersections: analysis.hasIntersections,
+      createdAt: analysis.createdAt,
+      completedAt: analysis.completedAt,
+    };
+    return payload;
   }
 
   async getMapById(id: string, tolerance?: number) {
@@ -533,6 +657,28 @@ export class AnalysesService {
       return cached.map.rows;
     }
     return this.detail.getMapById(id, safeTolerance);
+  }
+
+  async getVectorMapById(id: string, tileBasePath: string) {
+    const cached = await this.cache.get<AnalysisCachePayload>(id);
+    if (cached && cached.cacheVersion !== ANALYSIS_CACHE_VERSION) {
+      await this.cache.invalidate(id);
+    }
+    if (cached?.cacheVersion === ANALYSIS_CACHE_VERSION && cached.vectorMap) {
+      return this.buildVectorMapContract(cached.vectorMap, tileBasePath);
+    }
+    const metadata = await this.vectorMap.getVectorMapMetadataById(id);
+    return this.buildVectorMapContract(metadata, tileBasePath);
+  }
+
+  async getVectorTileById(
+    id: string,
+    z: number,
+    x: number,
+    y: number,
+    ifNoneMatch?: string | string[],
+  ) {
+    return this.vectorMap.getVectorTileById(id, z, x, y, ifNoneMatch);
   }
 
   async getGeoJsonById(id: string, tolerance?: number) {

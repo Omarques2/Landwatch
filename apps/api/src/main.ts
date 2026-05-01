@@ -2,16 +2,18 @@ import { NestFactory } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { ValidationPipe } from '@nestjs/common';
 import helmet from 'helmet';
-import rateLimit from 'express-rate-limit';
 import { AppModule } from './app.module';
 import { parseBoolean, parseCsv, parseNumber } from './common/config/env';
 import {
   attachCorrelationId,
-  getCorrelationId,
 } from './common/http/request-context';
 import { requestLogger } from './common/http/request-logger';
 import { EnvelopeInterceptor } from './common/http/envelope.interceptor';
 import { HttpExceptionFilter } from './common/http/http-exception.filter';
+import {
+  buildRateLimiter,
+  shouldSkipGenericApiRateLimit,
+} from './common/http/rate-limit';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
@@ -62,53 +64,43 @@ async function bootstrap() {
     credentials: parseBoolean(process.env.CORS_CREDENTIALS),
   });
 
-  const adminLimiter = rateLimit({
-    windowMs: parseNumber(process.env.RATE_LIMIT_ADMIN_WINDOW_MS, 60_000),
-    max: parseNumber(process.env.RATE_LIMIT_ADMIN_MAX, 60),
-    standardHeaders: true,
-    legacyHeaders: false,
-    message: 'Too many requests',
-    handler: (req, res) => {
-      const correlationId = getCorrelationId(req);
-      res.status(429).json({
-        error: { code: 'RATE_LIMIT', message: 'Too many requests' },
-        correlationId,
-      });
-    },
-  });
+  const adminLimiter = buildRateLimiter(
+    parseNumber(process.env.RATE_LIMIT_ADMIN_WINDOW_MS, 60_000),
+    parseNumber(process.env.RATE_LIMIT_ADMIN_MAX, 60),
+  );
 
-  const authLimiter = rateLimit({
-    windowMs: parseNumber(process.env.RATE_LIMIT_AUTH_WINDOW_MS, 60_000),
-    max: parseNumber(process.env.RATE_LIMIT_AUTH_MAX, 20),
-    standardHeaders: true,
-    legacyHeaders: false,
-    message: 'Too many requests',
-    handler: (req, res) => {
-      const correlationId = getCorrelationId(req);
-      res.status(429).json({
-        error: { code: 'RATE_LIMIT', message: 'Too many requests' },
-        correlationId,
-      });
-    },
-  });
+  const authLimiter = buildRateLimiter(
+    parseNumber(process.env.RATE_LIMIT_AUTH_WINDOW_MS, 60_000),
+    parseNumber(process.env.RATE_LIMIT_AUTH_MAX, 20),
+  );
 
-  const apiLimiter = rateLimit({
-    windowMs: parseNumber(process.env.RATE_LIMIT_API_WINDOW_MS, 60_000),
-    max: parseNumber(process.env.RATE_LIMIT_API_MAX, 120),
-    standardHeaders: true,
-    legacyHeaders: false,
-    message: 'Too many requests',
-    handler: (req, res) => {
-      const correlationId = getCorrelationId(req);
-      res.status(429).json({
-        error: { code: 'RATE_LIMIT', message: 'Too many requests' },
-        correlationId,
-      });
+  const tilesLimiter = buildRateLimiter(
+    parseNumber(process.env.RATE_LIMIT_TILES_WINDOW_MS, 60_000),
+    parseNumber(process.env.RATE_LIMIT_TILES_MAX, 3_000),
+  );
+
+  const carsLimiter = buildRateLimiter(
+    parseNumber(process.env.RATE_LIMIT_CARS_WINDOW_MS, 60_000),
+    parseNumber(process.env.RATE_LIMIT_CARS_MAX, 300),
+    {
+      skip: (req) => req.path.startsWith('/tiles/'),
     },
-  });
+  );
+
+  const apiLimiter = buildRateLimiter(
+    parseNumber(process.env.RATE_LIMIT_API_WINDOW_MS, 60_000),
+    parseNumber(process.env.RATE_LIMIT_API_MAX, 120),
+    {
+      skip: (req) => shouldSkipGenericApiRateLimit(req.path),
+    },
+  );
 
   app.use('/admin', adminLimiter);
   app.use('/auth', authLimiter);
+  app.use('/v1/attachments/tiles', tilesLimiter);
+  app.use('/v1/attachments/pmtiles', tilesLimiter);
+  app.use('/v1/cars/tiles', tilesLimiter);
+  app.use('/v1/cars', carsLimiter);
   app.use('/v1', apiLimiter);
 
   app.enableShutdownHooks();

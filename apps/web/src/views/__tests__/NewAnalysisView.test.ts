@@ -23,10 +23,19 @@ vi.mock("@/state/landwatch-status", () => ({
   mvBusy: ref(false),
 }));
 
+vi.mock("@/components/maps/CarSelectMap.vue", () => ({
+  default: {
+    name: "CarSelectMapStub",
+    props: ["selectedCarKey"],
+    template: '<div data-testid="car-select-map"></div>',
+  },
+}));
+
 describe("NewAnalysisView", () => {
   beforeEach(() => {
     routePath = "/analyses/new";
     mvBusy.value = false;
+    vi.clearAllMocks();
   });
 
   it("preenche coordenadas com GPS na busca de CAR", async () => {
@@ -62,6 +71,46 @@ describe("NewAnalysisView", () => {
     expect(lngInput.value).toBe("-50.765432");
   });
 
+  it("cria uma busca vetorial com raio de 5 km por padrão", async () => {
+    routePath = "/analyses/search";
+    (http.post as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      data: {
+        data: {
+          searchId: "search-1",
+          expiresAt: "2026-04-22T12:30:00.000Z",
+          renderMode: "mvt",
+          stats: { totalFeatures: 2 },
+          vectorSource: {
+            tiles: ["/v1/cars/tiles/search-1/{z}/{x}/{y}.mvt"],
+            bounds: [-50.1, -10.1, -49.9, -9.9],
+            minzoom: 0,
+            maxzoom: 22,
+            sourceLayer: "cars_search",
+            promoteId: "feature_key",
+          },
+          searchCenter: { lat: -10, lng: -50 },
+          searchRadiusMeters: 5000,
+        },
+      },
+    });
+
+    const wrapper = mount(NewAnalysisView);
+
+    await wrapper.find('[data-testid="gps-lat"]').setValue("-10");
+    await wrapper.find('[data-testid="gps-lng"]').setValue("-50");
+    await wrapper.findAll("button").find((button) => button.text().includes("Buscar CARs"))?.trigger("click");
+    await flushPromises();
+
+    expect(http.post).toHaveBeenCalledWith(
+      "/v1/cars/map-searches",
+      expect.objectContaining({
+        lat: -10,
+        lng: -50,
+        radiusMeters: 5000,
+      }),
+    );
+  });
+
   it("shows warning and disables submit when MV is refreshing", async () => {
     mvBusy.value = true;
     const wrapper = mount(NewAnalysisView);
@@ -84,7 +133,7 @@ describe("NewAnalysisView", () => {
     await wrapper.find("button").trigger("click");
 
     expect(wrapper.text()).toContain("CPF/CNPJ inválido");
-    expect(http.post).not.toHaveBeenCalled();
+    expect(http.post).not.toHaveBeenCalledWith("/v1/analyses", expect.anything());
   });
 
   it("preserves full CAR key when pasting dotted value", async () => {

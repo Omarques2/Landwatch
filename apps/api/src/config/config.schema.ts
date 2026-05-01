@@ -56,6 +56,8 @@ const envBaseSchema = z.object({
   RATE_LIMIT_AUTH_MAX: numberSchema.default(20),
   RATE_LIMIT_API_WINDOW_MS: numberSchema.default(60_000),
   RATE_LIMIT_API_MAX: numberSchema.default(120),
+  RATE_LIMIT_TILES_WINDOW_MS: numberSchema.default(60_000),
+  RATE_LIMIT_TILES_MAX: numberSchema.default(3000),
 
   TRUST_PROXY: booleanSchema.default(false),
   AUTH_BYPASS_LOCALHOST: booleanSchema.default(false),
@@ -76,10 +78,26 @@ const envBaseSchema = z.object({
   LANDWATCH_SICAR_CATEGORY_CODE: z.string().default('SICAR'),
   LANDWATCH_CAR_MAX_RADIUS_METERS: numberSchema.default(5000),
   LANDWATCH_CAR_MAX_RESULTS: numberSchema.default(25),
+  LANDWATCH_CAR_MAP_SEARCH_MAX_RADIUS_METERS: numberSchema.default(50000),
+  LANDWATCH_CAR_MAP_SEARCH_TTL_MINUTES: numberSchema.default(30),
 
   LANDWATCH_PDF_STORAGE_DIR: z.string().optional(),
   LANDWATCH_PDF_TTL_HOURS: numberSchema.default(2),
   LANDWATCH_PDF_TILE_PROVIDERS: z.string().optional(),
+  ANALYSIS_STANDARD_CURRENT_USE_FAST_INTERSECTIONS:
+    booleanSchema.default(false),
+  ANALYSIS_STANDARD_ASOF_USE_LEGACY_AREA: booleanSchema.default(false),
+
+  ATTACHMENTS_BLOB_ACCOUNT_URL: z.string().optional(),
+  ATTACHMENTS_BLOB_CONNECTION_STRING: z.string().optional(),
+  ATTACHMENTS_BLOB_CONTAINER: z.string().optional().default('attachments'),
+  ATTACHMENTS_BLOB_PROVIDER: z.string().optional().default('AZURE_BLOB'),
+  ATTACHMENTS_BLOB_CREDENTIAL_MODE: z.string().optional(),
+  ATTACHMENTS_LOCAL_DIR: z.string().optional(),
+  ATTACHMENTS_PMTILES_ENABLED: booleanSchema.default(false),
+  ATTACHMENTS_PMTILES_BLOB_CONNECTION_STRING: z.string().optional(),
+  ATTACHMENTS_PMTILES_BLOB_CONTAINER: z.string().optional(),
+  ATTACHMENTS_PMTILES_BLOB_PREFIX: z.string().optional().default('pmtiles'),
 
   SCHEDULES_JOB_TOKEN: z.string().optional(),
 

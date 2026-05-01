@@ -2,11 +2,12 @@
   <AnalysisPrintLayout
     ref="printLayoutRef"
     :analysis="analysis"
-    :map-features="mapFeatures"
+    :vector-map="vectorMap"
     :map-loading="mapLoading"
     :is-loading="isLoading"
     :analysis-public-url="analysisPublicUrl"
     :logo-src="printLogo"
+    map-auth-mode="private"
   />
 </template>
 
@@ -16,6 +17,7 @@ import { useRoute } from "vue-router";
 import { http } from "@/api/http";
 import { unwrapData, type ApiEnvelope } from "@/api/envelope";
 import { getAnalysisMapCache, setAnalysisMapCache } from "@/features/analyses/analysis-map-cache";
+import { type AnalysisVectorMap as AnalysisVectorMapPayload } from "@/features/analyses/analysis-vector-map";
 import AnalysisPrintLayout from "@/components/analyses/AnalysisPrintLayout.vue";
 import printLogo from "@/assets/logo.png";
 
@@ -56,27 +58,19 @@ type AnalysisDetail = {
   results: AnalysisResult[];
 };
 
-type MapFeature = {
-  categoryCode: string;
-  datasetCode: string;
-  featureId?: string | null;
-  displayName?: string | null;
-  naturalId?: string | null;
-  geom: any;
-};
-
 const route = useRoute();
 const analysis = ref<AnalysisDetail | null>(null);
-const mapFeatures = ref<MapFeature[]>([]);
+const vectorMap = ref<AnalysisVectorMapPayload | null>(null);
 const mapLoading = ref(false);
 const isLoading = ref(false);
 const printLayoutRef = ref<InstanceType<typeof AnalysisPrintLayout> | null>(null);
-const mapReady = computed(() => !mapLoading.value && mapFeatures.value.length > 0);
+const mapReady = computed(() => !mapLoading.value && Boolean(vectorMap.value?.vectorSource));
 const CACHE_TTL_MS = 5 * 60 * 1000;
+const hasTriggeredBrowserPrint = ref(false);
 
 const analysisPublicUrl = computed(() => {
   if (typeof window === "undefined") return "";
-  return `${window.location.origin}/analyses/${route.params.id}/public`;
+  return new URL(`/analyses/${String(route.params.id ?? "")}/public`, window.location.origin).toString();
 });
 
 async function loadAnalysis() {
@@ -86,50 +80,53 @@ async function loadAnalysis() {
     const cached = readPrintCache(id);
     if (cached) {
       analysis.value = cached.analysis;
-      mapFeatures.value = cached.mapFeatures ?? [];
+      vectorMap.value = cached.vectorMap ?? null;
     } else {
-      const res = await http.get<ApiEnvelope<AnalysisDetail>>(`/v1/analyses/${id}`);
-      analysis.value = unwrapData(res.data);
-      await loadMap(id);
+      mapLoading.value = true;
+      const cachedVectorMap = getAnalysisMapCache<AnalysisVectorMapPayload>(id, undefined);
+      const [detailRes, vectorMapPayload] = await Promise.all([
+        http.get<ApiEnvelope<AnalysisDetail>>(`/v1/analyses/${id}`),
+        cachedVectorMap
+          ? Promise.resolve(cachedVectorMap)
+          : http
+              .get<ApiEnvelope<AnalysisVectorMapPayload>>(`/v1/analyses/${id}/vector-map`)
+              .then((res) => unwrapData(res.data)),
+      ]);
+      analysis.value = unwrapData(detailRes.data);
+      vectorMap.value = vectorMapPayload;
+      setAnalysisMapCache(id, undefined, vectorMapPayload);
     }
   } finally {
+    mapLoading.value = false;
     isLoading.value = false;
   }
 }
 
-async function loadMap(id: string) {
-  mapLoading.value = true;
-  try {
-    if (mapFeatures.value.length) return;
-    const cached = getAnalysisMapCache<MapFeature[]>(id, undefined);
-    if (cached && cached.length) {
-      mapFeatures.value = cached;
-      return;
-    }
-    const res = await http.get<ApiEnvelope<MapFeature[]>>(`/v1/analyses/${id}/map`);
-    const features = unwrapData(res.data);
-    mapFeatures.value = features;
-    if (features.length) {
-      setAnalysisMapCache(id, undefined, features);
-    }
-  } finally {
-    mapLoading.value = false;
+function onBeforePrint() {
+  const layout = printLayoutRef.value as
+    | { prepareForPrint?: (() => void) | undefined }
+    | null;
+  if (typeof layout?.prepareForPrint === "function") {
+    layout.prepareForPrint();
   }
 }
 
-function onBeforePrint() {
-  printLayoutRef.value?.prepareForPrint();
-}
-
 function onAfterPrint() {
-  printLayoutRef.value?.resetAfterPrint();
+  const layout = printLayoutRef.value as
+    | { resetAfterPrint?: (() => void) | undefined }
+    | null;
+  if (typeof layout?.resetAfterPrint === "function") {
+    layout.resetAfterPrint();
+  }
 }
 
 async function triggerPrintWhenReady() {
+  if (hasTriggeredBrowserPrint.value) return;
   if (!analysis.value || !mapReady.value) return;
+  hasTriggeredBrowserPrint.value = true;
   await nextTick();
   onBeforePrint();
-  window.setTimeout(() => window.print(), 600);
+  window.print();
 }
 
 function readPrintCache(id: string) {
@@ -142,7 +139,7 @@ function readPrintCache(id: string) {
       localStorage.removeItem(`analysis_print_${id}`);
       return null;
     }
-    return parsed as { analysis: AnalysisDetail; mapFeatures?: MapFeature[] };
+    return parsed as { analysis: AnalysisDetail; vectorMap?: AnalysisVectorMapPayload | null };
   } catch {
     return null;
   }
@@ -156,7 +153,7 @@ onMounted(async () => {
 });
 
 watch(
-  () => [analysis.value?.id, mapFeatures.value.length, mapLoading.value],
+  () => [analysis.value?.id, vectorMap.value?.vectorSource ? 1 : 0, mapLoading.value],
   () => triggerPrintWhenReady(),
 );
 

@@ -23,3 +23,14 @@ Gerar_analise_ambiental_API.ipynb
 UCs-shps/
 download_urls_ucs_only.json
 apps/Versionamento/download_urls_ucs_only.json
+
+# Runtime/test storage
+apps/api/.tmp-test-attachments/
+apps/api/storage/
+apps/storage/
+
+# Generated repository snapshots
+repomix*.md
+
+# Local design references
+Design e conceitos para anexos/

@@ -85,6 +85,80 @@ describe('HttpExceptionFilter', () => {
     });
   });
 
+  it('maps Prisma raw query socket timeout to 503', () => {
+    const filter = new HttpExceptionFilter();
+    const { host, response } = mockHost('cid-timeout');
+    const exception = new Prisma.PrismaClientKnownRequestError('Timed out', {
+      code: 'P2010',
+      clientVersion: 'test',
+      meta: {
+        driverAdapterError: {
+          cause: { kind: 'SocketTimeout' },
+        },
+      },
+    });
+
+    filter.catch(exception, host);
+
+    expect(response.status).toHaveBeenCalledWith(
+      HttpStatus.SERVICE_UNAVAILABLE,
+    );
+    expect(response.json).toHaveBeenCalledWith({
+      error: {
+        code: 'DATABASE_TIMEOUT',
+        message: 'Database operation timed out',
+      },
+      correlationId: 'cid-timeout',
+    });
+  });
+
+  it('maps Prisma raw query timeout by message to 503 even without driver meta', () => {
+    const filter = new HttpExceptionFilter();
+    const { host, response } = mockHost('cid-timeout-msg');
+    const exception = new Prisma.PrismaClientKnownRequestError(
+      'Operation has timed out',
+      {
+        code: 'P2010',
+        clientVersion: 'test',
+      },
+    );
+
+    filter.catch(exception, host);
+
+    expect(response.status).toHaveBeenCalledWith(
+      HttpStatus.SERVICE_UNAVAILABLE,
+    );
+    expect(response.json).toHaveBeenCalledWith({
+      error: {
+        code: 'DATABASE_TIMEOUT',
+        message: 'Database operation timed out',
+      },
+      correlationId: 'cid-timeout-msg',
+    });
+  });
+
+  it('maps Prisma initialization errors to 503', () => {
+    const filter = new HttpExceptionFilter();
+    const { host, response } = mockHost('cid-db-init');
+    const exception = new Prisma.PrismaClientInitializationError(
+      'db unavailable',
+      'test',
+    );
+
+    filter.catch(exception, host);
+
+    expect(response.status).toHaveBeenCalledWith(
+      HttpStatus.SERVICE_UNAVAILABLE,
+    );
+    expect(response.json).toHaveBeenCalledWith({
+      error: {
+        code: 'DATABASE_UNAVAILABLE',
+        message: 'Database connection is unavailable',
+      },
+      correlationId: 'cid-db-init',
+    });
+  });
+
   it('keeps explicit error codes for http exceptions', () => {
     const filter = new HttpExceptionFilter();
     const { host, response } = mockHost('cid-4');

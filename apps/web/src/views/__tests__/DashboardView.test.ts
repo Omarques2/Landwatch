@@ -100,4 +100,29 @@ describe("DashboardView", () => {
     expect(wrapper.text()).toContain("Análise completa");
     expect(wrapper.text()).toContain("DETER preventiva");
   });
+
+  it("shows friendly message when dashboard request fails with database timeout", async () => {
+    (http.get as unknown as ReturnType<typeof vi.fn>).mockRejectedValue({
+      response: {
+        status: 503,
+        data: {
+          error: {
+            code: "DATABASE_TIMEOUT",
+            message: "Operation has timed out",
+          },
+          correlationId: "cid-1",
+        },
+      },
+      message: "Request failed with status code 503",
+    });
+
+    const wrapper = mount(DashboardView);
+    await Promise.resolve();
+    await nextTick();
+
+    expect(wrapper.text()).toContain(
+      "Banco de dados indisponível no momento. Tente novamente em instantes.",
+    );
+    expect(wrapper.text()).not.toContain("Operation has timed out");
+  });
 });

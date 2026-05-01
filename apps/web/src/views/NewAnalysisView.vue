@@ -1,5 +1,7 @@
 <template>
-  <div class="mx-auto flex max-w-6xl flex-col gap-6 px-6 py-6">
+  <div
+    class="new-analysis-root mx-auto flex max-w-6xl flex-col gap-6 px-6 py-6"
+  >
     <section v-if="viewMode === 'analysis'" class="rounded-2xl border border-border bg-card p-6 shadow-sm">
       <div class="text-lg font-semibold">Nova análise</div>
       <div
@@ -118,14 +120,29 @@
       </div>
     </section>
 
-    <section v-else class="rounded-2xl border border-border bg-card p-6 shadow-sm">
+    <section
+      v-else
+      class="search-card rounded-2xl border border-border bg-card p-6 shadow-sm"
+    >
+      <div class="search-print-header">
+        <div class="search-print-brand">
+          <img :src="printLogo" alt="Sigfarm LandWatch" class="search-print-logo" />
+          <div class="search-print-title">Sigfarm LandWatch - Busca de CAR</div>
+        </div>
+        <div class="search-print-meta">
+          <div><span class="font-semibold">Coordenadas:</span> {{ searchCoordinatesLabel }}</div>
+          <div><span class="font-semibold">Raio:</span> {{ searchRadiusKm }} km</div>
+          <div><span class="font-semibold">CARs:</span> {{ activeSearchCount }}</div>
+        </div>
+      </div>
+
       <div
         v-if="mvBusy"
-        class="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700"
+        class="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700 search-controls"
       >
         Base geoespacial em atualização. A busca por CARs está temporariamente indisponível.
       </div>
-      <div class="grid gap-3 md:grid-cols-2">
+      <div class="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(220px,280px)] search-controls">
         <div>
           <UiLabel>Latitude</UiLabel>
           <UiInput
@@ -136,52 +153,92 @@
         </div>
         <div>
           <UiLabel>Longitude</UiLabel>
-          <UiInput
-            v-model="center.lng"
-            data-testid="gps-lng"
-            placeholder="-50.0000 ou 50° 00' 00&quot; W"
-          />
+          <div class="flex gap-2">
+            <UiInput
+              v-model="center.lng"
+              data-testid="gps-lng"
+              placeholder="-50.0000 ou 50° 00' 00&quot; W"
+            />
+            <UiButton
+              size="icon"
+              variant="outline"
+              data-testid="gps-button"
+              class="shrink-0"
+              :disabled="mvBusy || gpsLoading || searchBusy"
+              title="Usar minha localização"
+              aria-label="Usar minha localização"
+              @click="useMyLocation"
+            >
+              <Loader2 v-if="gpsLoading" class="h-4 w-4 animate-spin" />
+              <LocateFixed v-else class="h-4 w-4" />
+            </UiButton>
+          </div>
         </div>
+        <label class="flex min-w-0 flex-col gap-2">
+          <span class="text-sm font-medium">Raio</span>
+          <div class="search-radius-card">
+            <input
+              v-model.number="searchRadiusKm"
+              data-testid="search-radius"
+              class="search-radius-slider"
+              type="range"
+              min="1"
+              max="50"
+              step="1"
+            />
+            <span class="search-radius-pill">{{ searchRadiusKm }} km</span>
+          </div>
+        </label>
       </div>
-      <div class="mt-3 flex flex-wrap items-center gap-2">
-        <UiButton size="sm" :disabled="!canSearch || mvBusy" @click="searchCars">
+      <div class="mt-3 flex flex-wrap items-center gap-2 search-controls">
+        <UiButton size="sm" :disabled="!canSearch || mvBusy || searchBusy" @click="searchCars">
           Buscar CARs
         </UiButton>
         <UiButton
           size="sm"
-          variant="outline"
-          data-testid="gps-button"
-          :disabled="mvBusy || gpsLoading"
-          @click="useMyLocation"
-        >
-          <span v-if="gpsLoading" class="inline-flex items-center gap-2">
-            <span
-              class="inline-block h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent"
-            ></span>
-            Localizando...
-          </span>
-          <span v-else>Usar minha localização</span>
-        </UiButton>
-        <UiButton
-          size="sm"
           class="shadow-sm"
-          :class="!analysisForm.carKey || mvBusy ? 'opacity-50' : ''"
-          :disabled="!analysisForm.carKey || mvBusy"
+          :class="!analysisForm.carKey || mvBusy || searchBusy ? 'opacity-50' : ''"
+          :disabled="!analysisForm.carKey || mvBusy || searchBusy"
           @click="goToAnalysisTab"
         >
           Gerar análise
         </UiButton>
+        <UiButton
+          size="sm"
+          variant="outline"
+          :disabled="!canExportSearch || searchBusy || mapLoading || pngBusy"
+          @click="downloadSearchPng"
+        >
+          <Loader2 v-if="pngBusy" class="mr-2 h-3.5 w-3.5 animate-spin" />
+          {{ pngBusy ? "Gerando PNG" : "Baixar PNG" }}
+        </UiButton>
+        <UiButton
+          size="sm"
+          variant="outline"
+          :disabled="!canExportSearch || searchBusy"
+          @click="printSearchPdf"
+        >
+          Baixar PDF
+        </UiButton>
       </div>
-      <div v-if="searchMessage" class="mt-2 text-xs text-muted-foreground">
+      <div v-if="searchMessage" class="mt-2 text-xs text-muted-foreground search-controls">
         {{ searchMessage }}
       </div>
-      <div class="mt-3 h-[clamp(320px,calc(100vh-360px),720px)]">
+      <div
+        class="search-map-frame mt-3"
+      >
         <CarSelectMap
+          ref="searchMapRef"
           v-model:selected-car-key="analysisForm.carKey"
           :center="centerValue"
-          :search-token="searchToken"
+          :active-search="activeSearch"
+          :fallback-features="fallbackCars"
           :disabled="mvBusy"
+          :loading="searchBusy"
+          :print-mode="searchPrintMode"
           @center-change="updateCenter"
+          @search-here="searchCarsFromMap"
+          @loading-change="onMapLoadingChange"
         />
       </div>
     </section>
@@ -206,8 +263,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
+import type { Geometry } from "geojson";
 import { useRoute, useRouter } from "vue-router";
+import { LocateFixed, Loader2 } from "lucide-vue-next";
 import {
   Button as UiButton,
   Dialog as UiDialog,
@@ -221,8 +280,35 @@ import {
 import { http } from "@/api/http";
 import { unwrapData, unwrapPaged, type ApiEnvelope } from "@/api/envelope";
 import CarSelectMap from "@/components/maps/CarSelectMap.vue";
+import logoSrc from "@/assets/logo.png";
 import { isValidCpfCnpj, sanitizeDoc } from "@/lib/doc-utils";
 import { mvBusy } from "@/state/landwatch-status";
+
+type CarSearchVectorSource = {
+  tiles: string[];
+  bounds: [number, number, number, number];
+  minzoom: number;
+  maxzoom: number;
+  sourceLayer: string;
+  promoteId?: string | null;
+};
+
+type CarSearchVectorMapResponse = {
+  searchId: string;
+  expiresAt: string;
+  renderMode: "mvt";
+  stats: { totalFeatures: number };
+  featureBounds?: [number, number, number, number] | null;
+  vectorSource: CarSearchVectorSource;
+  searchCenter: { lat: number; lng: number };
+  searchRadiusMeters: number;
+  analysisDate?: string;
+};
+
+type CarFallbackFeature = {
+  feature_key: string;
+  geom: Geometry;
+};
 
 type FarmDocument = {
   id: string;
@@ -246,12 +332,33 @@ const confirmMissingOpen = ref(false);
 const center = reactive({ lat: "-15.5", lng: "-55.5" });
 const parsedCenter = ref({ lat: -15.5, lng: -55.5 });
 const centerValue = computed(() => parsedCenter.value);
-const searchToken = ref(0);
 const searchMessage = ref("");
 const gpsLoading = ref(false);
+const searchBusy = ref(false);
+const mapLoading = ref(false);
+const pngBusy = ref(false);
+const searchRadiusKm = ref(5);
+const activeSearch = ref<CarSearchVectorMapResponse | null>(null);
+const fallbackCars = ref<CarFallbackFeature[]>([]);
+const searchPrintMode = ref(false);
+const searchMapRef = ref<InstanceType<typeof CarSelectMap> | null>(null);
+let searchPrintResetTimer: number | null = null;
 const canSearch = computed(() => {
   return parseCoordinate(center.lat, "lat") !== null && parseCoordinate(center.lng, "lng") !== null;
 });
+const activeSearchCount = computed(
+  () => activeSearch.value?.stats.totalFeatures ?? fallbackCars.value.length,
+);
+const canExportSearch = computed(
+  () => Boolean(activeSearch.value?.vectorSource) || fallbackCars.value.length > 0,
+);
+const searchCoordinatesLabel = computed(() => {
+  const lat = parseCoordinate(center.lat, "lat");
+  const lng = parseCoordinate(center.lng, "lng");
+  if (lat === null || lng === null) return "-";
+  return `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+});
+const printLogo = logoSrc;
 const analysisForm = reactive({
   farmId: "",
   farmName: "",
@@ -454,24 +561,102 @@ async function goToAnalysisTab() {
   });
 }
 
-function searchCars() {
+async function fetchLegacyCarsFallback(lat: number, lng: number) {
+  const res = await http.get<ApiEnvelope<CarFallbackFeature[]>>("/v1/cars/point", {
+    params: {
+      lat,
+      lng,
+      tolerance: 0.0001,
+    },
+  });
+  return unwrapData(res.data);
+}
+
+function currentSearchPayload() {
+  const parsedLat = parseCoordinate(center.lat, "lat");
+  const parsedLng = parseCoordinate(center.lng, "lng");
+  if (parsedLat === null || parsedLng === null) {
+    return null;
+  }
+  return {
+    lat: parsedLat,
+    lng: parsedLng,
+    radiusMeters: searchRadiusKm.value * 1000,
+  };
+}
+
+async function runCarSearch(payload: { lat: number; lng: number; radiusMeters: number }) {
+  searchBusy.value = true;
+  searchMessage.value = "";
+  analysisForm.carKey = "";
+  activeSearch.value = null;
+  fallbackCars.value = [];
+  center.lat = payload.lat.toFixed(6);
+  center.lng = payload.lng.toFixed(6);
+  parsedCenter.value = { lat: payload.lat, lng: payload.lng };
+
+  try {
+    const res = await http.post<ApiEnvelope<CarSearchVectorMapResponse>>(
+      "/v1/cars/map-searches",
+      payload,
+    );
+    activeSearch.value = unwrapData(res.data);
+    fallbackCars.value = [];
+  } catch (err: any) {
+    try {
+      const fallbackRows = await fetchLegacyCarsFallback(payload.lat, payload.lng);
+      fallbackCars.value = fallbackRows;
+      activeSearch.value = null;
+      const apiMessage =
+        err?.response?.data?.error?.message ??
+        err?.response?.data?.message ??
+        null;
+      searchMessage.value =
+        apiMessage ??
+        (searchRadiusKm.value === 5
+          ? "Modo compatível ativado."
+          : "Modo compatível ativado com raio fixo de 5 km.");
+    } catch (fallbackErr: any) {
+      fallbackCars.value = [];
+      activeSearch.value = null;
+      searchMessage.value =
+        fallbackErr?.response?.data?.error?.message ??
+        fallbackErr?.response?.data?.message ??
+        err?.response?.data?.error?.message ??
+        err?.response?.data?.message ??
+        "Falha ao buscar CARs.";
+    }
+  } finally {
+    searchBusy.value = false;
+  }
+}
+
+async function searchCars() {
   if (mvBusy.value) {
     searchMessage.value =
       "Base geoespacial em atualização. Aguarde para buscar CARs.";
     return;
   }
-  const parsedLat = parseCoordinate(center.lat, "lat");
-  const parsedLng = parseCoordinate(center.lng, "lng");
-  if (!parsedLat || !parsedLng) {
+  const payload = currentSearchPayload();
+  if (!payload) {
     searchMessage.value =
       "Coordenadas inválidas. Use DD, DMM ou DMS (ex: 23° 26' 44.3\" S).";
     return;
   }
-  center.lat = parsedLat.toFixed(6);
-  center.lng = parsedLng.toFixed(6);
-  parsedCenter.value = { lat: parsedLat, lng: parsedLng };
-  searchMessage.value = "";
-  searchToken.value += 1;
+  await runCarSearch(payload);
+}
+
+async function searchCarsFromMap(payload: { lat: number; lng: number }) {
+  if (mvBusy.value) {
+    searchMessage.value =
+      "Base geoespacial em atualização. Aguarde para buscar CARs.";
+    return;
+  }
+  await runCarSearch({
+    lat: payload.lat,
+    lng: payload.lng,
+    radiusMeters: searchRadiusKm.value * 1000,
+  });
 }
 
 function useMyLocation() {
@@ -708,6 +893,101 @@ function updateCenter(payload: { lat: number; lng: number }) {
   center.lng = payload.lng.toFixed(6);
 }
 
+function onMapLoadingChange(value: boolean) {
+  mapLoading.value = value;
+}
+
+function setSearchBodyPrintMode(enabled: boolean) {
+  if (typeof document === "undefined") return;
+  document.body.classList.toggle("car-search-print-mode", enabled);
+}
+
+const originalSearchTitle = ref<string | null>(null);
+
+function buildSearchExportBaseName() {
+  const lat = parseCoordinate(center.lat, "lat");
+  const lng = parseCoordinate(center.lng, "lng");
+  const today = new Date().toISOString().slice(0, 10);
+  const latLabel = lat === null ? "lat" : `lat-${lat.toFixed(6)}`;
+  const lngLabel = lng === null ? "lng" : `lng-${lng.toFixed(6)}`;
+  return `Sigfarm-LandWatch-Busca-CAR-${latLabel}-${lngLabel}-${today}`;
+}
+
+function setSearchPrintTitle() {
+  if (typeof document === "undefined") return;
+  if (originalSearchTitle.value === null) {
+    originalSearchTitle.value = document.title;
+  }
+  document.title = buildSearchExportBaseName();
+}
+
+function restoreSearchTitle() {
+  if (typeof document === "undefined") return;
+  if (originalSearchTitle.value !== null) {
+    document.title = originalSearchTitle.value;
+    originalSearchTitle.value = null;
+  }
+}
+
+async function waitForSearchPrintFrame() {
+  await nextTick();
+  await new Promise<void>((resolve) => {
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => resolve());
+    });
+  });
+}
+
+function clearSearchPrintResetTimer() {
+  if (searchPrintResetTimer == null) return;
+  window.clearTimeout(searchPrintResetTimer);
+  searchPrintResetTimer = null;
+}
+
+async function prepareSearchPrintLayout() {
+  if (viewMode.value !== "search" || !canExportSearch.value) return;
+  clearSearchPrintResetTimer();
+  searchPrintMode.value = true;
+  setSearchBodyPrintMode(true);
+  setSearchPrintTitle();
+  await waitForSearchPrintFrame();
+  searchMapRef.value?.refresh();
+  await waitForSearchPrintFrame();
+  await searchMapRef.value?.prepareForPrint();
+  await waitForSearchPrintFrame();
+}
+
+function resetSearchPrintLayout() {
+  clearSearchPrintResetTimer();
+  searchMapRef.value?.resetAfterPrint();
+  searchPrintMode.value = false;
+  setSearchBodyPrintMode(false);
+  restoreSearchTitle();
+}
+
+async function printSearchPdf() {
+  if (!canExportSearch.value || searchBusy.value) return;
+  await prepareSearchPrintLayout();
+  window.print();
+  searchPrintResetTimer = window.setTimeout(resetSearchPrintLayout, 60_000);
+}
+
+async function downloadSearchPng() {
+  if (!canExportSearch.value || searchBusy.value || pngBusy.value) return;
+  pngBusy.value = true;
+  try {
+    await searchMapRef.value?.exportPng(`${buildSearchExportBaseName()}.png`);
+  } catch (err: any) {
+    searchMessage.value = err?.message ?? "Falha ao exportar PNG.";
+  } finally {
+    pngBusy.value = false;
+  }
+}
+
+function handleAfterPrint() {
+  resetSearchPrintLayout();
+}
+
 onMounted(() => {
   const farmId = route.query.farmId as string | undefined;
   if (farmId) {
@@ -717,6 +997,16 @@ onMounted(() => {
   if (carKey) {
     analysisForm.carKey = maskCarKey(carKey);
   }
+  if (typeof window !== "undefined") {
+    window.addEventListener("afterprint", handleAfterPrint);
+  }
+});
+
+onBeforeUnmount(() => {
+  if (typeof window !== "undefined") {
+    window.removeEventListener("afterprint", handleAfterPrint);
+  }
+  resetSearchPrintLayout();
 });
 
 watch(
@@ -753,3 +1043,145 @@ watch(
   { immediate: true },
 );
 </script>
+
+<style scoped>
+.search-radius-card {
+  display: flex;
+  align-items: center;
+  gap: 0.875rem;
+  min-height: 2.75rem;
+  padding: 0.5rem 0.875rem;
+  border: 1px solid hsl(var(--border));
+  border-radius: 0.875rem;
+  background: hsl(var(--background));
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.search-radius-slider {
+  flex: 1;
+  accent-color: #16a34a;
+}
+
+.search-radius-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 4.75rem;
+  padding: 0.3rem 0.75rem;
+  border-radius: 999px;
+  background: rgba(22, 163, 74, 0.1);
+  color: #166534;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.search-print-header {
+  display: none;
+}
+
+.search-map-frame {
+  height: clamp(320px, calc(100vh - 360px), 720px);
+}
+
+:global(body.car-search-print-mode) {
+  background: #ffffff !important;
+}
+
+:global(body.car-search-print-mode .app-sidebar),
+:global(body.car-search-print-mode .app-topbar),
+:global(body.car-search-print-mode .app-drawer) {
+  display: none !important;
+}
+
+:global(body.car-search-print-mode .app-shell),
+:global(body.car-search-print-mode .app-main) {
+  display: block !important;
+  width: 100% !important;
+  height: auto !important;
+  overflow: visible !important;
+}
+
+@media print {
+  :global(body.car-search-print-mode) {
+    background: #ffffff !important;
+  }
+
+  .new-analysis-root {
+    width: 100% !important;
+    max-width: none !important;
+    min-height: 0 !important;
+    padding: 4mm !important;
+    gap: 0 !important;
+    margin: 0 !important;
+  }
+
+  .search-card {
+    display: flex;
+    flex-direction: column;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    width: 100%;
+    min-height: calc(100vh - 8mm);
+    margin: 0;
+    padding: 0;
+  }
+
+  .search-controls {
+    display: none !important;
+  }
+
+  .search-print-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 3mm;
+    margin-bottom: 2mm;
+    flex: 0 0 auto;
+  }
+
+  .search-print-brand {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+
+  .search-print-logo {
+    width: 8mm;
+    height: 8mm;
+    object-fit: contain;
+  }
+
+  .search-print-title {
+    font-size: 12pt;
+    font-weight: 700;
+    line-height: 1.15;
+    color: #0f172a;
+    white-space: nowrap;
+  }
+
+  .search-print-meta {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 1mm 3mm;
+    max-width: 105mm;
+    font-size: 8pt;
+    line-height: 1.2;
+    color: #334155;
+  }
+
+  .search-map-frame {
+    margin-top: auto !important;
+    margin-bottom: auto !important;
+    break-inside: avoid;
+  }
+
+  .search-map-frame :deep(.maplibregl-ctrl-top-left),
+  .search-map-frame :deep(.maplibregl-ctrl-top-right),
+  .search-map-frame :deep(.maplibregl-ctrl-bottom-left),
+  .search-map-frame :deep(.maplibregl-ctrl-bottom-right) {
+    display: none !important;
+  }
+}
+</style>

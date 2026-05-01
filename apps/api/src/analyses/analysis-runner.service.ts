@@ -8,10 +8,8 @@ import { Inject, Optional } from '@nestjs/common';
 import { AnalysisKind, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { LandwatchStatusService } from '../landwatch-status/landwatch-status.service';
-import { AnalysisDetailService } from './analysis-detail.service';
-import { AnalysisCacheService } from './analysis-cache.service';
-import { ANALYSIS_CACHE_VERSION } from './analysis-cache.constants';
-import { AlertsService } from '../alerts/alerts.service';
+import { AttachmentsService } from '../attachments/attachments.service';
+import { AnalysisPostprocessService } from './analysis-postprocess.service';
 
 export const NOW_PROVIDER = 'NOW_PROVIDER';
 
@@ -26,6 +24,15 @@ type IntersectionRow = {
   overlap_area_m2: string | null;
   overlap_pct_of_sicar: string | null;
 };
+
+type IntersectionsQueryStrategy =
+  | 'standard_current_area'
+  | 'standard_current_fast'
+  | 'standard_current_area_fallback'
+  | 'standard_asof_area'
+  | 'standard_asof_area_legacy'
+  | 'deter_current_area'
+  | 'deter_asof_area';
 
 function assertIdentifier(value: string, name: string): string {
   if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(value)) {
@@ -46,18 +53,18 @@ export class AnalysisRunnerService implements OnModuleInit, OnModuleDestroy {
   constructor(
     private readonly prisma: PrismaService,
     private readonly landwatchStatus: LandwatchStatusService,
-    private readonly detail: AnalysisDetailService,
-    private readonly cache: AnalysisCacheService,
-    private readonly alerts: AlertsService,
+    private readonly attachments: AttachmentsService,
+    private readonly postprocess: AnalysisPostprocessService,
     @Optional() @Inject(NOW_PROVIDER) nowProvider?: () => Date,
   ) {
-    this.nowProvider = nowProvider ?? (() => new Date());
+    this.nowProvider =
+      typeof nowProvider === 'function' ? nowProvider : () => new Date();
   }
 
   onModuleInit() {
-    void this.pollPending();
+    this.runPollPendingSafely('module_init');
     this.pollTimer = setInterval(() => {
-      void this.pollPending();
+      this.runPollPendingSafely('interval');
     }, 10_000);
   }
 
@@ -68,7 +75,33 @@ export class AnalysisRunnerService implements OnModuleInit, OnModuleDestroy {
   enqueue(analysisId: string) {
     if (!analysisId) return;
     this.queue.add(analysisId);
-    void this.processQueue();
+    this.runProcessQueueSafely('enqueue');
+  }
+
+  private runPollPendingSafely(source: 'module_init' | 'interval') {
+    void this.pollPending().catch((error) => {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(
+        JSON.stringify({
+          event: 'analysis.poll.unhandled',
+          source,
+          error: message,
+        }),
+      );
+    });
+  }
+
+  private runProcessQueueSafely(source: 'enqueue' | 'poll') {
+    void this.processQueue().catch((error) => {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(
+        JSON.stringify({
+          event: 'analysis.queue.failed',
+          source,
+          error: message,
+        }),
+      );
+    });
   }
 
   async processAnalysis(analysisId: string) {
@@ -76,7 +109,11 @@ export class AnalysisRunnerService implements OnModuleInit, OnModuleDestroy {
     try {
       const claimed = await this.prisma.analysis.updateMany({
         where: { id: analysisId, status: 'pending' },
-        data: { status: 'running' },
+        data: {
+          status: 'running',
+          attachmentsSnapshotCutoffAt: this.nowProvider(),
+          attachmentsSnapshotCapturedAt: null,
+        },
       });
       if (!claimed.count) return;
 
@@ -87,8 +124,11 @@ export class AnalysisRunnerService implements OnModuleInit, OnModuleDestroy {
           carKey: true,
           analysisDate: true,
           analysisKind: true,
+          analysisDocs: true,
           farmId: true,
           scheduleId: true,
+          orgId: true,
+          attachmentsSnapshotCutoffAt: true,
         },
       });
       if (!analysis) return;
@@ -107,7 +147,10 @@ export class AnalysisRunnerService implements OnModuleInit, OnModuleDestroy {
         } catch {
           await this.prisma.analysis.update({
             where: { id: analysisId },
-            data: { status: 'pending' },
+            data: {
+              status: 'pending',
+              attachmentsSnapshotCutoffAt: null,
+            },
           });
           this.logEvent('analysis.deferred', {
             analysisId,
@@ -117,20 +160,38 @@ export class AnalysisRunnerService implements OnModuleInit, OnModuleDestroy {
         }
       }
 
-      const intersectionsSql = this.buildIntersectionsQuery(
+      const {
+        rows: rawIntersections,
+        strategy,
+        usedFallback,
+      } = await this.executeIntersectionsQuery(
         schema,
         analysis.carKey,
         analysisDate,
         kind,
+        analysisId,
       );
-
-      const rawIntersections =
-        await this.prisma.$queryRaw<IntersectionRow[]>(intersectionsSql);
       const intersections = Array.isArray(rawIntersections)
         ? rawIntersections.filter((row) => this.shouldKeepRow(row, kind))
         : [];
+      const filteredIntersections =
+        await this.excludeApprovedJustifiedIntersections({
+          analysisId,
+          analysisDate,
+          carKey: analysis.carKey,
+          orgId: analysis.orgId ?? null,
+          cutoffAt:
+            analysis.attachmentsSnapshotCutoffAt ?? this.nowProvider(),
+          intersections,
+        });
+      this.logEvent('analysis.intersections.query', {
+        analysisId,
+        strategy,
+        usedFallback,
+        rowCount: filteredIntersections.length,
+      });
 
-      if (intersections.length === 0) {
+      if (filteredIntersections.length === 0) {
         await this.prisma.analysis.update({
           where: { id: analysisId },
           data: {
@@ -148,7 +209,8 @@ export class AnalysisRunnerService implements OnModuleInit, OnModuleDestroy {
         return;
       }
 
-      const analysisResultRows = intersections.map((row: IntersectionRow) => ({
+      const analysisResultRows = filteredIntersections.map(
+        (row: IntersectionRow) => ({
         analysisId,
         categoryCode: row.category_code,
         datasetCode: row.dataset_code,
@@ -160,7 +222,8 @@ export class AnalysisRunnerService implements OnModuleInit, OnModuleDestroy {
         featureAreaM2: row.feature_area_m2 ?? null,
         overlapAreaM2: row.overlap_area_m2 ?? null,
         overlapPctOfSicar: row.overlap_pct_of_sicar ?? null,
-      }));
+        }),
+      );
 
       const intersectionRows = analysisResultRows.filter((row) =>
         this.isIntersectionRow(
@@ -182,40 +245,48 @@ export class AnalysisRunnerService implements OnModuleInit, OnModuleDestroy {
       const intersectionCount = intersectionRows.length;
       const hasIntersections = intersectionCount > 0;
 
+      const completedAt = this.nowProvider();
+      const capturedAt = this.nowProvider();
       await this.prisma.$transaction(async (tx) => {
         await tx.analysisResult.deleteMany({ where: { analysisId } });
         await tx.analysisResult.createMany({ data: analysisResultRows });
+        await this.attachments.captureEffectiveSnapshotForAnalysisTx(
+          tx as Prisma.TransactionClient,
+          {
+            analysisId,
+            carKey: analysis.carKey,
+            orgId: analysis.orgId ?? null,
+            analysisDate:
+              analysis.analysisDate?.toISOString().slice(0, 10) ??
+              this.nowProvider().toISOString().slice(0, 10),
+            cutoffAt:
+              analysis.attachmentsSnapshotCutoffAt ?? this.nowProvider(),
+            capturedAt,
+          },
+        );
         await tx.analysis.update({
           where: { id: analysisId },
           data: {
             status: 'completed',
-            completedAt: this.nowProvider(),
+            completedAt,
+            attachmentsSnapshotCapturedAt: capturedAt,
             hasIntersections,
             intersectionCount,
           },
         });
       });
-      if (analysis.scheduleId && analysis.farmId) {
-        try {
-          await this.alerts.createAlertForNovelIntersections({
-            analysisId,
-            farmId: analysis.farmId,
-            scheduleId: analysis.scheduleId,
-            analysisKind: kind,
-          });
-        } catch (error) {
-          const message =
-            error instanceof Error ? error.message : String(error);
-          this.logger.warn(
-            JSON.stringify({
-              event: 'analysis.alert.failed',
-              analysisId,
-              error: message,
-            }),
-          );
-        }
-      }
-      await this.writeCache(analysisId);
+      const cnpjDocs = Array.from(
+        new Set(
+          this.extractCnpjDocs(analysis.analysisKind, analysis.analysisDocs),
+        ),
+      );
+      await this.postprocess.enqueueAnalysisCompletionJobs({
+        analysisId,
+        analysisKind: kind,
+        farmId: analysis.farmId ?? null,
+        scheduleId: analysis.scheduleId ?? null,
+        cnpjDocs,
+      });
       this.logEvent('analysis.completed', {
         analysisId,
         intersectionCount,
@@ -227,7 +298,8 @@ export class AnalysisRunnerService implements OnModuleInit, OnModuleDestroy {
         where: { id: analysisId },
         data: {
           status: 'failed',
-          completedAt: this.nowProvider(),
+          completedAt: null,
+          attachmentsSnapshotCapturedAt: null,
         },
       });
       this.logEvent('analysis.failed', {
@@ -248,7 +320,7 @@ export class AnalysisRunnerService implements OnModuleInit, OnModuleDestroy {
         take: 20,
       });
       pending.forEach((row) => this.queue.add(row.id));
-      void this.processQueue();
+      this.runProcessQueueSafely('poll');
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.logger.warn(
@@ -282,6 +354,32 @@ export class AnalysisRunnerService implements OnModuleInit, OnModuleDestroy {
     return assertIdentifier(schema, 'LANDWATCH_SCHEMA');
   }
 
+  private isStandardCurrentFastIntersectionsEnabled(): boolean {
+    const raw =
+      process.env.ANALYSIS_STANDARD_CURRENT_USE_FAST_INTERSECTIONS?.trim().toLowerCase();
+    if (!raw) return false;
+    return ['true', '1', 'yes', 'on'].includes(raw);
+  }
+
+  private isStandardAsofLegacyAreaEnabled(): boolean {
+    const raw =
+      process.env.ANALYSIS_STANDARD_ASOF_USE_LEGACY_AREA?.trim().toLowerCase();
+    if (!raw) return false;
+    return ['true', '1', 'yes', 'on'].includes(raw);
+  }
+
+  private buildStandardAsofAreaQuery(
+    schema: string,
+    carKey: string,
+    analysisDate: string,
+  ) {
+    const functionName = this.isStandardAsofLegacyAreaEnabled()
+      ? 'fn_intersections_asof_area_legacy'
+      : 'fn_intersections_asof_area';
+    const fn = Prisma.raw(`"${schema}"."${functionName}"`);
+    return Prisma.sql`SELECT * FROM ${fn}(${carKey}, ${analysisDate}::date)`;
+  }
+
   private buildIntersectionsQuery(
     schema: string,
     carKey: string,
@@ -294,12 +392,133 @@ export class AnalysisRunnerService implements OnModuleInit, OnModuleDestroy {
       }
       return this.buildDeterCurrentQuery(schema, carKey);
     }
-    if (analysisDate) {
-      const fn = Prisma.raw(`"${schema}"."fn_intersections_asof_area"`);
-      return Prisma.sql`SELECT * FROM ${fn}(${carKey}, ${analysisDate}::date)`;
+    if (
+      analysisDate &&
+      this.isCurrentAnalysisDate(analysisDate) &&
+      this.isStandardCurrentFastIntersectionsEnabled()
+    ) {
+      return this.buildStandardCurrentFastQuery(schema, carKey);
+    }
+    if (analysisDate && !this.isCurrentAnalysisDate(analysisDate)) {
+      return this.buildStandardAsofAreaQuery(schema, carKey, analysisDate);
     }
     const fn = Prisma.raw(`"${schema}"."fn_intersections_current_area"`);
     return Prisma.sql`SELECT * FROM ${fn}(${carKey})`;
+  }
+
+  private buildStandardCurrentFastQuery(schema: string, carKey: string) {
+    const fn = Prisma.raw(`"${schema}"."fn_intersections_current_simple"`);
+    return Prisma.sql`
+      WITH intersections AS (
+        SELECT * FROM ${fn}(${carKey})
+      )
+      SELECT
+        i.category_code,
+        i.dataset_code,
+        i.snapshot_date,
+        i.feature_id,
+        i.geom_id,
+        CASE
+          WHEN UPPER(i.category_code) = 'SICAR'
+          THEN ST_Area(i.geom::geography)
+          ELSE NULL::numeric
+        END AS sicar_area_m2,
+        NULL::numeric AS feature_area_m2,
+        NULL::numeric AS overlap_area_m2,
+        NULL::numeric AS overlap_pct_of_sicar
+      FROM intersections i
+      ORDER BY i.dataset_code, i.feature_id
+    `;
+  }
+
+  private buildAreaFallbackQuery(
+    schema: string,
+    carKey: string,
+    analysisDate?: string,
+  ) {
+    if (analysisDate && !this.isCurrentAnalysisDate(analysisDate)) {
+      return this.buildStandardAsofAreaQuery(schema, carKey, analysisDate);
+    }
+    const fn = Prisma.raw(`"${schema}"."fn_intersections_current_area"`);
+    return Prisma.sql`SELECT * FROM ${fn}(${carKey})`;
+  }
+
+  private getIntersectionsStrategy(
+    analysisDate: string | undefined,
+    kind: AnalysisKind,
+  ): IntersectionsQueryStrategy {
+    if (kind === AnalysisKind.DETER) {
+      return analysisDate && !this.isCurrentAnalysisDate(analysisDate)
+        ? 'deter_asof_area'
+        : 'deter_current_area';
+    }
+    if (analysisDate && !this.isCurrentAnalysisDate(analysisDate)) {
+      return this.isStandardAsofLegacyAreaEnabled()
+        ? 'standard_asof_area_legacy'
+        : 'standard_asof_area';
+    }
+    if (!analysisDate) {
+      return 'standard_current_area';
+    }
+    return this.isStandardCurrentFastIntersectionsEnabled()
+      ? 'standard_current_fast'
+      : 'standard_current_area';
+  }
+
+  private async executeIntersectionsQuery(
+    schema: string,
+    carKey: string,
+    analysisDate: string | undefined,
+    kind: AnalysisKind,
+    analysisId: string,
+  ): Promise<{
+    rows: IntersectionRow[];
+    strategy: IntersectionsQueryStrategy;
+    usedFallback: boolean;
+  }> {
+    const strategy = this.getIntersectionsStrategy(analysisDate, kind);
+    const queryStartedAt = process.hrtime.bigint();
+    try {
+      const rows = await this.prisma.$queryRaw<IntersectionRow[]>(
+        this.buildIntersectionsQuery(schema, carKey, analysisDate, kind),
+      );
+      this.logEvent('analysis.intersections.query.raw', {
+        analysisId,
+        strategy,
+        durationMs: this.elapsedMs(queryStartedAt),
+        rowCount: Array.isArray(rows) ? rows.length : 0,
+      });
+      return { rows, strategy, usedFallback: false };
+    } catch (error) {
+      if (strategy !== 'standard_current_fast') {
+        throw error;
+      }
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.warn(
+        JSON.stringify({
+          event: 'analysis.intersections.fast_path.failed',
+          analysisId,
+          strategy,
+          durationMs: this.elapsedMs(queryStartedAt),
+          error: message,
+        }),
+      );
+      const fallbackStartedAt = process.hrtime.bigint();
+      const rows = await this.prisma.$queryRaw<IntersectionRow[]>(
+        this.buildAreaFallbackQuery(schema, carKey, analysisDate),
+      );
+      this.logEvent('analysis.intersections.query.raw', {
+        analysisId,
+        strategy: 'standard_current_area_fallback',
+        durationMs: this.elapsedMs(fallbackStartedAt),
+        rowCount: Array.isArray(rows) ? rows.length : 0,
+      });
+      return {
+        rows,
+        strategy: 'standard_current_area_fallback',
+        usedFallback: true,
+      };
+    }
   }
 
   private buildDeterCurrentQuery(schema: string, carKey: string) {
@@ -445,27 +664,27 @@ export class AnalysisRunnerService implements OnModuleInit, OnModuleDestroy {
     return analysisDate === today;
   }
 
-  private async writeCache(analysisId: string) {
-    try {
-      const detail = await this.detail.getById(analysisId);
-      const map = await this.detail.getMapById(analysisId, 0.0001);
-      const geojson = await this.detail.getGeoJsonById(analysisId, 0.0001);
-      await this.cache.set(analysisId, {
-        cacheVersion: ANALYSIS_CACHE_VERSION,
-        detail,
-        map: { tolerance: 0.0001, rows: map },
-        geojson: { tolerance: 0.0001, collection: geojson },
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      this.logger.warn(
-        JSON.stringify({
-          event: 'analysis.cache.failed',
-          analysisId,
-          error: message,
-        }),
-      );
+  private extractCnpjDocs(
+    kind: AnalysisKind,
+    analysisDocs: Prisma.JsonValue | null,
+  ) {
+    if (kind !== AnalysisKind.STANDARD || !Array.isArray(analysisDocs)) {
+      return [] as string[];
     }
+    return analysisDocs
+      .map((entry) => {
+        if (!entry || typeof entry !== 'object') return null;
+        const record = entry as Record<string, unknown>;
+        const docType =
+          typeof record.docType === 'string' ? record.docType : null;
+        const docNormalized =
+          typeof record.docNormalized === 'string'
+            ? record.docNormalized.trim()
+            : null;
+        if (docType !== 'CNPJ' || !docNormalized) return null;
+        return docNormalized;
+      })
+      .filter((value): value is string => Boolean(value));
   }
 
   private normalizeFeatureId(
@@ -476,6 +695,70 @@ export class AnalysisRunnerService implements OnModuleInit, OnModuleDestroy {
     if (typeof value === 'number') return BigInt(value);
     if (typeof value === 'string' && value.length > 0) return BigInt(value);
     return null;
+  }
+
+  private async excludeApprovedJustifiedIntersections(input: {
+    analysisId: string;
+    analysisDate: string | undefined;
+    carKey: string;
+    orgId: string | null;
+    cutoffAt: Date;
+    intersections: IntersectionRow[];
+  }) {
+    if (!input.intersections.length) {
+      return input.intersections;
+    }
+
+    const effectiveAnalysisDate =
+      input.analysisDate ?? this.nowProvider().toISOString().slice(0, 10);
+
+    try {
+      const justifiedKeys =
+        await this.attachments.findApprovedJustifiedIntersectionKeys({
+          analysisDate: effectiveAnalysisDate,
+          carKey: input.carKey,
+          orgId: input.orgId,
+          cutoffAt: input.cutoffAt,
+          intersections: input.intersections.map((row) => ({
+            categoryCode: row.category_code,
+            datasetCode: row.dataset_code,
+            featureId: this.normalizeFeatureId(row.feature_id),
+          })),
+        });
+      if (!justifiedKeys.size) {
+        return input.intersections;
+      }
+
+      const filtered = input.intersections.filter((row) => {
+        if (this.isBaseSicarIntersection(row)) {
+          return true;
+        }
+        const featureId = this.normalizeFeatureId(row.feature_id);
+        if (featureId === null) {
+          return true;
+        }
+        return !justifiedKeys.has(`${row.dataset_code}:${featureId.toString()}`);
+      });
+
+      this.logEvent('analysis.intersections.justification_filter', {
+        analysisId: input.analysisId,
+        analysisDate: effectiveAnalysisDate,
+        excludedCount: input.intersections.length - filtered.length,
+        remainingCount: filtered.length,
+      });
+      return filtered;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.warn(
+        JSON.stringify({
+          event: 'analysis.intersections.justification_lookup.failed',
+          analysisId: input.analysisId,
+          analysisDate: effectiveAnalysisDate,
+          error: message,
+        }),
+      );
+      return input.intersections;
+    }
   }
 
   private logEvent(event: string, payload: Record<string, unknown>) {

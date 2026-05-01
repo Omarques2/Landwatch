@@ -6,12 +6,102 @@ function makePrismaMock() {
     analysis: {
       findUnique: jest.fn(),
     },
+    analysisAttachmentEffective: {
+      findMany: jest.fn().mockResolvedValue([]),
+    },
     $queryRaw: jest.fn(),
   };
 }
 
 describe('AnalysisDetailService', () => {
   const now = new Date('2026-02-01T00:00:00Z');
+
+  it('applies justification coverage to dataset groups with full and partial states', () => {
+    const prisma = makePrismaMock();
+    const docInfo = { buildDocInfo: jest.fn() };
+    const service = new AnalysisDetailService(
+      prisma as any,
+      docInfo as any,
+      () => now,
+    );
+
+    const groups = [
+      {
+        title: 'Ambiental',
+        items: [
+          { datasetCode: 'PRODES_CERRADO_NB_2021', hit: true },
+          { datasetCode: 'UCS_AREA_DE_PROTECAO_AMBIENTAL', hit: true },
+          { datasetCode: 'INDIGENAS_DECLARADA', hit: true },
+          { datasetCode: 'LDI_SEMAS', hit: true },
+          { datasetCode: 'PRODES_CERRADO_NB_2024', hit: false },
+        ],
+      },
+    ];
+    const coverage = new Map([
+      [
+        'PRODES_CERRADO_NB_2021',
+        { totalHits: 3, justifiedHits: 1, justificationStatus: 'partial' },
+      ],
+      [
+        'UCS_AREA_DE_PROTECAO_AMBIENTAL',
+        { totalHits: 1, justifiedHits: 1, justificationStatus: 'full' },
+      ],
+      [
+        'INDIGENAS_DECLARADA',
+        { totalHits: 2, justifiedHits: 0, justificationStatus: 'none' },
+      ],
+      ['LDI_SEMAS', { totalHits: 4, justifiedHits: 4, justificationStatus: 'full' }],
+    ]);
+
+    const result = (service as any).applyJustificationCoverage(groups, coverage);
+    const items = result[0].items;
+
+    expect(items[0]).toEqual(
+      expect.objectContaining({
+        datasetCode: 'PRODES_CERRADO_NB_2021',
+        hasJustification: false,
+        justificationStatus: 'partial',
+        totalHits: 3,
+        justifiedHits: 1,
+      }),
+    );
+    expect(items[1]).toEqual(
+      expect.objectContaining({
+        datasetCode: 'UCS_AREA_DE_PROTECAO_AMBIENTAL',
+        hasJustification: true,
+        justificationStatus: 'full',
+        totalHits: 1,
+        justifiedHits: 1,
+      }),
+    );
+    expect(items[2]).toEqual(
+      expect.objectContaining({
+        datasetCode: 'INDIGENAS_DECLARADA',
+        hasJustification: false,
+        justificationStatus: 'none',
+        totalHits: 2,
+        justifiedHits: 0,
+      }),
+    );
+    expect(items[3]).toEqual(
+      expect.objectContaining({
+        datasetCode: 'LDI_SEMAS',
+        hasJustification: true,
+        justificationStatus: 'full',
+        totalHits: 4,
+        justifiedHits: 4,
+      }),
+    );
+    expect(items[4]).toEqual(
+      expect.objectContaining({
+        datasetCode: 'PRODES_CERRADO_NB_2024',
+        hasJustification: false,
+        justificationStatus: 'none',
+        totalHits: 0,
+        justifiedHits: 0,
+      }),
+    );
+  });
 
   it('builds doc infos for multiple documents', async () => {
     const prisma = makePrismaMock();
@@ -67,14 +157,17 @@ describe('AnalysisDetailService', () => {
       id: 'analysis-1',
       carKey: 'CAR-1',
       analysisDate: new Date('2026-01-31'),
+      status: 'completed',
     });
     prisma.$queryRaw.mockResolvedValueOnce([
       {
         category_code: 'BIOMAS',
         dataset_code: 'BIOMAS',
+        dataset_label: 'Biomas',
         snapshot_date: null,
         feature_id: 1,
         geom_id: 10,
+        feature_key: null,
         display_name: null,
         natural_id: null,
         geom: '{"type":"Polygon","coordinates":[[[0,0],[1,0],[1,1],[0,0]]]}',
@@ -82,9 +175,11 @@ describe('AnalysisDetailService', () => {
       {
         category_code: 'DETER',
         dataset_code: 'DETER_2024',
+        dataset_label: 'DETER 2024',
         snapshot_date: null,
         feature_id: 2,
         geom_id: 20,
+        feature_key: null,
         display_name: null,
         natural_id: null,
         geom: '{"type":"Polygon","coordinates":[[[0,0],[1,0],[1,1],[0,0]]]}',
@@ -92,9 +187,11 @@ describe('AnalysisDetailService', () => {
       {
         category_code: 'PRODES',
         dataset_code: 'PRODES_2024',
+        dataset_label: 'PRODES 2024',
         snapshot_date: null,
         feature_id: 3,
         geom_id: 30,
+        feature_key: 'feat-3',
         display_name: null,
         natural_id: null,
         geom: '{"type":"Polygon","coordinates":[[[0,0],[1,0],[1,1],[0,0]]]}',
@@ -114,9 +211,11 @@ describe('AnalysisDetailService', () => {
     expect(sqlArg?.sql ?? '').toContain('"analysis_result"');
     expect(result).toHaveLength(1);
     expect(result[0].datasetCode).toBe('PRODES_2024');
+    expect(result[0].datasetLabel).toBe('PRODES 2024');
     expect(result[0].featureId).toBe('3');
     expect(result[0].displayName).toBeNull();
     expect(result[0].naturalId).toBeNull();
+    expect(result[0].featureKey).toBe('feat-3');
   });
 
   it('keeps DETER rows in map for DETER analyses', async () => {
@@ -126,14 +225,17 @@ describe('AnalysisDetailService', () => {
       carKey: 'CAR-1',
       analysisDate: new Date('2026-01-31'),
       analysisKind: AnalysisKind.DETER,
+      status: 'completed',
     });
     prisma.$queryRaw.mockResolvedValueOnce([
       {
         category_code: 'DETER',
         dataset_code: 'DETER_AMZ_2024',
+        dataset_label: 'DETER Amazonia 2024',
         snapshot_date: null,
         feature_id: 2,
         geom_id: 20,
+        feature_key: 'deter-2',
         display_name: null,
         natural_id: null,
         geom: '{"type":"Polygon","coordinates":[[[0,0],[1,0],[1,1],[0,0]]]}',
@@ -151,25 +253,30 @@ describe('AnalysisDetailService', () => {
 
     expect(result).toHaveLength(1);
     expect(result[0].datasetCode).toBe('DETER_AMZ_2024');
+    expect(result[0].datasetLabel).toBe('DETER Amazonia 2024');
     expect(result[0].displayName).toBeNull();
     expect(result[0].naturalId).toBeNull();
+    expect(result[0].featureKey).toBe('deter-2');
   });
 
-  it('returns UCS displayName/naturalId and keeps non-UCS enrichment as null', async () => {
+  it('returns display metadata for UCS and non-UCS datasets in map rows', async () => {
     const prisma = makePrismaMock();
     prisma.analysis.findUnique.mockResolvedValue({
       id: 'analysis-1',
       carKey: 'CAR-1',
       analysisDate: new Date('2026-01-31'),
       analysisKind: AnalysisKind.STANDARD,
+      status: 'completed',
     });
     prisma.$queryRaw.mockResolvedValueOnce([
       {
         category_code: 'UCS',
         dataset_code: 'UNIDADES_CONSERVACAO',
+        dataset_label: 'Unidades de Conservacao',
         snapshot_date: null,
         feature_id: 10,
         geom_id: 101,
+        feature_key: 'uc-10',
         display_name: 'Parque Nacional Teste',
         natural_id: '1234.56.7890',
         geom: '{"type":"Polygon","coordinates":[[[0,0],[1,0],[1,1],[0,0]]]}',
@@ -177,11 +284,13 @@ describe('AnalysisDetailService', () => {
       {
         category_code: 'PRODES',
         dataset_code: 'PRODES_2024',
+        dataset_label: 'PRODES 2024',
         snapshot_date: null,
         feature_id: 20,
         geom_id: 202,
-        display_name: 'Nao Deve Sair',
-        natural_id: 'NAO-DEVE-SAIR',
+        feature_key: 'prodes-20',
+        display_name: 'Talhao PRODES',
+        natural_id: 'PRODES-20',
         geom: '{"type":"Polygon","coordinates":[[[0,0],[1,0],[1,1],[0,0]]]}',
       },
     ]);
@@ -199,6 +308,8 @@ describe('AnalysisDetailService', () => {
     expect(result[0]).toEqual(
       expect.objectContaining({
         datasetCode: 'UNIDADES_CONSERVACAO',
+        datasetLabel: 'Unidades de Conservacao',
+        featureKey: 'uc-10',
         displayName: 'Parque Nacional Teste',
         naturalId: '1234.56.7890',
       }),
@@ -206,8 +317,10 @@ describe('AnalysisDetailService', () => {
     expect(result[1]).toEqual(
       expect.objectContaining({
         datasetCode: 'PRODES_2024',
-        displayName: null,
-        naturalId: null,
+        datasetLabel: 'PRODES 2024',
+        featureKey: 'prodes-20',
+        displayName: 'Talhao PRODES',
+        naturalId: 'PRODES-20',
       }),
     );
   });
@@ -219,6 +332,7 @@ describe('AnalysisDetailService', () => {
       carKey: 'CAR-1',
       analysisDate: new Date('2026-01-31'),
       analysisKind: AnalysisKind.STANDARD,
+      status: 'completed',
     });
     prisma.$queryRaw.mockResolvedValueOnce([
       {
@@ -293,6 +407,87 @@ describe('AnalysisDetailService', () => {
     );
   });
 
+  it('treats current STANDARD rows with null area fields as intersections in geojson', async () => {
+    const prisma = makePrismaMock();
+    prisma.analysis.findUnique.mockResolvedValue({
+      id: 'analysis-1',
+      carKey: 'CAR-1',
+      analysisDate: new Date('2026-02-01'),
+      analysisKind: AnalysisKind.STANDARD,
+      status: 'completed',
+    });
+    prisma.$queryRaw.mockResolvedValueOnce([
+      {
+        analysis_result_id: 'result-2',
+        category_code: 'PRODES',
+        dataset_code: 'PRODES_AMZ_2024',
+        dataset_label: 'PRODES 2024',
+        snapshot_date: '2026-02-01',
+        feature_id: 2,
+        feature_key: null,
+        natural_id: null,
+        natural_id_key: null,
+        display_name: null,
+        display_name_key: null,
+        ucs_categoria: null,
+        sicar_area_m2: null,
+        feature_area_m2: null,
+        overlap_area_m2: null,
+        overlap_pct_of_sicar: null,
+        geom: '{"type":"Polygon","coordinates":[[[0,0],[1,0],[1,1],[0,0]]]}',
+      },
+      {
+        analysis_result_id: 'result-1',
+        category_code: 'SICAR',
+        dataset_code: 'SICAR',
+        dataset_label: 'SICAR',
+        snapshot_date: null,
+        feature_id: 1,
+        feature_key: 'CAR-1',
+        natural_id: 'CAR-1',
+        natural_id_key: 'feature_key',
+        display_name: 'CAR-1',
+        display_name_key: 'feature_key',
+        ucs_categoria: null,
+        sicar_area_m2: '1000',
+        feature_area_m2: null,
+        overlap_area_m2: null,
+        overlap_pct_of_sicar: null,
+        geom: '{"type":"Polygon","coordinates":[[[0,0],[1,0],[1,1],[0,0]]]}',
+      },
+    ]);
+
+    const docInfo = { buildDocInfo: jest.fn() };
+    const service = new AnalysisDetailService(
+      prisma as any,
+      docInfo as any,
+      () => now,
+    );
+
+    const result = await service.getGeoJsonById('analysis-1');
+
+    expect(result.properties.totals).toEqual({
+      features: 2,
+      intersections: 1,
+      datasets: 2,
+      overlapAreaM2: 0,
+    });
+    expect(result.features[0].properties).toEqual(
+      expect.objectContaining({
+        datasetCode: 'SICAR',
+        isSicar: true,
+      }),
+    );
+    expect(result.features[1].properties).toEqual(
+      expect.objectContaining({
+        datasetCode: 'PRODES_AMZ_2024',
+        featureAreaM2: null,
+        overlapAreaM2: null,
+        hasIntersection: true,
+      }),
+    );
+  });
+
   it('builds geojson query with DETER filter for DETER analyses', async () => {
     const prisma = makePrismaMock();
     prisma.analysis.findUnique.mockResolvedValue({
@@ -300,6 +495,7 @@ describe('AnalysisDetailService', () => {
       carKey: 'CAR-1',
       analysisDate: new Date('2026-01-31'),
       analysisKind: AnalysisKind.DETER,
+      status: 'completed',
     });
     prisma.$queryRaw.mockResolvedValueOnce([]);
 
@@ -753,4 +949,5 @@ describe('AnalysisDetailService', () => {
       ]),
     );
   });
+
 });

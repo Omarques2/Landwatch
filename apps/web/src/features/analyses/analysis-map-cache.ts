@@ -4,7 +4,7 @@ type CacheEntry<T> = {
 };
 
 const memoryCache = new Map<string, CacheEntry<unknown>>();
-const CACHE_PREFIX = "analysis-map:v2:";
+const CACHE_PREFIX = "analysis-map:v6:";
 const DEFAULT_TTL_MS = 24 * 60 * 60 * 1000;
 
 function storageAvailable(): boolean {
@@ -60,6 +60,36 @@ export function setAnalysisMapCache<T>(
   if (typeof window === "undefined" || !storageAvailable()) return;
   try {
     window.sessionStorage.setItem(key, JSON.stringify(entry));
+  } catch {
+    // ignore storage failures
+  }
+}
+
+export function clearAnalysisMapCache(
+  id?: string,
+  tolerance?: number,
+): void {
+  if (!id) {
+    memoryCache.clear();
+    if (typeof window === "undefined" || !storageAvailable()) return;
+    try {
+      const keys = Object.keys(window.sessionStorage);
+      for (const key of keys) {
+        if (key.startsWith(CACHE_PREFIX)) {
+          window.sessionStorage.removeItem(key);
+        }
+      }
+    } catch {
+      // ignore storage failures
+    }
+    return;
+  }
+
+  const key = `${CACHE_PREFIX}${id}:${tolerance ?? "default"}`;
+  memoryCache.delete(key);
+  if (typeof window === "undefined" || !storageAvailable()) return;
+  try {
+    window.sessionStorage.removeItem(key);
   } catch {
     // ignore storage failures
   }

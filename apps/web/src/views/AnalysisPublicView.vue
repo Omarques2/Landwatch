@@ -5,11 +5,12 @@
         <AnalysisPrintLayout
           ref="printLayoutRef"
           :analysis="analysis"
-          :map-features="mapFeatures"
+          :vector-map="vectorMap"
           :map-loading="mapLoading"
           :is-loading="isLoading"
           :analysis-public-url="analysisPublicUrl"
           :logo-src="printLogo"
+          map-auth-mode="public"
         />
       </div>
     </Teleport>
@@ -66,6 +67,26 @@
             </div>
           </div>
         </div>
+        <div class="mt-3 flex gap-2">
+          <button
+            :class="publicActionButtonClass"
+            @click="downloadPublicGeoJson"
+          >
+            Baixar GeoJSON
+          </button>
+          <button
+            :class="publicActionButtonClass"
+            @click="openAttachmentsModal"
+          >
+            Ver anexos
+          </button>
+          <button
+            :class="publicActionButtonClass"
+            @click="downloadPublicAttachmentsZip"
+          >
+            Baixar ZIP anexos
+          </button>
+        </div>
       </template>
     </header>
 
@@ -104,11 +125,13 @@
           >
             <div class="loading-spinner" aria-label="Carregando"></div>
           </div>
-          <AnalysisMap
-            v-else-if="mapFeatures.length"
+          <AnalysisVectorMap
+            v-else-if="vectorMap?.vectorSource"
             ref="analysisMapRef"
-            :features="mapFeatures"
-            :show-legend="false"
+            :vector-source="vectorMap?.vectorSource ?? null"
+            :legend-items="vectorMap?.legendItems ?? []"
+            :active-legend-code="activeLegendCode"
+            auth-mode="public"
           />
           <div
             v-else-if="analysis?.status === 'completed'"
@@ -117,27 +140,42 @@
             Nenhuma geometria disponível.
           </div>
         </div>
-        <div v-if="mapFeatures.length" class="mt-4">
+        <div v-if="vectorMap?.vectorSource" class="mt-4">
           <div class="text-sm font-semibold">Legenda</div>
-          <div class="mt-2 grid gap-2 text-xs sm:grid-cols-2">
-            <div
+          <div class="analysis-screen-legend mt-2 flex flex-wrap gap-2 text-xs">
+            <button
               v-for="item in printLegend"
               :key="item.code"
-              class="flex items-center gap-2"
-            >
+              type="button"
+              class="inline-flex max-w-full items-center gap-2 rounded-md border px-2 py-1 text-left transition-colors"
+              :class="
+                activeLegendCode === item.code
+                  ? 'border-border bg-accent text-foreground'
+                  : activeLegendCode
+                    ? 'border-border/60 bg-background text-muted-foreground'
+                    : 'border-border bg-background text-foreground hover:bg-muted'
+              "
+              @click="toggleLegendFilter(item.code)"
+              >
               <span
                 class="h-3 w-3 rounded-sm border"
-                :style="{ backgroundColor: item.color, borderColor: item.color }"
+                :style="{
+                  backgroundColor: activeLegendCode && activeLegendCode !== item.code ? '#cbd5e1' : item.color,
+                  borderColor: activeLegendCode && activeLegendCode !== item.code ? '#cbd5e1' : item.color,
+                }"
               ></span>
-              {{ item.label }}
-            </div>
+              <span class="min-w-0 whitespace-normal break-words leading-snug">{{ item.label }}</span>
+            </button>
           </div>
         </div>
       </div>
     </section>
 
     <section class="public-card">
-      <div class="text-lg font-semibold">{{ intersectionsSectionTitle }}</div>
+      <div class="flex flex-wrap items-start justify-between gap-3">
+        <div class="text-lg font-semibold">{{ intersectionsSectionTitle }}</div>
+        <AnalysisDatasetStatusLegend :groups="analysis?.datasetGroups ?? null" class="ml-auto" />
+      </div>
       <div v-if="isLoading" class="mt-4 grid gap-3">
         <div class="skeleton-line h-4 w-40 rounded-full"></div>
         <div class="intersections-grid grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
@@ -158,13 +196,14 @@
               :key="item.datasetCode"
               class="print-intersection-item flex items-start gap-3 rounded-lg border border-border px-3 py-2 text-sm"
             >
-              <span
-                class="inline-flex h-5 w-5 items-center justify-center rounded-full text-xs font-semibold"
-                :class="item.hit ? 'bg-red-500/15 text-red-600' : 'bg-emerald-500/15 text-emerald-600'"
-              >
-                {{ item.hit ? "✕" : "✓" }}
-              </span>
-              <div class="flex flex-col gap-1">
+              <AnalysisDatasetStatusIcon
+                :kind="datasetStatusKind(item)"
+                :clickable="Boolean(isDatasetJustificationClickable(item))"
+                :title="datasetStatusTitle(item)"
+                :aria-label="isDatasetJustificationClickable(item) ? 'Abrir justificativas públicas do dataset' : null"
+                @click="isDatasetJustificationClickable(item) ? openAttachmentsModal() : undefined"
+              />
+              <div class="min-w-0 flex-1">
                 <span class="font-semibold">{{ formatDatasetLabelForItem(item) }}</span>
               </div>
             </div>
@@ -172,6 +211,60 @@
         </div>
       </div>
     </section>
+
+    <div v-if="attachmentsOpen" class="fixed inset-0 z-50 bg-black/40 p-4">
+      <div class="mx-auto flex h-full max-w-3xl flex-col rounded-2xl border border-border bg-background shadow-xl">
+        <div class="flex items-center justify-between border-b border-border px-6 py-5">
+          <div class="text-lg font-semibold">Anexos públicos da análise</div>
+          <button class="rounded-lg border border-border px-3 py-1.5 text-xs font-semibold hover:bg-muted" @click="attachmentsOpen = false">
+            Fechar
+          </button>
+        </div>
+        <div class="min-h-0 flex-1 overflow-auto px-6 py-5">
+          <div v-if="attachmentsLoading" class="text-sm text-muted-foreground">Carregando anexos...</div>
+          <div v-else-if="publicAttachments.length === 0" class="rounded-2xl border border-dashed border-border px-4 py-8 text-sm text-muted-foreground">
+            Nenhum anexo público disponível.
+          </div>
+          <div v-else class="grid gap-3">
+            <div
+              v-for="attachment in publicAttachments"
+              :key="attachment.id"
+              class="rounded-2xl border border-border bg-card p-4 text-sm"
+            >
+              <div class="flex flex-wrap items-start justify-between gap-3">
+                <div class="min-w-0">
+                  <div class="truncate font-semibold">{{ attachment.originalFilename }}</div>
+                  <div class="mt-1 text-xs text-muted-foreground">{{ attachment.categoryName }}</div>
+                </div>
+                <span
+                  class="inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold"
+                  :class="attachment.isJustification ? 'border-amber-200 bg-amber-50 text-amber-700' : 'border-sky-200 bg-sky-50 text-sky-700'"
+                >
+                  {{ attachment.isJustification ? 'Justificativa' : 'Informativo' }}
+                </span>
+              </div>
+              <div class="mt-3">
+                <button
+                  class="rounded-lg border border-border px-3 py-1.5 text-xs font-semibold hover:bg-muted"
+                  @click="downloadPublicAttachment(attachment.id, attachment.originalFilename)"
+                >
+                  Baixar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="flex justify-end border-t border-border px-6 py-4">
+          <button
+            class="rounded-lg border border-border px-3 py-1.5 text-xs font-semibold hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+            :disabled="publicAttachments.length === 0"
+            @click="downloadPublicAttachmentsZip"
+          >
+            Baixar ZIP
+          </button>
+        </div>
+      </div>
+    </div>
       </template>
     </div>
   </div>
@@ -182,10 +275,19 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
 import { useRoute } from "vue-router";
 import { http } from "@/api/http";
 import { unwrapData, type ApiEnvelope } from "@/api/envelope";
-import { colorForDataset, formatDatasetLabel } from "@/features/analyses/analysis-colors";
-import { buildIndigenaLegendItems, buildLegendCodes, buildUcsLegendItems } from "@/features/analyses/analysis-legend";
-import { getAnalysisMapCache, setAnalysisMapCache } from "@/features/analyses/analysis-map-cache";
-import AnalysisMap from "@/components/maps/AnalysisMap.vue";
+import AnalysisDatasetStatusIcon from "@/components/analyses/AnalysisDatasetStatusIcon.vue";
+import AnalysisDatasetStatusLegend from "@/components/analyses/AnalysisDatasetStatusLegend.vue";
+import { formatDatasetLabel } from "@/features/analyses/analysis-colors";
+import {
+  getAnalysisDatasetCoverageSummary,
+  getAnalysisDatasetStatusKind,
+  type AnalysisJustificationStatus,
+} from "@/features/analyses/analysis-dataset-status";
+import {
+  buildAnalysisLegendEntries,
+  type AnalysisVectorMap as AnalysisVectorMapPayload,
+} from "@/features/analyses/analysis-vector-map";
+import AnalysisVectorMap from "@/components/maps/AnalysisVectorMap.vue";
 import AnalysisPrintLayout from "@/components/analyses/AnalysisPrintLayout.vue";
 import AnalysisWatermark from "@/components/analyses/AnalysisWatermark.vue";
 import printLogo from "@/assets/logo.png";
@@ -226,6 +328,10 @@ type AnalysisDetail = {
       datasetCode: string;
       hit: boolean;
       label?: string;
+      hasJustification?: boolean;
+      justificationStatus?: AnalysisJustificationStatus;
+      totalHits?: number;
+      justifiedHits?: number;
     }>;
   }>;
   docInfos?: DocInfo[];
@@ -235,24 +341,30 @@ type AnalysisDetail = {
   results: AnalysisResult[];
 };
 
-type MapFeature = {
+type PublicAttachment = {
+  id: string;
   categoryCode: string;
-  datasetCode: string;
-  featureId?: string | null;
-  displayName?: string | null;
-  naturalId?: string | null;
-  geom: any;
+  categoryName: string;
+  isJustification: boolean;
+  originalFilename: string;
+  contentType: string;
+  sizeBytes: string;
 };
 
 const route = useRoute();
 const analysis = ref<AnalysisDetail | null>(null);
-const mapFeatures = ref<MapFeature[]>([]);
+const vectorMap = ref<AnalysisVectorMapPayload | null>(null);
 const mapLoading = ref(false);
 const isLoading = ref(false);
-const analysisMapRef = ref<InstanceType<typeof AnalysisMap> | null>(null);
+const analysisMapRef = ref<InstanceType<typeof AnalysisVectorMap> | null>(null);
 const printLayoutRef = ref<InstanceType<typeof AnalysisPrintLayout> | null>(null);
 const isPrintMode = ref(false);
 const originalTitle = ref<string | null>(null);
+const attachmentsOpen = ref(false);
+const attachmentsLoading = ref(false);
+const publicAttachments = ref<PublicAttachment[]>([]);
+const activeLegendCode = ref<string | null>(null);
+const analysisId = computed(() => String(route.params.id ?? "").trim());
 
 const isPreventiveDeter = computed(
   () => analysis.value?.analysisKind === "DETER",
@@ -272,7 +384,7 @@ const intersectionsSectionTitle = computed(() =>
 
 const analysisPublicUrl = computed(() => {
   if (typeof window === "undefined") return "";
-  return window.location.href;
+  return new URL(`/analyses/${analysisId.value}/public`, window.location.origin).toString();
 });
 
 const sicarStatusOk = computed(() => {
@@ -322,30 +434,10 @@ const docBadgeOk = (info: DocInfo) => {
   return true;
 };
 
-const indigenaLegendItems = computed(() =>
-  buildIndigenaLegendItems(analysis.value?.datasetGroups ?? [], mapFeatures.value),
-);
+const printLegend = computed(() => buildAnalysisLegendEntries(vectorMap.value));
 
-const ucsLegendItems = computed(() =>
-  buildUcsLegendItems(mapFeatures.value),
-);
-
-const printLegend = computed(() => {
-  const codes = buildLegendCodes(mapFeatures.value, {
-    includeIndigena: indigenaLegendItems.value.length === 0,
-    includeUcs: ucsLegendItems.value.length === 0,
-  });
-  return [
-    { code: "SICAR", label: "CAR", color: "#ef4444" },
-    ...codes.map((code) => ({
-      code,
-      label: formatDatasetLabel(code),
-      color: colorForDataset(code),
-    })),
-    ...indigenaLegendItems.value,
-    ...ucsLegendItems.value,
-  ];
-});
+const publicActionButtonClass =
+  "rounded-md border border-border bg-white px-3 py-1 text-xs font-semibold transition-colors duration-150 hover:bg-muted hover:text-foreground active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-white";
 
 const sicarAreaHa = computed(() => {
   const results = analysis.value?.results ?? [];
@@ -407,9 +499,111 @@ function formatCnpj(value: string) {
   return `${digits.slice(0, 2)}.${digits.slice(2, 5)}.${digits.slice(5, 8)}/${digits.slice(8, 12)}-${digits.slice(12)}`;
 }
 
-function formatDatasetLabelForItem(item: { datasetCode: string; label?: string }) {
+function formatDatasetLabelForItem(item: { datasetCode: string; label?: string; hasJustification?: boolean }) {
   if (item.label) return item.label;
   return formatDatasetLabel(item.datasetCode);
+}
+
+function datasetStatusKind(item: {
+  hit: boolean;
+  hasJustification?: boolean;
+  justificationStatus?: AnalysisJustificationStatus;
+}) {
+  return getAnalysisDatasetStatusKind(item);
+}
+
+function isDatasetJustificationClickable(item: {
+  hasJustification?: boolean;
+  justificationStatus?: AnalysisJustificationStatus;
+}) {
+  return item.hasJustification || item.justificationStatus === "partial";
+}
+
+function datasetStatusTitle(item: {
+  hit: boolean;
+  hasJustification?: boolean;
+  justificationStatus?: AnalysisJustificationStatus;
+  totalHits?: number;
+  justifiedHits?: number;
+}) {
+  const summary = getAnalysisDatasetCoverageSummary(item);
+  if (isDatasetJustificationClickable(item)) {
+    return summary
+      ? `${summary}. Clique para abrir os anexos públicos da análise.`
+      : "Existe justificativa aprovada para esta interseção. Clique para abrir os anexos públicos da análise.";
+  }
+  return summary;
+}
+
+function toggleLegendFilter(code: string) {
+  activeLegendCode.value = activeLegendCode.value === code ? null : code;
+}
+
+function saveBlobAsFile(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+async function downloadPublicGeoJson() {
+  const res = await http.get<ApiEnvelope<Record<string, unknown>>>(
+    `/v1/public/analyses/${route.params.id}/geojson`,
+    {
+      headers: { "X-Skip-Auth": "1" },
+    },
+  );
+  const payload = unwrapData(res.data);
+  const blob = new Blob([JSON.stringify(payload)], {
+    type: "application/geo+json;charset=utf-8",
+  });
+  saveBlobAsFile(blob, `analysis-${route.params.id}-public.geojson`);
+}
+
+async function loadPublicAttachments() {
+  attachmentsLoading.value = true;
+  try {
+    const res = await http.get<ApiEnvelope<PublicAttachment[]>>(
+      `/v1/public/analyses/${route.params.id}/attachments`,
+      {
+        headers: { "X-Skip-Auth": "1", "X-Skip-Org": "1" },
+      },
+    );
+    publicAttachments.value = unwrapData(res.data);
+  } finally {
+    attachmentsLoading.value = false;
+  }
+}
+
+async function openAttachmentsModal() {
+  attachmentsOpen.value = true;
+  await loadPublicAttachments();
+}
+
+async function downloadPublicAttachment(attachmentId: string, filename: string) {
+  const res = await http.get(
+    `/v1/public/analyses/${route.params.id}/attachments/${attachmentId}/download`,
+    {
+      headers: { "X-Skip-Auth": "1", "X-Skip-Org": "1" },
+      responseType: "blob",
+    },
+  );
+  saveBlobAsFile(res.data as Blob, filename);
+}
+
+async function downloadPublicAttachmentsZip() {
+  const res = await http.get(
+    `/v1/public/analyses/${route.params.id}/attachments/zip`,
+    {
+      headers: { "X-Skip-Auth": "1", "X-Skip-Org": "1" },
+      responseType: "blob",
+    },
+  );
+  saveBlobAsFile(res.data as Blob, `analysis-${route.params.id}-public-attachments.zip`);
 }
 
 function fixMojibake(value: string) {
@@ -446,37 +640,26 @@ const onAfterPrint = () => {
 };
 
 async function loadAnalysis() {
-  const id = route.params.id as string;
+  const id = analysisId.value;
   isLoading.value = true;
-  try {
-    const res = await http.get<ApiEnvelope<AnalysisDetail>>(`/v1/public/analyses/${id}`, {
-      headers: { "X-Skip-Auth": "1" },
-    });
-    analysis.value = unwrapData(res.data);
-    await loadMap(id);
-  } finally {
-    isLoading.value = false;
-  }
-}
-
-async function loadMap(id: string) {
   mapLoading.value = true;
   try {
-    const cached = getAnalysisMapCache<MapFeature[]>(id, undefined);
-    if (cached && cached.length) {
-      mapFeatures.value = cached;
-      return;
-    }
-    const res = await http.get<ApiEnvelope<MapFeature[]>>(`/v1/public/analyses/${id}/map`, {
-      headers: { "X-Skip-Auth": "1" },
-    });
-    const features = unwrapData(res.data);
-    mapFeatures.value = features;
-    if (features.length) {
-      setAnalysisMapCache(id, undefined, features);
-    }
+    activeLegendCode.value = null;
+    const [detailRes, vectorMapPayload] = await Promise.all([
+      http.get<ApiEnvelope<AnalysisDetail>>(`/v1/public/analyses/${id}`, {
+        headers: { "X-Skip-Auth": "1" },
+      }),
+      http
+        .get<ApiEnvelope<AnalysisVectorMapPayload>>(`/v1/public/analyses/${id}/vector-map`, {
+          headers: { "X-Skip-Auth": "1" },
+        })
+        .then((res) => unwrapData(res.data)),
+    ]);
+    analysis.value = unwrapData(detailRes.data);
+    vectorMap.value = vectorMapPayload;
   } finally {
     mapLoading.value = false;
+    isLoading.value = false;
   }
 }
 

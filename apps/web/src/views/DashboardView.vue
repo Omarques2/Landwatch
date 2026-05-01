@@ -159,6 +159,7 @@ import { useRouter } from "vue-router";
 import { Button as UiButton, Skeleton as UiSkeleton } from "@/components/ui";
 import { http } from "@/api/http";
 import { unwrapData, type ApiEnvelope } from "@/api/envelope";
+import { normalizeApiError } from "@/ui/ops/normalizeApiError";
 
 type RecentAnalysis = {
   id: string;
@@ -223,11 +224,8 @@ async function loadSummary() {
   try {
     const res = await http.get<ApiEnvelope<DashboardSummary>>("/v1/dashboard/summary");
     summary.value = unwrapData(res.data);
-  } catch (err: any) {
-    error.value =
-      err?.response?.data?.error?.message ??
-      err?.response?.data?.message ??
-      "Falha ao carregar o dashboard.";
+  } catch (err: unknown) {
+    error.value = normalizeApiError(err).message || "Falha ao carregar o dashboard.";
   } finally {
     loading.value = false;
   }

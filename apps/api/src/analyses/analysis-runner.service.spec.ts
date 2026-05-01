@@ -1,6 +1,5 @@
 import { Logger } from '@nestjs/common';
 import { AnalysisKind } from '@prisma/client';
-import { ANALYSIS_CACHE_VERSION } from './analysis-cache.constants';
 import { AnalysisRunnerService } from './analysis-runner.service';
 
 function makePrismaMock() {
@@ -13,14 +12,21 @@ function makePrismaMock() {
     deleteMany: jest.fn(),
     createMany: jest.fn(),
   };
+  const analysisAttachmentEffective = {
+    deleteMany: jest.fn(),
+    createMany: jest.fn(),
+  };
   return {
     analysis,
     analysisResult,
+    analysisAttachmentEffective,
     $queryRaw: jest.fn(),
     $transaction: jest.fn(async (fn: any) =>
       fn({
         analysis,
         analysisResult,
+        analysisAttachmentEffective,
+        $queryRaw: jest.fn().mockResolvedValue([]),
       }),
     ),
   };
@@ -28,6 +34,12 @@ function makePrismaMock() {
 
 describe('AnalysisRunnerService', () => {
   const now = new Date('2026-02-01T00:00:00Z');
+
+  afterEach(() => {
+    delete process.env.ANALYSIS_STANDARD_CURRENT_USE_FAST_INTERSECTIONS;
+    delete process.env.ANALYSIS_STANDARD_ASOF_USE_LEGACY_AREA;
+    jest.restoreAllMocks();
+  });
 
   function extractSqlText(query: any): string {
     if (!query) return '';
@@ -43,18 +55,14 @@ describe('AnalysisRunnerService', () => {
       landwatchStatus: {
         assertNotRefreshing: jest.fn().mockResolvedValue(undefined),
       },
-      detail: {
-        getById: jest.fn().mockResolvedValue({ id: 'analysis-1' }),
-        getMapById: jest.fn().mockResolvedValue([]),
-        getGeoJsonById: jest
+      attachments: {
+        captureEffectiveSnapshotForAnalysisTx: jest.fn().mockResolvedValue(0),
+        findApprovedJustifiedIntersectionKeys: jest
           .fn()
-          .mockResolvedValue({ type: 'FeatureCollection', features: [] }),
+          .mockResolvedValue(new Set()),
       },
-      cache: {
-        set: jest.fn(),
-      },
-      alerts: {
-        createAlertForNovelIntersections: jest.fn(),
+      postprocess: {
+        enqueueAnalysisCompletionJobs: jest.fn().mockResolvedValue(undefined),
       },
     };
   }
@@ -75,9 +83,8 @@ describe('AnalysisRunnerService', () => {
     const runner = new AnalysisRunnerService(
       prisma as any,
       deps.landwatchStatus as any,
-      deps.detail as any,
-      deps.cache as any,
-      deps.alerts as any,
+      deps.attachments as any,
+      deps.postprocess as any,
       () => now,
     );
 
@@ -130,9 +137,8 @@ describe('AnalysisRunnerService', () => {
     const runner = new AnalysisRunnerService(
       prisma as any,
       deps.landwatchStatus as any,
-      deps.detail as any,
-      deps.cache as any,
-      deps.alerts as any,
+      deps.attachments as any,
+      deps.postprocess as any,
       () => now,
     );
 
@@ -159,9 +165,22 @@ describe('AnalysisRunnerService', () => {
         where: { id: 'analysis-1' },
         data: expect.objectContaining({
           status: 'completed',
+          attachmentsSnapshotCapturedAt: now,
           hasIntersections: true,
           intersectionCount: 1,
         }),
+      }),
+    );
+    expect(deps.attachments.captureEffectiveSnapshotForAnalysisTx).toHaveBeenCalledWith(
+      expect.objectContaining({
+        analysisResult: prisma.analysisResult,
+        analysisAttachmentEffective: prisma.analysisAttachmentEffective,
+      }),
+      expect.objectContaining({
+        analysisId: 'analysis-1',
+        analysisDate: '2026-01-31',
+        cutoffAt: now,
+        capturedAt: now,
       }),
     );
   });
@@ -174,9 +193,8 @@ describe('AnalysisRunnerService', () => {
     const runner = new AnalysisRunnerService(
       prisma as any,
       deps.landwatchStatus as any,
-      deps.detail as any,
-      deps.cache as any,
-      deps.alerts as any,
+      deps.attachments as any,
+      deps.postprocess as any,
       () => now,
     );
 
@@ -204,9 +222,8 @@ describe('AnalysisRunnerService', () => {
     const runner = new AnalysisRunnerService(
       prisma as any,
       deps.landwatchStatus as any,
-      deps.detail as any,
-      deps.cache as any,
-      deps.alerts as any,
+      deps.attachments as any,
+      deps.postprocess as any,
       () => now,
     );
 
@@ -221,7 +238,57 @@ describe('AnalysisRunnerService', () => {
     );
   });
 
-  it('writes cache payload after completion', async () => {
+  it('swallows queue failures triggered from enqueue', async () => {
+    const prisma = makePrismaMock();
+    const deps = makeDeps();
+    const runner = new AnalysisRunnerService(
+      prisma as any,
+      deps.landwatchStatus as any,
+      deps.attachments as any,
+      deps.postprocess as any,
+      () => now,
+    );
+    const loggerSpy = jest
+      .spyOn((runner as any).logger, 'error')
+      .mockImplementation(() => undefined);
+    jest
+      .spyOn(runner as any, 'processQueue')
+      .mockRejectedValue(new Error('db timeout'));
+
+    runner.enqueue('analysis-1');
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(loggerSpy).toHaveBeenCalledWith(
+      expect.stringContaining('"event":"analysis.queue.failed"'),
+    );
+  });
+
+  it('swallows unexpected poll failures from the scheduler wrapper', async () => {
+    const prisma = makePrismaMock();
+    const deps = makeDeps();
+    const runner = new AnalysisRunnerService(
+      prisma as any,
+      deps.landwatchStatus as any,
+      deps.attachments as any,
+      deps.postprocess as any,
+      () => now,
+    );
+    const loggerSpy = jest
+      .spyOn((runner as any).logger, 'error')
+      .mockImplementation(() => undefined);
+    jest
+      .spyOn(runner as any, 'pollPending')
+      .mockRejectedValue(new Error('unexpected'));
+
+    await (runner as any).runPollPendingSafely('interval');
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(loggerSpy).toHaveBeenCalledWith(
+      expect.stringContaining('"event":"analysis.poll.unhandled"'),
+    );
+  });
+
+  it('enqueues postprocess jobs after completion', async () => {
     const prisma = makePrismaMock();
     prisma.analysis.updateMany.mockResolvedValue({ count: 1 });
     prisma.analysis.findUnique.mockResolvedValue({
@@ -249,23 +316,250 @@ describe('AnalysisRunnerService', () => {
     const runner = new AnalysisRunnerService(
       prisma as any,
       deps.landwatchStatus as any,
-      deps.detail as any,
-      deps.cache as any,
-      deps.alerts as any,
+      deps.attachments as any,
+      deps.postprocess as any,
       () => now,
     );
 
     await runner.processAnalysis('analysis-1');
 
-    expect(deps.cache.set).toHaveBeenCalledWith(
-      'analysis-1',
+    expect(deps.postprocess.enqueueAnalysisCompletionJobs).toHaveBeenCalledWith(
       expect.objectContaining({
-        cacheVersion: ANALYSIS_CACHE_VERSION,
-        detail: { id: 'analysis-1' },
-        map: expect.any(Object),
-        geojson: expect.any(Object),
+        analysisId: 'analysis-1',
+        analysisKind: AnalysisKind.STANDARD,
       }),
     );
+  });
+
+  it('falls back to current area query when fast standard-current query fails', async () => {
+    process.env.ANALYSIS_STANDARD_CURRENT_USE_FAST_INTERSECTIONS = 'true';
+    const prisma = makePrismaMock();
+    prisma.analysis.updateMany.mockResolvedValue({ count: 1 });
+    prisma.analysis.findUnique.mockResolvedValue({
+      id: 'analysis-1',
+      carKey: 'CAR-1',
+      analysisDate: new Date('2026-02-01'),
+      analysisKind: AnalysisKind.STANDARD,
+    });
+    prisma.$queryRaw
+      .mockRejectedValueOnce(new Error('fast path failed'))
+      .mockResolvedValueOnce([
+        {
+          category_code: 'SICAR',
+          dataset_code: 'SICAR',
+          snapshot_date: null,
+          feature_id: 1n,
+          geom_id: 101n,
+          sicar_area_m2: '100',
+          feature_area_m2: null,
+          overlap_area_m2: null,
+          overlap_pct_of_sicar: null,
+        },
+        {
+          category_code: 'PRODES',
+          dataset_code: 'PRODES_AMZ_2024',
+          snapshot_date: '2026-02-01',
+          feature_id: 2n,
+          geom_id: 202n,
+          sicar_area_m2: '100',
+          feature_area_m2: '20',
+          overlap_area_m2: '5',
+          overlap_pct_of_sicar: '5',
+        },
+      ]);
+    const deps = makeDeps();
+
+    const runner = new AnalysisRunnerService(
+      prisma as any,
+      deps.landwatchStatus as any,
+      deps.attachments as any,
+      deps.postprocess as any,
+      () => now,
+    );
+
+    await runner.processAnalysis('analysis-1');
+
+    expect(prisma.$queryRaw).toHaveBeenCalledTimes(2);
+    const firstSql = extractSqlText(prisma.$queryRaw.mock.calls[0][0]);
+    const secondSql = extractSqlText(prisma.$queryRaw.mock.calls[1][0]);
+    expect(firstSql).toContain('"fn_intersections_current_simple"');
+    expect(secondSql).toContain('"fn_intersections_current_area"');
+    expect(prisma.analysis.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'analysis-1' },
+        data: expect.objectContaining({
+          status: 'completed',
+          attachmentsSnapshotCapturedAt: now,
+          hasIntersections: true,
+          intersectionCount: 1,
+        }),
+      }),
+    );
+    expect(deps.attachments.captureEffectiveSnapshotForAnalysisTx).toHaveBeenCalledWith(
+      expect.objectContaining({
+        analysisResult: prisma.analysisResult,
+        analysisAttachmentEffective: prisma.analysisAttachmentEffective,
+      }),
+      expect.objectContaining({
+        analysisId: 'analysis-1',
+        analysisDate: '2026-02-01',
+        cutoffAt: now,
+        capturedAt: now,
+      }),
+    );
+  });
+
+  it('excludes intersections covered by approved justifications before persisting results', async () => {
+    const prisma = makePrismaMock();
+    prisma.analysis.updateMany.mockResolvedValue({ count: 1 });
+    prisma.analysis.findUnique.mockResolvedValue({
+      id: 'analysis-1',
+      carKey: 'CAR-1',
+      orgId: 'org-1',
+      analysisDate: new Date('2026-01-31'),
+      analysisKind: AnalysisKind.STANDARD,
+    });
+    prisma.$queryRaw.mockResolvedValueOnce([
+      {
+        category_code: 'SICAR',
+        dataset_code: 'SICAR',
+        snapshot_date: null,
+        feature_id: 1n,
+        geom_id: 101n,
+        sicar_area_m2: '100',
+        feature_area_m2: null,
+        overlap_area_m2: null,
+        overlap_pct_of_sicar: null,
+      },
+      {
+        category_code: 'PRODES',
+        dataset_code: 'PRODES_CERRADO_NB_2021',
+        snapshot_date: '2026-01-31',
+        feature_id: 7426006n,
+        geom_id: 202n,
+        sicar_area_m2: '100',
+        feature_area_m2: '20',
+        overlap_area_m2: '5',
+        overlap_pct_of_sicar: '5',
+      },
+      {
+        category_code: 'UCS',
+        dataset_code: 'UNIDADES_CONSERVACAO',
+        snapshot_date: '2026-01-31',
+        feature_id: 10n,
+        geom_id: 303n,
+        sicar_area_m2: '100',
+        feature_area_m2: '20',
+        overlap_area_m2: '5',
+        overlap_pct_of_sicar: '5',
+      },
+    ]);
+    const deps = makeDeps();
+    deps.attachments.findApprovedJustifiedIntersectionKeys.mockResolvedValue(
+      new Set(['PRODES_CERRADO_NB_2021:7426006']),
+    );
+
+    const runner = new AnalysisRunnerService(
+      prisma as any,
+      deps.landwatchStatus as any,
+      deps.attachments as any,
+      deps.postprocess as any,
+      () => now,
+    );
+
+    await runner.processAnalysis('analysis-1');
+
+    expect(
+      deps.attachments.findApprovedJustifiedIntersectionKeys,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        analysisDate: '2026-01-31',
+        carKey: 'CAR-1',
+        orgId: 'org-1',
+        cutoffAt: now,
+      }),
+    );
+    expect(prisma.analysisResult.createMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.not.arrayContaining([
+          expect.objectContaining({
+            datasetCode: 'PRODES_CERRADO_NB_2021',
+            featureId: 7426006n,
+          }),
+        ]),
+      }),
+    );
+    expect(prisma.analysisResult.createMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.arrayContaining([
+          expect.objectContaining({ datasetCode: 'SICAR' }),
+          expect.objectContaining({ datasetCode: 'UNIDADES_CONSERVACAO' }),
+        ]),
+      }),
+    );
+    expect(prisma.analysis.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'analysis-1' },
+        data: expect.objectContaining({
+          status: 'completed',
+          attachmentsSnapshotCapturedAt: now,
+          hasIntersections: true,
+          intersectionCount: 1,
+        }),
+      }),
+    );
+  });
+
+  it('marks analysis failed without completedAt when attachment snapshot capture fails', async () => {
+    const prisma = makePrismaMock();
+    prisma.analysis.updateMany.mockResolvedValue({ count: 1 });
+    prisma.analysis.findUnique.mockResolvedValue({
+      id: 'analysis-1',
+      carKey: 'CAR-1',
+      orgId: 'org-1',
+      analysisDate: new Date('2026-01-31'),
+      analysisKind: AnalysisKind.STANDARD,
+      attachmentsSnapshotCutoffAt: now,
+    });
+    prisma.$queryRaw.mockResolvedValueOnce([
+      {
+        category_code: 'SICAR',
+        dataset_code: 'SICAR',
+        snapshot_date: null,
+        feature_id: 1n,
+        geom_id: 101n,
+        sicar_area_m2: '100',
+        feature_area_m2: null,
+        overlap_area_m2: null,
+        overlap_pct_of_sicar: null,
+      },
+    ]);
+    const deps = makeDeps();
+    deps.attachments.captureEffectiveSnapshotForAnalysisTx.mockRejectedValue(
+      new Error('snapshot failed'),
+    );
+
+    const runner = new AnalysisRunnerService(
+      prisma as any,
+      deps.landwatchStatus as any,
+      deps.attachments as any,
+      deps.postprocess as any,
+      () => now,
+    );
+
+    await runner.processAnalysis('analysis-1');
+
+    expect(prisma.analysis.update).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        where: { id: 'analysis-1' },
+        data: expect.objectContaining({
+          status: 'failed',
+          completedAt: null,
+          attachmentsSnapshotCapturedAt: null,
+        }),
+      }),
+    );
+    expect(deps.postprocess.enqueueAnalysisCompletionJobs).not.toHaveBeenCalled();
   });
 
   it('logs a structured completion event', async () => {
@@ -308,9 +602,8 @@ describe('AnalysisRunnerService', () => {
     const runner = new AnalysisRunnerService(
       prisma as any,
       deps.landwatchStatus as any,
-      deps.detail as any,
-      deps.cache as any,
-      deps.alerts as any,
+      deps.attachments as any,
+      deps.postprocess as any,
       () => now,
     );
 
@@ -335,7 +628,7 @@ describe('AnalysisRunnerService', () => {
     logSpy.mockRestore();
   });
 
-  it('keeps DETER intersections for DETER analyses and creates novelty alert', async () => {
+  it('keeps DETER intersections for DETER analyses and enqueues postprocess follow-up', async () => {
     const prisma = makePrismaMock();
     prisma.analysis.updateMany.mockResolvedValue({ count: 1 });
     prisma.analysis.findUnique.mockResolvedValue({
@@ -386,9 +679,8 @@ describe('AnalysisRunnerService', () => {
     const runner = new AnalysisRunnerService(
       prisma as any,
       deps.landwatchStatus as any,
-      deps.detail as any,
-      deps.cache as any,
-      deps.alerts as any,
+      deps.attachments as any,
+      deps.postprocess as any,
       () => now,
     );
 
@@ -412,7 +704,7 @@ describe('AnalysisRunnerService', () => {
         }),
       }),
     );
-    expect(deps.alerts.createAlertForNovelIntersections).toHaveBeenCalledWith(
+    expect(deps.postprocess.enqueueAnalysisCompletionJobs).toHaveBeenCalledWith(
       expect.objectContaining({
         analysisId: 'analysis-1',
         analysisKind: AnalysisKind.DETER,
@@ -428,9 +720,8 @@ describe('AnalysisRunnerService', () => {
     const runner = new AnalysisRunnerService(
       prisma as any,
       deps.landwatchStatus as any,
-      deps.detail as any,
-      deps.cache as any,
-      deps.alerts as any,
+      deps.attachments as any,
+      deps.postprocess as any,
       () => now,
     );
 
@@ -447,15 +738,63 @@ describe('AnalysisRunnerService', () => {
     expect(sqlText).not.toContain('"fn_intersections_asof_area"');
   });
 
+  it('builds STANDARD current query using fast simple intersections when feature flag is enabled', () => {
+    process.env.ANALYSIS_STANDARD_CURRENT_USE_FAST_INTERSECTIONS = 'true';
+    const prisma = makePrismaMock();
+    const deps = makeDeps();
+    const runner = new AnalysisRunnerService(
+      prisma as any,
+      deps.landwatchStatus as any,
+      deps.attachments as any,
+      deps.postprocess as any,
+      () => now,
+    );
+
+    const query = (runner as any).buildIntersectionsQuery(
+      'landwatch',
+      'CAR-1',
+      '2026-02-01',
+      AnalysisKind.STANDARD,
+    );
+    const sqlText = extractSqlText(query);
+
+    expect(sqlText).toContain('"fn_intersections_current_simple"');
+    expect(sqlText).toContain('ST_Area(i.geom::geography)');
+    expect(sqlText).toContain('NULL::numeric AS feature_area_m2');
+    expect(sqlText).toContain('NULL::numeric AS overlap_area_m2');
+  });
+
+  it('keeps STANDARD current query on fn_intersections_current_area when feature flag is disabled', () => {
+    const prisma = makePrismaMock();
+    const deps = makeDeps();
+    const runner = new AnalysisRunnerService(
+      prisma as any,
+      deps.landwatchStatus as any,
+      deps.attachments as any,
+      deps.postprocess as any,
+      () => now,
+    );
+
+    const query = (runner as any).buildIntersectionsQuery(
+      'landwatch',
+      'CAR-1',
+      '2026-02-01',
+      AnalysisKind.STANDARD,
+    );
+    const sqlText = extractSqlText(query);
+
+    expect(sqlText).toContain('"fn_intersections_current_area"');
+    expect(sqlText).not.toContain('"fn_intersections_current_simple"');
+  });
+
   it('builds DETER as-of query using lw_feature_geom_hist for past date', () => {
     const prisma = makePrismaMock();
     const deps = makeDeps();
     const runner = new AnalysisRunnerService(
       prisma as any,
       deps.landwatchStatus as any,
-      deps.detail as any,
-      deps.cache as any,
-      deps.alerts as any,
+      deps.attachments as any,
+      deps.postprocess as any,
       () => now,
     );
 
@@ -471,4 +810,51 @@ describe('AnalysisRunnerService', () => {
     expect(sqlText).toContain("c.code = 'DETER'");
     expect(sqlText).not.toContain('"fn_intersections_asof_area"');
   });
+
+  it('builds STANDARD as-of query using optimized area function by default', () => {
+    const prisma = makePrismaMock();
+    const deps = makeDeps();
+    const runner = new AnalysisRunnerService(
+      prisma as any,
+      deps.landwatchStatus as any,
+      deps.attachments as any,
+      deps.postprocess as any,
+      () => now,
+    );
+
+    const query = (runner as any).buildIntersectionsQuery(
+      'landwatch',
+      'CAR-1',
+      '2026-01-31',
+      AnalysisKind.STANDARD,
+    );
+    const sqlText = extractSqlText(query);
+
+    expect(sqlText).toContain('"fn_intersections_asof_area"');
+    expect(sqlText).not.toContain('"fn_intersections_asof_area_legacy"');
+  });
+
+  it('builds STANDARD as-of query using legacy area function when rollback flag is enabled', () => {
+    process.env.ANALYSIS_STANDARD_ASOF_USE_LEGACY_AREA = 'true';
+    const prisma = makePrismaMock();
+    const deps = makeDeps();
+    const runner = new AnalysisRunnerService(
+      prisma as any,
+      deps.landwatchStatus as any,
+      deps.attachments as any,
+      deps.postprocess as any,
+      () => now,
+    );
+
+    const query = (runner as any).buildIntersectionsQuery(
+      'landwatch',
+      'CAR-1',
+      '2026-01-31',
+      AnalysisKind.STANDARD,
+    );
+    const sqlText = extractSqlText(query);
+
+    expect(sqlText).toContain('"fn_intersections_asof_area_legacy"');
+  });
 });
+

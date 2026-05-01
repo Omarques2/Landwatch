@@ -1,6 +1,7 @@
 import {
   Injectable,
   Inject,
+  Logger,
   Optional,
   OnModuleDestroy,
   OnModuleInit,
@@ -20,6 +21,7 @@ function addMonths(base: Date, months: number): Date {
 
 @Injectable()
 export class AnalysisCacheService implements OnModuleInit, OnModuleDestroy {
+  private readonly logger = new Logger(AnalysisCacheService.name);
   private readonly nowProvider: () => Date;
   private cleanupTimer: NodeJS.Timeout | null = null;
   private cacheDisabled = false;
@@ -33,12 +35,24 @@ export class AnalysisCacheService implements OnModuleInit, OnModuleDestroy {
 
   onModuleInit() {
     this.cleanupTimer = setInterval(() => {
-      void this.cleanupExpired();
+      this.runCleanupExpiredSafely();
     }, CLEANUP_INTERVAL_MS);
   }
 
   onModuleDestroy() {
     if (this.cleanupTimer) clearInterval(this.cleanupTimer);
+  }
+
+  private runCleanupExpiredSafely() {
+    void this.cleanupExpired().catch((error) => {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(
+        JSON.stringify({
+          event: 'analysis.cache.cleanup.failed',
+          error: message,
+        }),
+      );
+    });
   }
 
   async get<T = Record<string, unknown>>(

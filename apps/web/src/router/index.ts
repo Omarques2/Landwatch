@@ -17,6 +17,8 @@ import AnalysisPrintView from "../views/AnalysisPrintView.vue";
 import AnalysisPublicView from "../views/AnalysisPublicView.vue";
 import SchedulesView from "../views/SchedulesView.vue";
 import FornecedoresView from "../views/FornecedoresView.vue";
+import AttachmentsView from "../views/AttachmentsView.vue";
+import AdminView from "../views/AdminView.vue";
 
 const router = createRouter({
   history: createWebHistory(),
@@ -57,6 +59,16 @@ const router = createRouter({
           path: "schedules",
           component: SchedulesView,
           meta: { title: "Agendamento" },
+        },
+        {
+          path: "attachments",
+          component: AttachmentsView,
+          meta: { title: "Anexos" },
+        },
+        {
+          path: "admin",
+          component: AdminView,
+          meta: { title: "Painel Admin" },
         },
         {
           path: "fornecedores",

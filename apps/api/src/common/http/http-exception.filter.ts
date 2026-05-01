@@ -37,6 +37,21 @@ function isValidationErrorResponse(
   );
 }
 
+function isDatabaseTimeoutError(exception: Prisma.PrismaClientKnownRequestError) {
+  if (exception.code !== 'P2010') return false;
+  const meta = exception.meta as
+    | { driverAdapterError?: { cause?: { kind?: string } } }
+    | undefined;
+  if (meta?.driverAdapterError?.cause?.kind === 'SocketTimeout') return true;
+  return /operation has timed out|sockettimeout/i.test(exception.message);
+}
+
+function isDatabaseUnavailableErrorMessage(message: string) {
+  return /operation has timed out|sockettimeout|can't reach database server|database connection|econnrefused|connection terminated unexpectedly/i.test(
+    message,
+  );
+}
+
 @Catch()
 export class HttpExceptionFilter implements ExceptionFilter {
   catch(exception: unknown, host: ArgumentsHost) {
@@ -65,6 +80,12 @@ export class HttpExceptionFilter implements ExceptionFilter {
           code: 'NOT_FOUND',
           message: 'Record not found',
         };
+      } else if (isDatabaseTimeoutError(exception)) {
+        status = HttpStatus.SERVICE_UNAVAILABLE;
+        payload = {
+          code: 'DATABASE_TIMEOUT',
+          message: 'Database operation timed out',
+        };
       } else {
         status = HttpStatus.BAD_REQUEST;
         payload = {
@@ -73,6 +94,27 @@ export class HttpExceptionFilter implements ExceptionFilter {
           details: exception.meta,
         };
       }
+    } else if (
+      exception instanceof Prisma.PrismaClientUnknownRequestError &&
+      isDatabaseUnavailableErrorMessage(exception.message)
+    ) {
+      status = HttpStatus.SERVICE_UNAVAILABLE;
+      payload = {
+        code: 'DATABASE_UNAVAILABLE',
+        message: 'Database connection is unavailable',
+      };
+    } else if (exception instanceof Prisma.PrismaClientInitializationError) {
+      status = HttpStatus.SERVICE_UNAVAILABLE;
+      payload = {
+        code: 'DATABASE_UNAVAILABLE',
+        message: 'Database connection is unavailable',
+      };
+    } else if (exception instanceof Prisma.PrismaClientRustPanicError) {
+      status = HttpStatus.SERVICE_UNAVAILABLE;
+      payload = {
+        code: 'DATABASE_ENGINE_UNAVAILABLE',
+        message: 'Database engine is unavailable',
+      };
     } else if (exception instanceof HttpException) {
       status = exception.getStatus();
       const responseBody = exception.getResponse();
@@ -107,10 +149,18 @@ export class HttpExceptionFilter implements ExceptionFilter {
         };
       }
     } else if (exception instanceof Error) {
-      payload = {
-        code: 'INTERNAL_ERROR',
-        message: 'Internal server error',
-      };
+      if (isDatabaseUnavailableErrorMessage(exception.message)) {
+        status = HttpStatus.SERVICE_UNAVAILABLE;
+        payload = {
+          code: 'DATABASE_UNAVAILABLE',
+          message: 'Database connection is unavailable',
+        };
+      } else {
+        payload = {
+          code: 'INTERNAL_ERROR',
+          message: 'Internal server error',
+        };
+      }
     }
 
     const isDev = (process.env.NODE_ENV ?? 'development') === 'development';

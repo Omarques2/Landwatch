@@ -6,6 +6,7 @@ import {
   sigfarmAuthApiBaseUrl,
 } from "./sigfarm-auth";
 import { AuthApiError } from "@sigfarm/auth-client-vue";
+import { isLocalAuthBypassEnabled } from "./local-bypass";
 
 type AcquireApiTokenOptions = {
   forceRefresh?: boolean;
@@ -22,6 +23,7 @@ export function getActiveAccount(): null {
 }
 
 export async function initAuthSafe(_timeoutMs = 4_000): Promise<boolean> {
+  if (isLocalAuthBypassEnabled()) return true;
   try {
     const session = await authClient.ensureSession();
     return Boolean(session);
@@ -58,6 +60,10 @@ export async function hardResetAuthState(): Promise<void> {
 export async function acquireApiToken(
   options: AcquireApiTokenOptions = {},
 ): Promise<string> {
+  if (isLocalAuthBypassEnabled()) {
+    return "";
+  }
+
   if (options.forceRefresh) {
     try {
       await authClient.refreshSession();

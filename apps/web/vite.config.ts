@@ -11,4 +11,18 @@ export default defineConfig({
       "@": fileURLToPath(new URL("./src", import.meta.url)),
     },
   },
+  server: {
+    proxy: {
+      "/v1": {
+        target: process.env.VITE_DEV_API_PROXY_TARGET || "http://localhost:3001",
+        changeOrigin: true,
+        secure: false,
+      },
+      "/health": {
+        target: process.env.VITE_DEV_API_PROXY_TARGET || "http://localhost:3001",
+        changeOrigin: true,
+        secure: false,
+      },
+    },
+  },
 })

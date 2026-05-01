@@ -10,6 +10,13 @@ describe('CarsService', () => {
   function makePrismaMock() {
     return {
       $queryRaw: jest.fn(),
+      user: {
+        findFirst: jest.fn(),
+      },
+      carMapSearchSession: {
+        create: jest.fn(),
+        findFirst: jest.fn(),
+      },
     };
   }
 
@@ -116,5 +123,91 @@ describe('CarsService', () => {
         },
       },
     );
+  });
+
+  it('creates a vector map search session with stats and tile metadata', async () => {
+    const prisma = makePrismaMock();
+    prisma.user.findFirst.mockResolvedValue({ id: 'user-1' });
+    prisma.$queryRaw
+      .mockResolvedValueOnce([{ '?column?': 1 }])
+      .mockResolvedValueOnce([
+        {
+          total: 7,
+          min_lng: -48.6,
+          min_lat: -20.7,
+          max_lng: -48.4,
+          max_lat: -20.5,
+        },
+      ]);
+    prisma.carMapSearchSession.create.mockResolvedValue({ id: 'search-1' });
+    const landwatchStatus = makeLandwatchStatusMock();
+
+    const service = new CarsService(prisma as any, landwatchStatus as any);
+
+    const result = await service.createMapSearch(
+      'sub-1',
+      {
+        lat: -12.34,
+        lng: -47.89,
+        radiusMeters: 5000,
+      },
+      'http://localhost:3001',
+    );
+
+    expect(result.renderMode).toBe('mvt');
+    expect(result.stats.totalFeatures).toBe(7);
+    expect(result.featureBounds).toEqual([-48.6, -20.7, -48.4, -20.5]);
+    expect(result.vectorSource.bounds).toEqual([-48.6, -20.7, -48.4, -20.5]);
+    expect(result.vectorSource.tiles).toEqual([
+      expect.stringMatching(
+        /^http:\/\/localhost:3001\/v1\/cars\/tiles\/.+\/\{z\}\/\{x\}\/\{y\}\.mvt$/,
+      ),
+    ]);
+    expect(result.searchRadiusMeters).toBe(5000);
+    expect(prisma.carMapSearchSession.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          actorUserId: 'user-1',
+          searchVersion: 1,
+        }),
+      }),
+    );
+  });
+
+  it('returns not modified when the tile etag matches', async () => {
+    const prisma = makePrismaMock();
+    prisma.user.findFirst.mockResolvedValue({ id: 'user-1' });
+    prisma.$queryRaw.mockResolvedValueOnce([{ tile: Buffer.from([1, 2, 3]) }]);
+    prisma.carMapSearchSession.findFirst.mockResolvedValue({
+      paramsJson: {
+        lat: -12.34,
+        lng: -47.89,
+        radiusMeters: 5000,
+        analysisDate: new Date().toISOString().slice(0, 10),
+      },
+      updatedAt: new Date('2026-04-22T12:00:00.000Z'),
+    });
+    const landwatchStatus = makeLandwatchStatusMock();
+    const service = new CarsService(prisma as any, landwatchStatus as any);
+
+    const first = await service.getMapSearchTile(
+      'sub-1',
+      '11111111-1111-4111-8111-111111111111',
+      5,
+      10,
+      12,
+    );
+    const second = await service.getMapSearchTile(
+      'sub-1',
+      '11111111-1111-4111-8111-111111111111',
+      5,
+      10,
+      12,
+      first.etag,
+    );
+
+    expect(first.notModified).toBe(false);
+    expect(second.notModified).toBe(true);
+    expect(second.buffer).toEqual(Buffer.alloc(0));
   });
 });
