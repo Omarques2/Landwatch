@@ -121,6 +121,13 @@ function makeBlobServiceMock(overrides?: {
   };
 }
 
+function extractSqlText(query: any): string {
+  if (!query) return '';
+  if (typeof query.sql === 'string') return query.sql;
+  if (Array.isArray(query.strings)) return query.strings.join(' ');
+  return String(query);
+}
+
 describe('AttachmentsService', () => {
   beforeEach(() => {
     jest.restoreAllMocks();
@@ -1483,6 +1490,39 @@ describe('AttachmentsService', () => {
     expect(sqlArg?.sql ?? '').toContain('t.created_at <=');
     expect(sqlArg?.sql ?? '').toContain('t.reviewed_at <=');
     expect(sqlArg?.sql ?? '').toContain('a.revoked_at IS NULL OR a.revoked_at >');
+  });
+
+  it('casts justification intersection candidate feature_id to bigint', async () => {
+    const prisma = makePrismaMock();
+    prisma.$queryRaw.mockResolvedValueOnce([
+      {
+        dataset_code: 'PRODES_CERRADO_NB_2021',
+        feature_id: 7426006n,
+      },
+    ]);
+    const service = new AttachmentsService(prisma as any);
+
+    const result = await service.findApprovedJustifiedIntersectionKeys({
+      analysisDate: '2026-01-31',
+      carKey: 'CAR-1',
+      orgId: '00000000-0000-4000-8000-000000000001',
+      cutoffAt: new Date('2026-01-31T10:00:00.000Z'),
+      intersections: [
+        {
+          categoryCode: 'PRODES',
+          datasetCode: 'PRODES_CERRADO_NB_2021',
+          featureId: 7426006n,
+        },
+      ],
+    });
+
+    expect(result).toEqual(new Set(['PRODES_CERRADO_NB_2021:7426006']));
+    const sqlText = extractSqlText(prisma.$queryRaw.mock.calls[0]?.[0]);
+    expect(sqlText).toContain(
+      'WITH intersection_candidates(dataset_code, feature_id) AS',
+    );
+    expect(sqlText).toContain('v.feature_id::bigint');
+    expect(sqlText).toContain('AS v(dataset_code, feature_id)');
   });
 
   it('auto-approves targets when category does not require approval', async () => {

@@ -413,7 +413,10 @@ describe('AnalysisRunnerService', () => {
     );
   });
 
-  it('excludes intersections covered by approved justifications before persisting results', async () => {
+  it('keeps intersections covered by approved justifications in persisted results', async () => {
+    const warnSpy = jest
+      .spyOn(Logger.prototype, 'warn')
+      .mockImplementation(() => undefined);
     const prisma = makePrismaMock();
     prisma.analysis.updateMany.mockResolvedValue({ count: 1 });
     prisma.analysis.findUnique.mockResolvedValue({
@@ -476,19 +479,9 @@ describe('AnalysisRunnerService', () => {
 
     await runner.processAnalysis('analysis-1');
 
-    expect(
-      deps.attachments.findApprovedJustifiedIntersectionKeys,
-    ).toHaveBeenCalledWith(
-      expect.objectContaining({
-        analysisDate: '2026-01-31',
-        carKey: 'CAR-1',
-        orgId: 'org-1',
-        cutoffAt: now,
-      }),
-    );
     expect(prisma.analysisResult.createMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.not.arrayContaining([
+        data: expect.arrayContaining([
           expect.objectContaining({
             datasetCode: 'PRODES_CERRADO_NB_2021',
             featureId: 7426006n,
@@ -511,9 +504,12 @@ describe('AnalysisRunnerService', () => {
           status: 'completed',
           attachmentsSnapshotCapturedAt: now,
           hasIntersections: true,
-          intersectionCount: 1,
+          intersectionCount: 2,
         }),
       }),
+    );
+    expect(warnSpy).not.toHaveBeenCalledWith(
+      expect.stringContaining('analysis.intersections.justification_lookup.failed'),
     );
   });
 
@@ -809,19 +805,6 @@ describe('AnalysisRunnerService', () => {
           hasIntersections: true,
           intersectionCount: 1,
         }),
-      }),
-    );
-    expect(
-      deps.attachments.findApprovedJustifiedIntersectionKeys,
-    ).toHaveBeenCalledWith(
-      expect.objectContaining({
-        intersections: [
-          expect.objectContaining({ datasetCode: 'SICAR', featureId: 1n }),
-          expect.objectContaining({
-            datasetCode: 'PRODES_MATA_ATLANTICA_NB_2020',
-            featureId: 15685424n,
-          }),
-        ],
       }),
     );
   });

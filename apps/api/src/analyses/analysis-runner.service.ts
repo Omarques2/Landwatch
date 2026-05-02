@@ -175,24 +175,14 @@ export class AnalysisRunnerService implements OnModuleInit, OnModuleDestroy {
       const intersections = Array.isArray(rawIntersections)
         ? rawIntersections.filter((row) => this.shouldKeepRow(row, kind))
         : [];
-      const filteredIntersections =
-        await this.excludeApprovedJustifiedIntersections({
-          analysisId,
-          analysisDate,
-          carKey: analysis.carKey,
-          orgId: analysis.orgId ?? null,
-          cutoffAt:
-            analysis.attachmentsSnapshotCutoffAt ?? this.nowProvider(),
-          intersections,
-        });
       this.logEvent('analysis.intersections.query', {
         analysisId,
         strategy,
         usedFallback,
-        rowCount: filteredIntersections.length,
+        rowCount: intersections.length,
       });
 
-      if (filteredIntersections.length === 0) {
+      if (intersections.length === 0) {
         await this.prisma.analysis.update({
           where: { id: analysisId },
           data: {
@@ -210,7 +200,7 @@ export class AnalysisRunnerService implements OnModuleInit, OnModuleDestroy {
         return;
       }
 
-      const analysisResultRows = filteredIntersections.map(
+      const analysisResultRows = intersections.map(
         (row: IntersectionRow) => ({
         analysisId,
         categoryCode: row.category_code,
@@ -720,70 +710,6 @@ export class AnalysisRunnerService implements OnModuleInit, OnModuleDestroy {
     if (typeof value === 'number') return BigInt(value);
     if (typeof value === 'string' && value.length > 0) return BigInt(value);
     return null;
-  }
-
-  private async excludeApprovedJustifiedIntersections(input: {
-    analysisId: string;
-    analysisDate: string | undefined;
-    carKey: string;
-    orgId: string | null;
-    cutoffAt: Date;
-    intersections: IntersectionRow[];
-  }) {
-    if (!input.intersections.length) {
-      return input.intersections;
-    }
-
-    const effectiveAnalysisDate =
-      input.analysisDate ?? this.nowProvider().toISOString().slice(0, 10);
-
-    try {
-      const justifiedKeys =
-        await this.attachments.findApprovedJustifiedIntersectionKeys({
-          analysisDate: effectiveAnalysisDate,
-          carKey: input.carKey,
-          orgId: input.orgId,
-          cutoffAt: input.cutoffAt,
-          intersections: input.intersections.map((row) => ({
-            categoryCode: row.category_code,
-            datasetCode: row.dataset_code,
-            featureId: this.normalizeFeatureId(row.feature_id),
-          })),
-        });
-      if (!justifiedKeys.size) {
-        return input.intersections;
-      }
-
-      const filtered = input.intersections.filter((row) => {
-        if (this.isBaseSicarIntersection(row)) {
-          return true;
-        }
-        const featureId = this.normalizeFeatureId(row.feature_id);
-        if (featureId === null) {
-          return true;
-        }
-        return !justifiedKeys.has(`${row.dataset_code}:${featureId.toString()}`);
-      });
-
-      this.logEvent('analysis.intersections.justification_filter', {
-        analysisId: input.analysisId,
-        analysisDate: effectiveAnalysisDate,
-        excludedCount: input.intersections.length - filtered.length,
-        remainingCount: filtered.length,
-      });
-      return filtered;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      this.logger.warn(
-        JSON.stringify({
-          event: 'analysis.intersections.justification_lookup.failed',
-          analysisId: input.analysisId,
-          analysisDate: effectiveAnalysisDate,
-          error: message,
-        }),
-      );
-      return input.intersections;
-    }
   }
 
   private logEvent(event: string, payload: Record<string, unknown>) {

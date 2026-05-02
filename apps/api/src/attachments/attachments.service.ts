@@ -4105,9 +4105,16 @@ export class AttachmentsService {
       }>
     >(Prisma.sql`
       WITH intersection_candidates(dataset_code, feature_id) AS (
-        VALUES ${Prisma.join(
-          candidates.map((row) => Prisma.sql`(${row.datasetCode}, ${row.featureId})`),
-        )}
+        SELECT
+          v.dataset_code,
+          v.feature_id::bigint
+        FROM (
+          VALUES ${Prisma.join(
+            candidates.map(
+              (row) => Prisma.sql`(${row.datasetCode}, ${row.featureId})`,
+            ),
+          )}
+        ) AS v(dataset_code, feature_id)
       )
       SELECT DISTINCT
         ic.dataset_code,
