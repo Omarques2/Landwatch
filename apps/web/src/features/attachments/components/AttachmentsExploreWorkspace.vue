@@ -69,17 +69,44 @@
         </label>
       </div>
 
-      <div v-if="selectedDatasetCodes.length" class="mt-4 flex flex-wrap gap-2">
-        <button
-          v-for="datasetCode in selectedDatasetCodes"
-          :key="datasetCode"
-          type="button"
-          class="inline-flex items-center gap-2 rounded-full border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground transition hover:bg-muted"
-          @click="$emit('remove-dataset', datasetCode)"
+      <div
+        v-if="hasSelectedDatasets"
+        data-testid="selected-datasets-block"
+        class="mt-4"
+      >
+        <div
+          ref="datasetListRef"
+          data-testid="selected-datasets-list"
+          class="overflow-hidden transition-[max-height] duration-200 ease-out"
+          :style="datasetListStyle"
         >
-          <span>{{ datasetCode }}</span>
-          <X class="h-3.5 w-3.5 text-muted-foreground" />
-        </button>
+          <div class="flex flex-wrap gap-2">
+            <button
+              v-for="datasetCode in selectedDatasetCodes"
+              :key="datasetCode"
+              type="button"
+              class="inline-flex items-center gap-2 rounded-full border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground transition hover:bg-muted"
+              @click="$emit('remove-dataset', datasetCode)"
+            >
+              <span>{{ datasetCode }}</span>
+              <X class="h-3.5 w-3.5 text-muted-foreground" />
+            </button>
+          </div>
+        </div>
+        <div v-if="shouldShowDatasetCollapseToggle" class="mt-2 flex justify-end">
+          <button
+            data-testid="selected-datasets-toggle"
+            type="button"
+            class="inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-semibold text-muted-foreground transition hover:bg-muted hover:text-foreground"
+            :aria-expanded="isDatasetListExpanded"
+            :aria-label="datasetToggleLabel"
+            @click="toggleDatasetListExpanded"
+          >
+            <span>{{ datasetToggleLabel }}</span>
+            <ChevronUp v-if="isDatasetListExpanded" class="h-3.5 w-3.5" />
+            <ChevronDown v-else class="h-3.5 w-3.5" />
+          </button>
+        </div>
       </div>
     </div>
 
@@ -224,8 +251,18 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue';
-import { Layers3, Loader2, MapPinned, Plus, Satellite, Search, X } from 'lucide-vue-next';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import {
+  ChevronDown,
+  ChevronUp,
+  Layers3,
+  Loader2,
+  MapPinned,
+  Plus,
+  Satellite,
+  Search,
+  X,
+} from 'lucide-vue-next';
 import { Button as UiButton, Input as UiInput } from '@/components/ui';
 import AttachmentsVectorMap from '@/components/maps/AttachmentsVectorMap.vue';
 import type {
@@ -283,6 +320,12 @@ const emit = defineEmits<{
 }>();
 
 const selectionUploadOpen = ref(false);
+const isDatasetListExpanded = ref(false);
+const datasetListHasOverflow = ref(false);
+const datasetListRef = ref<HTMLDivElement | null>(null);
+
+const COLLAPSED_DATASET_LIST_HEIGHT = 40;
+let datasetListResizeObserver: ResizeObserver | null = null;
 
 const EMPTY_PMTILES_SOURCES: NonNullable<MapFilterResponse['pmtilesSources']> = [];
 const featureCountFormatter = new Intl.NumberFormat('pt-BR');
@@ -303,6 +346,17 @@ const selectedTargetsForMap = computed(() =>
 );
 
 const isMapBusy = computed(() => props.loading || props.mapLoadStats.isLoading);
+const hasSelectedDatasets = computed(() => props.selectedDatasetCodes.length > 0);
+const shouldShowDatasetCollapseToggle = computed(
+  () => hasSelectedDatasets.value && datasetListHasOverflow.value,
+);
+const datasetToggleLabel = computed(() =>
+  isDatasetListExpanded.value ? 'Ocultar datasets' : 'Mostrar datasets',
+);
+const datasetListStyle = computed(() => {
+  if (isDatasetListExpanded.value) return undefined;
+  return { maxHeight: `${COLLAPSED_DATASET_LIST_HEIGHT}px` };
+});
 
 const totalFeatureBadge = computed(() => {
   if (!props.mapFilter) return null;
@@ -310,10 +364,81 @@ const totalFeatureBadge = computed(() => {
   return `${featureCountFormatter.format(total)} feições`;
 });
 
+function measureDatasetListOverflow() {
+  const element = datasetListRef.value;
+  if (!element || !hasSelectedDatasets.value) {
+    datasetListHasOverflow.value = false;
+    isDatasetListExpanded.value = false;
+    return;
+  }
+
+  datasetListHasOverflow.value = element.scrollHeight > COLLAPSED_DATASET_LIST_HEIGHT + 1;
+  if (!datasetListHasOverflow.value) {
+    isDatasetListExpanded.value = false;
+  }
+}
+
+function toggleDatasetListExpanded() {
+  if (!shouldShowDatasetCollapseToggle.value) return;
+  isDatasetListExpanded.value = !isDatasetListExpanded.value;
+}
+
 function handleSelectionUploadCreated() {
   selectionUploadOpen.value = false;
   emit('clear-selected-targets');
 }
 
 const mapPmtilesSources = computed(() => props.mapPmtilesSources ?? EMPTY_PMTILES_SOURCES);
+
+watch(
+  () => props.selectedDatasetCodes.join('|'),
+  async (value) => {
+    if (!value) {
+      datasetListHasOverflow.value = false;
+      isDatasetListExpanded.value = false;
+      return;
+    }
+
+    await nextTick();
+    measureDatasetListOverflow();
+  },
+  { flush: 'post' },
+);
+
+watch(
+  datasetListRef,
+  async (element, previousElement) => {
+    if (previousElement && datasetListResizeObserver) {
+      datasetListResizeObserver.unobserve(previousElement);
+    }
+    if (element && datasetListResizeObserver) {
+      datasetListResizeObserver.observe(element);
+    }
+
+    await nextTick();
+    measureDatasetListOverflow();
+  },
+  { flush: 'post' },
+);
+
+onMounted(async () => {
+  datasetListResizeObserver =
+    typeof ResizeObserver === 'undefined'
+      ? null
+      : new ResizeObserver(() => {
+          measureDatasetListOverflow();
+        });
+
+  if (datasetListRef.value && datasetListResizeObserver) {
+    datasetListResizeObserver.observe(datasetListRef.value);
+  }
+
+  await nextTick();
+  measureDatasetListOverflow();
+});
+
+onBeforeUnmount(() => {
+  datasetListResizeObserver?.disconnect();
+  datasetListResizeObserver = null;
+});
 </script>
