@@ -119,6 +119,12 @@ export type AnalysisGeoJsonCollection = {
   features: AnalysisGeoJsonFeature[];
 };
 
+type GeoJsonGeometryLike = Record<string, unknown> & {
+  type?: string;
+  coordinates?: unknown;
+  geometries?: GeoJsonGeometryLike[];
+};
+
 function assertIdentifier(value: string, name: string): string {
   if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(value)) {
     throw new BadRequestException({
@@ -859,7 +865,9 @@ export class AnalysisDetailService {
       rows
       .map((row, idx): AnalysisGeoJsonFeature | null => {
         if (!row.geom) return null;
-        const geometry = JSON.parse(row.geom) as Record<string, unknown>;
+        const geometry = this.normalizeGeoJsonAreaGeometry(
+          JSON.parse(row.geom) as GeoJsonGeometryLike,
+        );
         const featureId =
           this.normalizeFeatureId(row.feature_id)?.toString() ?? null;
         const sicarAreaM2 = this.toNumber(row.sicar_area_m2);
@@ -1321,6 +1329,50 @@ export class AnalysisDetailService {
         sensitivity: 'base',
       });
     });
+  }
+
+  private normalizeGeoJsonAreaGeometry(
+    geometry: GeoJsonGeometryLike,
+  ): Record<string, unknown> {
+    if (!geometry || typeof geometry !== 'object') {
+      return geometry as Record<string, unknown>;
+    }
+    if (geometry.type !== 'GeometryCollection') {
+      return geometry as Record<string, unknown>;
+    }
+
+    const polygonCoords: unknown[] = [];
+    const geometries = Array.isArray(geometry.geometries)
+      ? geometry.geometries
+      : [];
+
+    for (const child of geometries) {
+      if (!child || typeof child !== 'object') continue;
+      if (child.type === 'Polygon' && child.coordinates) {
+        polygonCoords.push(child.coordinates);
+        continue;
+      }
+      if (
+        child.type === 'MultiPolygon' &&
+        Array.isArray(child.coordinates)
+      ) {
+        polygonCoords.push(...child.coordinates);
+      }
+    }
+
+    if (polygonCoords.length === 0) {
+      return geometry as Record<string, unknown>;
+    }
+    if (polygonCoords.length === 1) {
+      return {
+        type: 'Polygon',
+        coordinates: polygonCoords[0],
+      };
+    }
+    return {
+      type: 'MultiPolygon',
+      coordinates: polygonCoords,
+    };
   }
 
   private async queryRawWithRetry<T>(

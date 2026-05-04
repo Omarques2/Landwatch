@@ -53,13 +53,46 @@
           Buscar CARs aqui
         </button>
       </div>
+
+      <div
+        v-if="hasRenderableSearch && overlapSelector.open && !printMode"
+        ref="overlapSelectorEl"
+        data-testid="overlap-car-selector"
+        class="absolute z-40 min-w-[240px] max-w-[320px] rounded-xl border border-border bg-card p-2 shadow-lg"
+        :style="{ left: `${overlapSelector.x}px`, top: `${overlapSelector.y}px` }"
+      >
+        <div class="px-2 pb-2 pt-1 text-xs font-semibold text-foreground">
+          CARs sobrepostos
+        </div>
+        <div class="space-y-1">
+          <button
+            v-for="candidate in overlapSelector.candidates"
+            :key="candidate.featureKey"
+            :data-testid="`overlap-car-option-${candidate.featureKey}`"
+            type="button"
+            class="flex w-full items-start justify-between gap-3 rounded-lg px-2 py-2 text-left text-xs transition hover:bg-accent"
+            :class="candidate.featureKey === selectedCarKey ? 'bg-accent/70' : ''"
+            @click="selectOverlapCandidate(candidate.featureKey)"
+          >
+            <span data-testid="overlap-car-option-key" class="min-w-0 truncate font-medium text-foreground">
+              {{ candidate.featureKey }}
+            </span>
+            <span
+              v-if="candidate.areaHa !== null"
+              class="shrink-0 text-[11px] text-muted-foreground"
+            >
+              {{ formatAreaHa(candidate.areaHa) }}
+            </span>
+          </button>
+        </div>
+      </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import type { FeatureCollection, Geometry } from "geojson";
+import type { FeatureCollection, Geometry, Position } from "geojson";
 import maplibregl, { type ExpressionSpecification, type LngLatBoundsLike } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { acquireApiToken } from "@/auth/auth";
@@ -73,6 +106,11 @@ import { getSearchPinHtml } from "@/components/maps/car-search-pin";
 type FallbackFeature = {
   feature_key: string;
   geom: Geometry;
+};
+
+type OverlapCandidate = {
+  featureKey: string;
+  areaHa: number | null;
 };
 
 type CarSearchVectorSource = {
@@ -150,6 +188,13 @@ const hasRenderableSearch = computed(
 );
 const featureCount = computed(() => props.activeSearch?.stats.totalFeatures ?? props.fallbackFeatures.length ?? 0);
 const featureCountLabel = computed(() => `${featureCount.value} CAR${featureCount.value === 1 ? "" : "s"}`);
+const fallbackAreaByFeatureKey = computed(() => {
+  const entries = props.fallbackFeatures.map((feature) => [
+    feature.feature_key,
+    computeGeometryAreaHa(feature.geom),
+  ] as const);
+  return new Map(entries);
+});
 
 const SOURCE_ID = "cars-vector-search";
 const FALLBACK_SOURCE_ID = "cars-search-fallback";
@@ -166,6 +211,18 @@ const contextMenu = ref({
   y: 0,
   lat: 0,
   lng: 0,
+});
+const overlapSelectorEl = ref<HTMLElement | null>(null);
+const overlapSelector = ref<{
+  open: boolean;
+  x: number;
+  y: number;
+  candidates: OverlapCandidate[];
+}>({
+  open: false,
+  x: 0,
+  y: 0,
+  candidates: [],
 });
 
 let map: maplibregl.Map | null = null;
@@ -201,6 +258,7 @@ function toFeatureCollection(features: FallbackFeature[]): FeatureCollection {
       geometry: feature.geom,
       properties: {
         feature_key: feature.feature_key,
+        area_ha: computeGeometryAreaHa(feature.geom),
         color_index: colorIndexForFeatureKey(feature.feature_key),
       },
     })),
@@ -215,6 +273,10 @@ function colorIndexForFeatureKey(featureKey: string) {
     hash |= 0;
   }
   return Math.abs(hash) % featurePalette.length;
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value));
 }
 
 function extractBoundsFromGeometry(geometry: Geometry, acc: [number, number, number, number]) {
@@ -232,6 +294,116 @@ function extractBoundsFromGeometry(geometry: Geometry, acc: [number, number, num
     value.forEach(visit);
   };
   visit((geometry as { coordinates?: unknown }).coordinates);
+}
+
+function projectToMercator(coord: Position) {
+  const lng = Number(coord[0] ?? 0);
+  const lat = clamp(Number(coord[1] ?? 0), -85.05112878, 85.05112878);
+  const radLng = (lng * Math.PI) / 180;
+  const radLat = (lat * Math.PI) / 180;
+  const radius = 6_378_137;
+  return {
+    x: radius * radLng,
+    y: radius * Math.log(Math.tan(Math.PI / 4 + radLat / 2)),
+  };
+}
+
+function ringAreaMeters2(ring: Position[]) {
+  if (ring.length < 4) return 0;
+  let area = 0;
+  for (let index = 0; index < ring.length; index += 1) {
+    const current = projectToMercator(ring[index] ?? [0, 0]);
+    const next = projectToMercator(ring[(index + 1) % ring.length] ?? [0, 0]);
+    area += current.x * next.y - next.x * current.y;
+  }
+  return Math.abs(area) / 2;
+}
+
+function polygonAreaMeters2(polygon: Position[][]) {
+  if (!polygon.length) return 0;
+  const [outerRing, ...holes] = polygon;
+  let area = ringAreaMeters2(outerRing ?? []);
+  for (const hole of holes) {
+    area -= ringAreaMeters2(hole);
+  }
+  return Math.max(area, 0);
+}
+
+function geometryAreaMeters2(geometry: Geometry): number {
+  if (geometry.type === "Polygon") {
+    return polygonAreaMeters2(geometry.coordinates);
+  }
+  if (geometry.type === "MultiPolygon") {
+    return geometry.coordinates.reduce((sum, polygon) => sum + polygonAreaMeters2(polygon), 0);
+  }
+  if (geometry.type === "GeometryCollection") {
+    return geometry.geometries.reduce((sum, child) => sum + geometryAreaMeters2(child), 0);
+  }
+  return 0;
+}
+
+function computeGeometryAreaHa(geometry: Geometry) {
+  const areaMeters2 = geometryAreaMeters2(geometry);
+  if (!Number.isFinite(areaMeters2) || areaMeters2 <= 0) return null;
+  return Number((areaMeters2 / 10_000).toFixed(2));
+}
+
+function extractAreaHa(properties: maplibregl.MapGeoJSONFeature["properties"] | undefined) {
+  const raw = properties?.area_ha;
+  if (raw === null || raw === undefined || raw === "") return null;
+  const area = Number(raw);
+  return Number.isFinite(area) ? area : null;
+}
+
+function overlapSortKeyExpression(): ExpressionSpecification {
+  return ["*", -1, ["coalesce", ["get", "area_ha"], 0]] as ExpressionSpecification;
+}
+
+function normalizeOverlapCandidates(features: maplibregl.MapGeoJSONFeature[]) {
+  const unique = new Map<string, OverlapCandidate>();
+  for (const feature of features) {
+    const featureKey = String(feature.properties?.feature_key ?? "").trim();
+    if (!featureKey || unique.has(featureKey)) continue;
+    const fallbackArea = fallbackAreaByFeatureKey.value.get(featureKey) ?? null;
+    unique.set(featureKey, {
+      featureKey,
+      areaHa: extractAreaHa(feature.properties) ?? fallbackArea,
+    });
+  }
+  return Array.from(unique.values()).sort((left, right) => {
+    const leftArea = left.areaHa ?? Number.POSITIVE_INFINITY;
+    const rightArea = right.areaHa ?? Number.POSITIVE_INFINITY;
+    if (leftArea !== rightArea) return leftArea - rightArea;
+    return left.featureKey.localeCompare(right.featureKey);
+  });
+}
+
+function closeOverlapSelector() {
+  overlapSelector.value = {
+    open: false,
+    x: 0,
+    y: 0,
+    candidates: [],
+  };
+}
+
+function openOverlapSelector(
+  candidates: OverlapCandidate[],
+  point: { x: number; y: number },
+) {
+  overlapSelector.value = {
+    open: true,
+    x: point.x + 12,
+    y: point.y + 12,
+    candidates,
+  };
+}
+
+function formatAreaHa(areaHa: number) {
+  return `${areaHa.toLocaleString("pt-BR", {
+    minimumFractionDigits: areaHa % 1 === 0 ? 0 : 2,
+    maximumFractionDigits: 2,
+  })} ha`;
 }
 
 function fallbackBounds(): [number, number, number, number] | null {
@@ -363,6 +535,11 @@ function selectedFilterExpression(): ExpressionSpecification {
 function interactiveLayerIds() {
   const ids = [FILL_LAYER_ID, FALLBACK_FILL_LAYER_ID];
   return ids.filter((id) => Boolean(map?.getLayer(id)));
+}
+
+function selectOverlapCandidate(featureKey: string) {
+  closeOverlapSelector();
+  emit("update:selectedCarKey", featureKey);
 }
 
 function updateSearchMarker() {
@@ -544,6 +721,9 @@ async function renderVectorSource() {
       type: "fill",
       source: SOURCE_ID,
       "source-layer": source.sourceLayer,
+      layout: {
+        "fill-sort-key": overlapSortKeyExpression(),
+      },
       paint: {
         "fill-color": buildFeatureFillColorExpression(),
         "fill-opacity": 0.18,
@@ -557,6 +737,9 @@ async function renderVectorSource() {
       type: "line",
       source: SOURCE_ID,
       "source-layer": source.sourceLayer,
+      layout: {
+        "line-sort-key": overlapSortKeyExpression(),
+      },
       paint: {
         "line-color": "#0f172a",
         "line-width": 1.1,
@@ -610,6 +793,9 @@ function renderFallbackSource() {
       id: FALLBACK_FILL_LAYER_ID,
       type: "fill",
       source: FALLBACK_SOURCE_ID,
+      layout: {
+        "fill-sort-key": overlapSortKeyExpression(),
+      },
       paint: {
         "fill-color": buildFeatureFillColorExpression(),
         "fill-opacity": 0.18,
@@ -622,6 +808,9 @@ function renderFallbackSource() {
       id: FALLBACK_LINE_LAYER_ID,
       type: "line",
       source: FALLBACK_SOURCE_ID,
+      layout: {
+        "line-sort-key": overlapSortKeyExpression(),
+      },
       paint: {
         "line-color": "#0f172a",
         "line-width": 1.1,
@@ -657,6 +846,7 @@ function clearRenderableSources() {
     FALLBACK_LINE_LAYER_ID,
     FALLBACK_FILL_LAYER_ID,
   ]);
+  closeOverlapSelector();
   setInternalLoading(false);
 }
 
@@ -678,14 +868,21 @@ function bindMapEvents() {
 
   map.on("click", (event) => {
     contextMenu.value.open = false;
+    if (props.printMode) return;
     const features = map?.queryRenderedFeatures(event.point, { layers: interactiveLayerIds() }) ?? [];
-    const feature = features[0] as maplibregl.MapGeoJSONFeature | undefined;
-    if (!feature) {
+    const candidates = normalizeOverlapCandidates(features as maplibregl.MapGeoJSONFeature[]);
+    if (!candidates.length) {
+      closeOverlapSelector();
       emit("update:selectedCarKey", "");
       return;
     }
-    const nextKey = String(feature.properties?.feature_key ?? "");
-    emit("update:selectedCarKey", nextKey === props.selectedCarKey ? "" : nextKey);
+    if (candidates.length === 1) {
+      closeOverlapSelector();
+      const nextKey = candidates[0]?.featureKey ?? "";
+      emit("update:selectedCarKey", nextKey === props.selectedCarKey ? "" : nextKey);
+      return;
+    }
+    openOverlapSelector(candidates, event.point);
   });
 
   map.on("mousemove", (event) => {
@@ -719,12 +916,21 @@ function bindMapEvents() {
 
   map.on("movestart", () => {
     contextMenu.value.open = false;
+    closeOverlapSelector();
   });
 }
 
 function refresh() {
   if (!map) return;
   map.resize();
+}
+
+function handleWindowPointerDown(event: PointerEvent) {
+  if (!overlapSelector.value.open) return;
+  const target = event.target;
+  if (!(target instanceof Node)) return;
+  if (overlapSelectorEl.value?.contains(target)) return;
+  closeOverlapSelector();
 }
 
 function shouldShiftPrintMap() {
@@ -916,6 +1122,7 @@ async function buildExportMapBlob(
         type: "fill",
         source: SOURCE_ID,
         "source-layer": props.activeSearch.vectorSource.sourceLayer,
+        layout: { "fill-sort-key": overlapSortKeyExpression() },
         paint: { "fill-color": buildFeatureFillColorExpression(), "fill-opacity": 0.18 },
       });
       exportMap.addLayer({
@@ -923,6 +1130,7 @@ async function buildExportMapBlob(
         type: "line",
         source: SOURCE_ID,
         "source-layer": props.activeSearch.vectorSource.sourceLayer,
+        layout: { "line-sort-key": overlapSortKeyExpression() },
         paint: { "line-color": "#0f172a", "line-width": 1.1 },
       });
       exportMap.addLayer({
@@ -943,12 +1151,14 @@ async function buildExportMapBlob(
         id: FALLBACK_FILL_LAYER_ID,
         type: "fill",
         source: FALLBACK_SOURCE_ID,
+        layout: { "fill-sort-key": overlapSortKeyExpression() },
         paint: { "fill-color": buildFeatureFillColorExpression(), "fill-opacity": 0.18 },
       });
       exportMap.addLayer({
         id: FALLBACK_LINE_LAYER_ID,
         type: "line",
         source: FALLBACK_SOURCE_ID,
+        layout: { "line-sort-key": overlapSortKeyExpression() },
         paint: { "line-color": "#0f172a", "line-width": 1.1 },
       });
       exportMap.addLayer({
@@ -1079,6 +1289,10 @@ onMounted(() => {
   printResizeObserver.observe(mapEl.value);
 });
 
+onMounted(() => {
+  window.addEventListener("pointerdown", handleWindowPointerDown, true);
+});
+
 watch(
   hasRenderableSearch,
   async (isRenderable) => {
@@ -1092,6 +1306,7 @@ watch(
 watch(
   () => props.activeSearch,
   async () => {
+    closeOverlapSelector();
     if (!map || !map.isStyleLoaded()) return;
     await refreshMapToken();
     await syncMapSources();
@@ -1102,6 +1317,7 @@ watch(
 watch(
   () => props.fallbackFeatures,
   () => {
+    closeOverlapSelector();
     if (!map || !map.isStyleLoaded()) return;
     void syncMapSources();
   },
@@ -1131,9 +1347,20 @@ watch(
   },
 );
 
+watch(
+  () => props.printMode,
+  (isPrintMode) => {
+    if (isPrintMode) {
+      closeOverlapSelector();
+    }
+  },
+);
+
 onBeforeUnmount(() => {
+  window.removeEventListener("pointerdown", handleWindowPointerDown, true);
   printResizeObserver?.disconnect();
   printResizeObserver = null;
+  closeOverlapSelector();
   removeHoverPopup();
   searchMarker?.remove();
   searchMarker = null;

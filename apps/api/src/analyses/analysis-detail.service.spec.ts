@@ -513,6 +513,84 @@ describe('AnalysisDetailService', () => {
     expect(sqlArg?.sql ?? '').toContain('"analysis_result"');
   });
 
+  it('normalizes geometry collections to polygonal geojson geometries', async () => {
+    const prisma = makePrismaMock();
+    prisma.analysis.findUnique.mockResolvedValue({
+      id: 'analysis-1',
+      carKey: 'CAR-1',
+      analysisDate: new Date('2026-01-31'),
+      analysisKind: AnalysisKind.STANDARD,
+      status: 'completed',
+    });
+    prisma.$queryRaw.mockResolvedValueOnce([
+      {
+        analysis_result_id: 'result-1',
+        category_code: 'PRODES',
+        dataset_code: 'PRODES_CERRADO_NB_2020',
+        dataset_label: 'PRODES Cerrado 2020',
+        snapshot_date: null,
+        feature_id: 10,
+        feature_key: null,
+        natural_id: null,
+        natural_id_key: null,
+        display_name: null,
+        display_name_key: null,
+        ucs_categoria: null,
+        sicar_area_m2: null,
+        feature_area_m2: null,
+        overlap_area_m2: null,
+        overlap_pct_of_sicar: null,
+        geom: JSON.stringify({
+          type: 'GeometryCollection',
+          geometries: [
+            {
+              type: 'Polygon',
+              coordinates: [
+                [
+                  [0, 0],
+                  [0, 1],
+                  [1, 1],
+                  [1, 0],
+                  [0, 0],
+                ],
+              ],
+            },
+            {
+              type: 'LineString',
+              coordinates: [
+                [0, 0],
+                [1, 1],
+              ],
+            },
+          ],
+        }),
+      },
+    ]);
+
+    const docInfo = { buildDocInfo: jest.fn() };
+    const service = new AnalysisDetailService(
+      prisma as any,
+      docInfo as any,
+      () => now,
+    );
+
+    const result = await service.getGeoJsonById('analysis-1');
+
+    expect(result.features).toHaveLength(1);
+    expect(result.features[0]?.geometry).toEqual({
+      type: 'Polygon',
+      coordinates: [
+        [
+          [0, 0],
+          [0, 1],
+          [1, 1],
+          [1, 0],
+          [0, 0],
+        ],
+      ],
+    });
+  });
+
   it('splits UCS datasets into a dedicated group without showing the raw UCS dataset', () => {
     const prisma = makePrismaMock();
     const docInfo = { buildDocInfo: jest.fn() };
