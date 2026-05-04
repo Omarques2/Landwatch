@@ -19,9 +19,11 @@ type MockMapInstance = {
   getSource: ReturnType<typeof vi.fn>;
   getZoom: ReturnType<typeof vi.fn>;
   isStyleLoaded: ReturnType<typeof vi.fn>;
+  jumpTo: ReturnType<typeof vi.fn>;
   loaded: ReturnType<typeof vi.fn>;
   off: ReturnType<typeof vi.fn>;
   on: ReturnType<typeof vi.fn>;
+  querySourceFeatures: ReturnType<typeof vi.fn>;
   queryRenderedFeatures: ReturnType<typeof vi.fn>;
   remove: ReturnType<typeof vi.fn>;
   removeLayer: ReturnType<typeof vi.fn>;
@@ -62,6 +64,7 @@ const { createdMaps, mapConstructor } = vi.hoisted(() => {
       getSource: vi.fn((sourceId: string) => sources.get(sourceId) ?? null),
       getZoom: vi.fn(() => 8),
       isStyleLoaded: vi.fn(() => true),
+      jumpTo: vi.fn(),
       loaded: vi.fn(() => true),
       off: vi.fn((event: string, handler?: MockMapHandler) => {
         if (!handler || !handlers[event]) return;
@@ -74,6 +77,7 @@ const { createdMaps, mapConstructor } = vi.hoisted(() => {
           void handler();
         }
       }),
+      querySourceFeatures: vi.fn(() => []),
       queryRenderedFeatures: vi.fn(() => []),
       remove: vi.fn(),
       removeLayer: vi.fn((layerId: string) => {
@@ -418,6 +422,105 @@ describe("CarSelectMap", () => {
       .findAll('[data-testid="overlap-car-option-key"]')
       .map((node) => node.text());
     expect(optionLabels).toEqual(["CAR-PEQUENO", "CAR-GRANDE"]);
+  });
+
+  it("filters base layers to the selected CAR and refits bounds when hideUnselectedCars is enabled", async () => {
+    const wrapper = mount(CarSelectMap, {
+      props: {
+        center: { lat: -10, lng: -50 },
+        selectedCarKey: "",
+        hideUnselectedCars: false,
+        activeSearch: buildActiveSearch(),
+      },
+    });
+
+    await flushPromises();
+
+    const mapInstance = createdMaps[0]!;
+    mapInstance.querySourceFeatures.mockReturnValue([
+      {
+        properties: { feature_key: "CAR-ALVO", area_ha: 10 },
+        geometry: {
+          type: "Polygon",
+          coordinates: [[
+            [-48.55, -20.60],
+            [-48.55, -20.58],
+            [-48.50, -20.58],
+            [-48.50, -20.60],
+            [-48.55, -20.60],
+          ]],
+        },
+      },
+    ]);
+
+    await wrapper.setProps({
+      selectedCarKey: "CAR-ALVO",
+      hideUnselectedCars: true,
+    });
+    await flushPromises();
+
+    expect(mapInstance.setFilter).toHaveBeenCalledWith(
+      "cars-search-fill",
+      ["==", ["get", "feature_key"], "CAR-ALVO"],
+    );
+    expect(mapInstance.setFilter).toHaveBeenCalledWith(
+      "cars-search-line",
+      ["==", ["get", "feature_key"], "CAR-ALVO"],
+    );
+    expect(mapInstance.fitBounds).toHaveBeenLastCalledWith(
+      [
+        [-48.55, -20.6],
+        [-48.5, -20.58],
+      ],
+      expect.objectContaining({ duration: 0 }),
+    );
+  });
+
+  it("restores all CARs when hideUnselectedCars is disabled", async () => {
+    const wrapper = mount(CarSelectMap, {
+      props: {
+        center: { lat: -10, lng: -50 },
+        selectedCarKey: "CAR-ALVO",
+        hideUnselectedCars: true,
+        activeSearch: buildActiveSearch(),
+      },
+    });
+
+    await flushPromises();
+
+    const mapInstance = createdMaps[0]!;
+    await wrapper.setProps({ hideUnselectedCars: false });
+    await flushPromises();
+
+    expect(mapInstance.setFilter).toHaveBeenCalledWith(
+      "cars-search-fill",
+      ["has", "feature_key"],
+    );
+    expect(mapInstance.setFilter).toHaveBeenCalledWith(
+      "cars-search-line",
+      ["has", "feature_key"],
+    );
+  });
+
+  it("does not auto-fit during print preparation when autoZoomOnExport is disabled", async () => {
+    const wrapper = mount(CarSelectMap, {
+      props: {
+        center: { lat: -10, lng: -50 },
+        selectedCarKey: "CAR-ALVO",
+        hideUnselectedCars: true,
+        autoZoomOnExport: false,
+        activeSearch: buildActiveSearch(),
+      },
+    });
+
+    await flushPromises();
+
+    const mapInstance = createdMaps[0]!;
+    const fitBoundsCallsBeforePrint = mapInstance.fitBounds.mock.calls.length;
+
+    await (wrapper.vm as unknown as { prepareForPrint: () => Promise<void> }).prepareForPrint();
+
+    expect(mapInstance.fitBounds.mock.calls.length).toBe(fitBoundsCallsBeforePrint);
   });
 
   it("shows the disabled banner when MV is refreshing", () => {

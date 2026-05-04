@@ -163,14 +163,18 @@ const props = withDefaults(defineProps<{
   activeSearch?: CarSearchVectorMapResponse | null;
   fallbackFeatures?: FallbackFeature[];
   disabled?: boolean;
+  hideUnselectedCars?: boolean;
   loading?: boolean;
+  autoZoomOnExport?: boolean;
   printMode?: boolean;
   showSatellite?: boolean;
 }>(), {
   activeSearch: null,
   fallbackFeatures: () => [],
   disabled: false,
+  hideUnselectedCars: false,
   loading: false,
+  autoZoomOnExport: true,
   printMode: false,
   showSatellite: true,
 });
@@ -532,6 +536,17 @@ function selectedFilterExpression(): ExpressionSpecification {
   return ["==", ["get", "feature_key"], props.selectedCarKey] as ExpressionSpecification;
 }
 
+function baseVisibilityFilterExpression(): ExpressionSpecification {
+  if (props.hideUnselectedCars && props.selectedCarKey) {
+    return selectedFilterExpression();
+  }
+  return ["has", "feature_key"] as ExpressionSpecification;
+}
+
+function shouldHideUnselectedCars() {
+  return Boolean(props.hideUnselectedCars && props.selectedCarKey);
+}
+
 function interactiveLayerIds() {
   const ids = [FILL_LAYER_ID, FALLBACK_FILL_LAYER_ID];
   return ids.filter((id) => Boolean(map?.getLayer(id)));
@@ -628,12 +643,18 @@ function fitToBounds(
   map.resize();
 }
 
-function fitToSearchBounds(force = false) {
-  fitToBounds(searchBounds(), {
+function fitToVisibleBounds(force = false) {
+  const selectedBounds = shouldHideUnselectedCars() ? selectedFeatureBounds() : null;
+  fitToBounds(selectedBounds ?? searchBounds(), {
     force,
     padding: props.printMode ? 24 : 40,
     maxZoom: props.printMode ? 15.5 : 16.5,
   });
+}
+
+function exportFocusBounds() {
+  if (!props.autoZoomOnExport) return null;
+  return (shouldHideUnselectedCars() ? selectedFeatureBounds() : null) ?? searchBounds();
 }
 
 function removeSourceAndLayer(sourceId: string, layerIds: string[]) {
@@ -652,6 +673,52 @@ function syncSelectedLayer() {
   if (map.getLayer(FALLBACK_SELECTED_LAYER_ID)) {
     map.setFilter(FALLBACK_SELECTED_LAYER_ID, selectedFilterExpression());
   }
+}
+
+function syncBaseLayerFilters() {
+  if (!map) return;
+  const filter = baseVisibilityFilterExpression();
+  if (map.getLayer(FILL_LAYER_ID)) {
+    map.setFilter(FILL_LAYER_ID, filter);
+  }
+  if (map.getLayer(LINE_LAYER_ID)) {
+    map.setFilter(LINE_LAYER_ID, filter);
+  }
+  if (map.getLayer(FALLBACK_FILL_LAYER_ID)) {
+    map.setFilter(FALLBACK_FILL_LAYER_ID, filter);
+  }
+  if (map.getLayer(FALLBACK_LINE_LAYER_ID)) {
+    map.setFilter(FALLBACK_LINE_LAYER_ID, filter);
+  }
+}
+
+function extractFeatureBoundsFromMapFeatures(features: Array<{ geometry?: Geometry; properties?: Record<string, unknown> }>) {
+  const acc: [number, number, number, number] = [Infinity, Infinity, -Infinity, -Infinity];
+  for (const feature of features) {
+    if (!feature.geometry) continue;
+    extractBoundsFromGeometry(feature.geometry, acc);
+  }
+  if (!Number.isFinite(acc[0]) || !Number.isFinite(acc[1]) || !Number.isFinite(acc[2]) || !Number.isFinite(acc[3])) {
+    return null;
+  }
+  return acc;
+}
+
+function selectedFeatureBounds() {
+  if (!props.selectedCarKey) return null;
+  const fallbackFeature = props.fallbackFeatures.find((feature) => feature.feature_key === props.selectedCarKey);
+  if (fallbackFeature) {
+    return extractFeatureBoundsFromMapFeatures([{ geometry: fallbackFeature.geom }]);
+  }
+  if (!map || !props.activeSearch?.vectorSource) return null;
+  const sourceFeatures = map.querySourceFeatures(
+    SOURCE_ID,
+    { sourceLayer: props.activeSearch.vectorSource.sourceLayer } as maplibregl.QuerySourceFeatureOptions,
+  ) as maplibregl.MapGeoJSONFeature[];
+  const matchingFeatures = sourceFeatures.filter((feature) => {
+    return String(feature.properties?.feature_key ?? "") === props.selectedCarKey;
+  });
+  return extractFeatureBoundsFromMapFeatures(matchingFeatures as Array<{ geometry?: Geometry; properties?: Record<string, unknown> }>);
 }
 
 function searchFromContext() {
@@ -688,7 +755,7 @@ async function waitForMapIdle(localMap: maplibregl.Map, timeoutMs = 5000) {
   });
 }
 
-async function renderVectorSource() {
+async function renderVectorSource(options?: { fitToBounds?: boolean }) {
   if (!map || !props.activeSearch?.vectorSource) return;
   const renderRequest = ++activeRenderRequest;
   setInternalLoading(true);
@@ -721,6 +788,7 @@ async function renderVectorSource() {
       type: "fill",
       source: SOURCE_ID,
       "source-layer": source.sourceLayer,
+      filter: baseVisibilityFilterExpression(),
       layout: {
         "fill-sort-key": overlapSortKeyExpression(),
       },
@@ -737,6 +805,7 @@ async function renderVectorSource() {
       type: "line",
       source: SOURCE_ID,
       "source-layer": source.sourceLayer,
+      filter: baseVisibilityFilterExpression(),
       layout: {
         "line-sort-key": overlapSortKeyExpression(),
       },
@@ -763,16 +832,19 @@ async function renderVectorSource() {
     });
   }
 
+  syncBaseLayerFilters();
   syncSelectedLayer();
   updateSearchMarker();
-  fitToSearchBounds(true);
+  if (options?.fitToBounds ?? true) {
+    fitToVisibleBounds(true);
+  }
   await waitForMapIdle(map);
   if (renderRequest === activeRenderRequest) {
     setInternalLoading(false);
   }
 }
 
-function renderFallbackSource() {
+function renderFallbackSource(options?: { fitToBounds?: boolean }) {
   if (!map) return;
   removeSourceAndLayer(SOURCE_ID, [SELECTED_LAYER_ID, LINE_LAYER_ID, FILL_LAYER_ID]);
 
@@ -793,6 +865,7 @@ function renderFallbackSource() {
       id: FALLBACK_FILL_LAYER_ID,
       type: "fill",
       source: FALLBACK_SOURCE_ID,
+      filter: baseVisibilityFilterExpression(),
       layout: {
         "fill-sort-key": overlapSortKeyExpression(),
       },
@@ -808,6 +881,7 @@ function renderFallbackSource() {
       id: FALLBACK_LINE_LAYER_ID,
       type: "line",
       source: FALLBACK_SOURCE_ID,
+      filter: baseVisibilityFilterExpression(),
       layout: {
         "line-sort-key": overlapSortKeyExpression(),
       },
@@ -833,9 +907,12 @@ function renderFallbackSource() {
     });
   }
 
+  syncBaseLayerFilters();
   syncSelectedLayer();
   updateSearchMarker();
-  fitToSearchBounds(true);
+  if (options?.fitToBounds ?? true) {
+    fitToVisibleBounds(true);
+  }
   setInternalLoading(false);
 }
 
@@ -850,14 +927,14 @@ function clearRenderableSources() {
   setInternalLoading(false);
 }
 
-async function syncMapSources() {
+async function syncMapSources(options?: { fitToBounds?: boolean }) {
   if (!map || !map.isStyleLoaded()) return;
   if (props.activeSearch?.vectorSource) {
-    await renderVectorSource();
+    await renderVectorSource(options);
     return;
   }
   if (props.fallbackFeatures.length) {
-    renderFallbackSource();
+    renderFallbackSource(options);
     return;
   }
   clearRenderableSources();
@@ -933,10 +1010,20 @@ function handleWindowPointerDown(event: PointerEvent) {
   closeOverlapSelector();
 }
 
-function shouldShiftPrintMap() {
-  if (!map || typeof window === "undefined") return false;
-  const canvas = map.getCanvas();
+function shouldShiftPrintMap(targetMap: maplibregl.Map) {
+  if (typeof window === "undefined") return false;
+  const canvas = targetMap.getCanvas();
   return window.innerWidth >= 1400 && canvas.clientWidth >= 900;
+}
+
+function applyPrintCenterShift(targetMap: maplibregl.Map) {
+  if (!shouldShiftPrintMap(targetMap)) return;
+  const currentCenter = targetMap.project(targetMap.getCenter());
+  const shiftedCenter = targetMap.unproject([
+    currentCenter.x + targetMap.getCanvas().clientWidth * 0.10,
+    currentCenter.y,
+  ]);
+  targetMap.jumpTo({ center: shiftedCenter });
 }
 
 async function waitForPrintFrame() {
@@ -950,7 +1037,7 @@ async function waitForPrintFrame() {
 
 async function prepareForPrint() {
   await initMap();
-  await syncMapSources();
+  await syncMapSources({ fitToBounds: props.autoZoomOnExport });
   await waitForPrintFrame();
   refresh();
   if (map && !prePrintCamera) {
@@ -960,14 +1047,7 @@ async function prepareForPrint() {
       bearing: map.getBearing(),
       pitch: map.getPitch(),
     };
-    if (shouldShiftPrintMap()) {
-      const currentCenter = map.project(prePrintCamera.center);
-      const shiftedCenter = map.unproject([
-        currentCenter.x + map.getCanvas().clientWidth * 0.10,
-        currentCenter.y,
-      ]);
-      map.jumpTo({ center: shiftedCenter });
-    }
+    applyPrintCenterShift(map);
   }
   if (map) await waitForMapIdle(map, 2500);
 }
@@ -1122,6 +1202,7 @@ async function buildExportMapBlob(
         type: "fill",
         source: SOURCE_ID,
         "source-layer": props.activeSearch.vectorSource.sourceLayer,
+        filter: baseVisibilityFilterExpression(),
         layout: { "fill-sort-key": overlapSortKeyExpression() },
         paint: { "fill-color": buildFeatureFillColorExpression(), "fill-opacity": 0.18 },
       });
@@ -1130,6 +1211,7 @@ async function buildExportMapBlob(
         type: "line",
         source: SOURCE_ID,
         "source-layer": props.activeSearch.vectorSource.sourceLayer,
+        filter: baseVisibilityFilterExpression(),
         layout: { "line-sort-key": overlapSortKeyExpression() },
         paint: { "line-color": "#0f172a", "line-width": 1.1 },
       });
@@ -1151,6 +1233,7 @@ async function buildExportMapBlob(
         id: FALLBACK_FILL_LAYER_ID,
         type: "fill",
         source: FALLBACK_SOURCE_ID,
+        filter: baseVisibilityFilterExpression(),
         layout: { "fill-sort-key": overlapSortKeyExpression() },
         paint: { "fill-color": buildFeatureFillColorExpression(), "fill-opacity": 0.18 },
       });
@@ -1158,6 +1241,7 @@ async function buildExportMapBlob(
         id: FALLBACK_LINE_LAYER_ID,
         type: "line",
         source: FALLBACK_SOURCE_ID,
+        filter: baseVisibilityFilterExpression(),
         layout: { "line-sort-key": overlapSortKeyExpression() },
         paint: { "line-color": "#0f172a", "line-width": 1.1 },
       });
@@ -1175,7 +1259,7 @@ async function buildExportMapBlob(
       props.activeSearch?.searchCenter?.lat ?? props.center.lat,
     ];
 
-    const bounds = options?.bounds ?? searchBounds();
+    const bounds = options?.bounds ?? exportFocusBounds();
     if (bounds) {
       exportMap.fitBounds(
         [
@@ -1196,6 +1280,7 @@ async function buildExportMapBlob(
         pitch: map.getPitch(),
       });
     }
+    applyPrintCenterShift(exportMap);
 
     await waitForMapIdle(exportMap);
     const canvas = exportMap.getCanvas();
@@ -1251,7 +1336,7 @@ async function exportPng(filename: string) {
   const width = Math.max(1200, Math.round(canvas.clientWidth * 3));
   const height = Math.max(750, Math.round(canvas.clientHeight * 3));
   const blob = await buildExportMapBlob(width, height, props.showSatellite, {
-    bounds: searchBounds(),
+    bounds: exportFocusBounds(),
     padding: 96,
     maxZoom: 18.5,
     compressPng: true,
@@ -1327,7 +1412,21 @@ watch(
 watch(
   () => props.selectedCarKey,
   () => {
+    syncBaseLayerFilters();
     syncSelectedLayer();
+    if (shouldHideUnselectedCars()) {
+      fitToVisibleBounds(true);
+    }
+  },
+);
+
+watch(
+  () => props.hideUnselectedCars,
+  () => {
+    syncBaseLayerFilters();
+    if (map && map.isStyleLoaded()) {
+      fitToVisibleBounds(true);
+    }
   },
 );
 

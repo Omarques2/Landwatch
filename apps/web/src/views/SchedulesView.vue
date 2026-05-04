@@ -135,10 +135,10 @@
             v-model="form.frequency"
             data-testid="schedule-frequency-select"
           >
-            <option value="DAILY">DAILY</option>
-            <option value="WEEKLY">WEEKLY</option>
-            <option value="BIWEEKLY">BIWEEKLY</option>
-            <option value="MONTHLY">MONTHLY</option>
+            <option value="DAILY">Diário</option>
+            <option value="WEEKLY">Semanal</option>
+            <option value="BIWEEKLY">Quinzenal</option>
+            <option value="MONTHLY">Mensal</option>
           </UiSelect>
           <div
             v-if="form.frequency === 'DAILY'"

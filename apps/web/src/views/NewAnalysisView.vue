@@ -146,18 +146,20 @@
         <div>
           <UiLabel>Latitude</UiLabel>
           <UiInput
-            v-model="center.lat"
+            :model-value="center.lat"
             data-testid="gps-lat"
             placeholder="-10.0000 ou 10° 00' 00&quot; S"
+            @update:model-value="onSearchLatInput"
           />
         </div>
         <div>
           <UiLabel>Longitude</UiLabel>
           <div class="flex gap-2">
             <UiInput
-              v-model="center.lng"
+              :model-value="center.lng"
               data-testid="gps-lng"
               placeholder="-50.0000 ou 50° 00' 00&quot; W"
+              @update:model-value="onSearchLngInput"
             />
             <UiButton
               size="icon"
@@ -220,6 +222,28 @@
         >
           Baixar PDF
         </UiButton>
+        <label
+          class="ml-auto inline-flex items-center gap-2 rounded-full border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground"
+          data-testid="hide-unselected-toggle"
+        >
+          <input
+            v-model="hideUnselectedCars"
+            type="checkbox"
+            class="h-4 w-4 accent-emerald-600"
+          />
+          <span>Ocultar CARs não selecionados</span>
+        </label>
+        <label
+          class="inline-flex items-center gap-2 rounded-full border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground"
+          data-testid="auto-zoom-toggle"
+        >
+          <input
+            v-model="searchAutoZoom"
+            type="checkbox"
+            class="h-4 w-4 accent-emerald-600"
+          />
+          <span>Auto zoom</span>
+        </label>
       </div>
       <div v-if="searchMessage" class="mt-2 text-xs text-muted-foreground search-controls">
         {{ searchMessage }}
@@ -234,7 +258,9 @@
           :active-search="activeSearch"
           :fallback-features="fallbackCars"
           :disabled="mvBusy"
+          :hide-unselected-cars="hideUnselectedCars"
           :loading="searchBusy"
+          :auto-zoom-on-export="searchAutoZoom"
           :print-mode="searchPrintMode"
           @center-change="updateCenter"
           @search-here="searchCarsFromMap"
@@ -329,7 +355,7 @@ const route = useRoute();
 const isSubmitting = ref(false);
 const confirmMissingOpen = ref(false);
 
-const center = reactive({ lat: "-15.5", lng: "-55.5" });
+const center = reactive({ lat: "", lng: "" });
 const parsedCenter = ref({ lat: -15.5, lng: -55.5 });
 const centerValue = computed(() => parsedCenter.value);
 const searchMessage = ref("");
@@ -338,6 +364,8 @@ const searchBusy = ref(false);
 const mapLoading = ref(false);
 const pngBusy = ref(false);
 const searchRadiusKm = ref(5);
+const hideUnselectedCars = ref(false);
+const searchAutoZoom = ref(true);
 const activeSearch = ref<CarSearchVectorMapResponse | null>(null);
 const fallbackCars = ref<CarFallbackFeature[]>([]);
 const searchPrintMode = ref(false);
@@ -731,6 +759,59 @@ function onDocCommit() {
 
 function onDateInput(value: string) {
   analysisForm.analysisDate = maskDate(value ?? "");
+}
+
+function applySearchCoordinates(lat: number, lng: number) {
+  center.lat = lat.toFixed(6);
+  center.lng = lng.toFixed(6);
+  parsedCenter.value = { lat, lng };
+}
+
+function parseCombinedCoordinates(value: string) {
+  const raw = value.trim();
+  if (!raw) return null;
+
+  const decimalMatch = raw.match(
+    /^\s*([+-]?\d+(?:[.,]\d+)?)\s*[,;\s]\s*([+-]?\d+(?:[.,]\d+)?)\s*$/,
+  );
+  if (decimalMatch) {
+    const lat = parseCoordinate(decimalMatch[1], "lat");
+    const lng = parseCoordinate(decimalMatch[2], "lng");
+    if (lat !== null && lng !== null) {
+      return { lat, lng };
+    }
+  }
+
+  const hemiMatches: string[] = [];
+  let currentChunk = "";
+  for (const char of raw.toUpperCase()) {
+    currentChunk += char;
+    if (/[NSEWO]/.test(char) && /\d/.test(currentChunk)) {
+      hemiMatches.push(currentChunk.trim());
+      currentChunk = "";
+      if (hemiMatches.length === 2) break;
+    }
+  }
+  if (hemiMatches.length < 2) return null;
+
+  const lat = parseCoordinate(hemiMatches[0], "lat");
+  const lng = parseCoordinate(hemiMatches[1], "lng");
+  if (lat === null || lng === null) return null;
+  return { lat, lng };
+}
+
+function onSearchLatInput(value: string) {
+  const nextValue = value ?? "";
+  const combined = parseCombinedCoordinates(nextValue);
+  if (combined) {
+    applySearchCoordinates(combined.lat, combined.lng);
+    return;
+  }
+  center.lat = nextValue;
+}
+
+function onSearchLngInput(value: string) {
+  center.lng = value ?? "";
 }
 
 function normalizeAnalysisDate(value: string) {

@@ -64,10 +64,10 @@ describe('SchedulesView', () => {
     const content = document.body.textContent ?? '';
     expect(content).toContain('STANDARD');
     expect(content).toContain('DETER');
-    expect(content).toContain('DAILY');
-    expect(content).toContain('WEEKLY');
-    expect(content).toContain('BIWEEKLY');
-    expect(content).toContain('MONTHLY');
+    expect(content).toContain('Diário');
+    expect(content).toContain('Semanal');
+    expect(content).toContain('Quinzenal');
+    expect(content).toContain('Mensal');
   });
 
   it('runs schedule now and redirects to the created analysis', async () => {

@@ -26,8 +26,8 @@ vi.mock("@/state/landwatch-status", () => ({
 vi.mock("@/components/maps/CarSelectMap.vue", () => ({
   default: {
     name: "CarSelectMapStub",
-    props: ["selectedCarKey"],
-    template: '<div data-testid="car-select-map"></div>',
+    props: ["selectedCarKey", "hideUnselectedCars", "autoZoomOnExport"],
+    template: '<div data-testid="car-select-map" :data-hide-unselected-cars="String(hideUnselectedCars)" :data-auto-zoom-on-export="String(autoZoomOnExport)"></div>',
   },
 }));
 
@@ -109,6 +109,55 @@ describe("NewAnalysisView", () => {
         radiusMeters: 5000,
       }),
     );
+  });
+
+  it("separa latitude e longitude ao colar coordenadas decimais no campo de latitude", async () => {
+    routePath = "/analyses/search";
+    const wrapper = mount(NewAnalysisView);
+
+    await wrapper.find('[data-testid="gps-lat"]').setValue("-20.557683, -48.769517");
+
+    const latInput = wrapper.find('[data-testid="gps-lat"]').element as HTMLInputElement;
+    const lngInput = wrapper.find('[data-testid="gps-lng"]').element as HTMLInputElement;
+    expect(latInput.value).toBe("-20.557683");
+    expect(lngInput.value).toBe("-48.769517");
+  });
+
+  it("separa latitude e longitude ao colar coordenadas DMS no campo de latitude", async () => {
+    routePath = "/analyses/search";
+    const wrapper = mount(NewAnalysisView);
+
+    await wrapper.find('[data-testid="gps-lat"]').setValue("20°33'27.7\"S 48°46'10.3\"W");
+
+    const latInput = wrapper.find('[data-testid="gps-lat"]').element as HTMLInputElement;
+    const lngInput = wrapper.find('[data-testid="gps-lng"]').element as HTMLInputElement;
+    expect(latInput.value).toBe("-20.557694");
+    expect(lngInput.value).toBe("-48.769528");
+  });
+
+  it("permite ocultar CARs não selecionados na busca", async () => {
+    routePath = "/analyses/search";
+    const wrapper = mount(NewAnalysisView);
+
+    const toggle = wrapper.get('[data-testid="hide-unselected-toggle"] input');
+    expect(wrapper.get('[data-testid="car-select-map"]').attributes("data-hide-unselected-cars")).toBe("false");
+
+    await toggle.setValue(true);
+
+    expect(wrapper.get('[data-testid="car-select-map"]').attributes("data-hide-unselected-cars")).toBe("true");
+  });
+
+  it("mantém auto zoom ativo por padrão e permite desligar para exportação", async () => {
+    routePath = "/analyses/search";
+    const wrapper = mount(NewAnalysisView);
+
+    const toggle = wrapper.get('[data-testid="auto-zoom-toggle"] input');
+    expect((toggle.element as HTMLInputElement).checked).toBe(true);
+    expect(wrapper.get('[data-testid="car-select-map"]').attributes("data-auto-zoom-on-export")).toBe("true");
+
+    await toggle.setValue(false);
+
+    expect(wrapper.get('[data-testid="car-select-map"]').attributes("data-auto-zoom-on-export")).toBe("false");
   });
 
   it("shows warning and disables submit when MV is refreshing", async () => {
