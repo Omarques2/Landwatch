@@ -1,13 +1,13 @@
 import { Controller, Get, Req, UnauthorizedException } from '@nestjs/common';
 import type { AuthedRequest } from '../auth/authed-request.type';
+import { AllowInactiveSelfStatus } from '../auth/allow-inactive-self-status.decorator';
 import { UsersService } from './users.service';
 
 @Controller('v1/users')
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
-  @Get('me')
-  async me(@Req() req: AuthedRequest) {
+  private async buildSelfPayload(req: AuthedRequest) {
     const claims = req.user;
     if (!claims) {
       throw new UnauthorizedException({
@@ -28,5 +28,16 @@ export class UsersController {
       lastLoginAt: user.lastLoginAt ?? null,
       memberships,
     };
+  }
+
+  @Get('me')
+  async me(@Req() req: AuthedRequest) {
+    return this.buildSelfPayload(req);
+  }
+
+  @AllowInactiveSelfStatus()
+  @Get('access-status')
+  async accessStatus(@Req() req: AuthedRequest) {
+    return this.buildSelfPayload(req);
   }
 }

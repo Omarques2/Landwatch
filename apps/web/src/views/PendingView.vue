@@ -12,7 +12,7 @@
           Seu acesso foi recusado. Entre em contato com o administrador para reativar.
         </span>
         <span v-else>
-          Seu acesso foi criado, mas ainda não foi ativado. Assim que o administrador liberar, você será redirecionado.
+          Seu acesso foi criado, mas ainda não foi ativado. Quando administrador liberar, clique em verificar novamente ou atualize página.
         </span>
       </p>
 
@@ -46,13 +46,11 @@
 </template>
 
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from "vue";
+import { onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
-import { http } from "@/api/http";
-import { unwrapData, type ApiEnvelope } from "@/api/envelope";
-import { acquireApiToken, logout } from "../auth/auth";
+import { logout } from "../auth/auth";
 import { authClient, buildProductLoginRoute, resolveReturnTo } from "../auth/sigfarm-auth";
-import { isRetryableHttpError, runWithRetryBackoff } from "../auth/resilience";
+import { getAccessStatus } from "../auth/me";
 import { Button as UiButton } from "@/components/ui";
 
 type MeResponse = {
@@ -72,28 +70,9 @@ const checking = ref(false);
 const statusMessage = ref("");
 const currentStatus = ref<MeResponse["status"] | null>(null);
 
-let timer: number | null = null;
-
 async function fetchMe(): Promise<FetchMeResult> {
   try {
-    const res = await runWithRetryBackoff(
-      async () => {
-        const token = await acquireApiToken({ reason: "pending:/v1/users/me" });
-        return http.get("/v1/users/me", {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        });
-      },
-      {
-        attempts: 3,
-        baseDelayMs: 150,
-        maxDelayMs: 1_000,
-        jitterMs: 80,
-        shouldRetry: (error) => isRetryableHttpError(error),
-      },
-    );
-    return { kind: "ok", me: unwrapData(res.data as ApiEnvelope<MeResponse>) };
+    return { kind: "ok", me: await getAccessStatus() };
   } catch (e: any) {
     const status = e?.response?.status;
 
@@ -121,7 +100,7 @@ async function checkNow() {
       return;
     }
     if (result.kind === "transient") {
-      statusMessage.value = "Instabilidade temporária de rede. Vamos tentar novamente automaticamente.";
+      statusMessage.value = "Instabilidade temporaria de rede. Tente novamente em instantes.";
       return;
     }
 
@@ -133,19 +112,16 @@ async function checkNow() {
     const st = me?.status;
     currentStatus.value = st ?? null;
 
-    if (st && st !== "disabled") {
-      // usuario autenticado e nao desabilitado -> volta para o app
+    if (st === "active") {
       router.replace("/");
       return;
     }
 
     if (st === "disabled") {
       statusMessage.value = "Seu usuário está desativado. Contate o administrador.";
-      if (timer) window.clearInterval(timer);
       return;
     }
 
-    // pending ou null
     statusMessage.value = "Ainda pendente. Aguarde a liberação.";
   } finally {
     checking.value = false;
@@ -157,16 +133,6 @@ async function onLogout() {
 }
 
 onMounted(async () => {
-  // checa na entrada (boa UX)
   await checkNow();
-
-  // polling leve: a cada 10s
-  timer = window.setInterval(() => {
-    void checkNow();
-  }, 10_000);
-});
-
-onBeforeUnmount(() => {
-  if (timer) window.clearInterval(timer);
 });
 </script>

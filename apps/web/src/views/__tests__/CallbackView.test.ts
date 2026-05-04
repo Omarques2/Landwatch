@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
 import CallbackView from "@/views/CallbackView.vue";
-import { getMeCached } from "@/auth/me";
+import { getAccessStatus, getMeCached } from "@/auth/me";
 import { authClient, buildProductLoginRoute, getRouteReturnTo } from "@/auth/sigfarm-auth";
 
 const replaceMock = vi.fn();
@@ -29,6 +29,7 @@ vi.mock("@/auth/sigfarm-auth", () => ({
 
 vi.mock("@/auth/me", () => ({
   getMeCached: vi.fn(),
+  getAccessStatus: vi.fn(),
 }));
 
 async function flushTick() {
@@ -57,7 +58,9 @@ describe("CallbackView", () => {
     (buildProductLoginRoute as unknown as ReturnType<typeof vi.fn>).mockImplementation(
       (returnTo: string) => `/login?returnTo=${encodeURIComponent(returnTo)}`,
     );
+    (getAccessStatus as unknown as ReturnType<typeof vi.fn>).mockReset();
     (getMeCached as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+    (getAccessStatus as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(null);
   });
 
   afterEach(() => {
@@ -73,6 +76,7 @@ describe("CallbackView", () => {
     await flushTick();
 
     expect(authClient.exchangeSession).toHaveBeenCalled();
+    expect(getAccessStatus).toHaveBeenCalled();
     expect(replaceMock).toHaveBeenCalledWith("/pending");
   });
 
@@ -103,18 +107,19 @@ describe("CallbackView", () => {
     expect(replaceMock).toHaveBeenCalledWith("/schedules");
   });
 
-  it("redirects to route from returnTo when account is pending", async () => {
+  it("redirects pending accounts to /pending", async () => {
     (getRouteReturnTo as unknown as ReturnType<typeof vi.fn>).mockReturnValue(
       `${window.location.origin}/dashboard`,
     );
-    (getMeCached as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+    (getMeCached as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+    (getAccessStatus as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
       status: "pending",
     });
 
     mountView();
     await flushTick();
 
-    expect(replaceMock).toHaveBeenCalledWith("/dashboard");
+    expect(replaceMock).toHaveBeenCalledWith("/pending");
   });
 
   it("redirects to root when returnTo origin is not from current app", async () => {
@@ -126,6 +131,7 @@ describe("CallbackView", () => {
     mountView();
     await flushTick();
 
+    expect(getAccessStatus).not.toHaveBeenCalled();
     expect(replaceMock).toHaveBeenCalledWith("/");
   });
 
@@ -188,6 +194,7 @@ describe("CallbackView", () => {
     await flushTick();
 
     expect(getMeCached).toHaveBeenCalledWith(true);
+    expect(getAccessStatus).not.toHaveBeenCalled();
     expect(authClient.clearSession).not.toHaveBeenCalled();
     expect(replaceMock).toHaveBeenCalledWith("/dashboard");
   });

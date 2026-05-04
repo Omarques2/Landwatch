@@ -3,11 +3,12 @@ import {
   ForbiddenException,
   Injectable,
 } from '@nestjs/common';
-import { OrgRole, OrgStatus, Prisma } from '@prisma/client';
+import { OrgRole, OrgStatus, Prisma, UserStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateOrgDto } from './dto/create-org.dto';
 import { ManageMembershipDto } from './dto/manage-membership.dto';
 import { UpdateOrgDto } from './dto/update-org.dto';
+import { UpdateUserStatusDto } from './dto/update-user-status.dto';
 
 @Injectable()
 export class AdminService {
@@ -89,6 +90,37 @@ export class AdminService {
     };
   }
 
+  private serializeUser(row: any) {
+    return {
+      id: row.id,
+      identityUserId: row.identityUserId ?? null,
+      email: row.email ?? null,
+      displayName: row.displayName ?? null,
+      status: row.status,
+      createdAt:
+        row.createdAt instanceof Date
+          ? row.createdAt.toISOString()
+          : String(row.createdAt),
+      lastLoginAt:
+        row.lastLoginAt instanceof Date
+          ? row.lastLoginAt.toISOString()
+          : row.lastLoginAt ?? null,
+      memberships: Array.isArray(row.memberships)
+        ? row.memberships.map((membership: any) => ({
+            orgId: membership.orgId,
+            role: membership.role,
+            org: membership.org
+              ? {
+                  id: membership.org.id,
+                  name: membership.org.name,
+                  slug: membership.org.slug,
+                }
+              : null,
+          }))
+        : [],
+    };
+  }
+
   async listOrgs(subject: string) {
     await this.assertAdmin(subject);
     return this.prisma.org.findMany({
@@ -141,7 +173,7 @@ export class AdminService {
   async listUsers(subject: string, q?: string) {
     await this.assertAdmin(subject);
     const query = q?.trim();
-    return this.prisma.user.findMany({
+    const rows = await this.prisma.user.findMany({
       where: query
         ? {
             OR: [
@@ -158,10 +190,25 @@ export class AdminService {
         status: true,
         createdAt: true,
         lastLoginAt: true,
+        memberships: {
+          select: {
+            orgId: true,
+            role: true,
+            org: {
+              select: {
+                id: true,
+                name: true,
+                slug: true,
+              },
+            },
+          },
+          orderBy: { createdAt: 'asc' },
+        },
       },
       orderBy: { createdAt: 'desc' },
       take: 50,
     });
+    return rows.map((row) => this.serializeUser(row));
   }
 
   async listMemberships(subject: string, orgId: string) {
@@ -225,5 +272,59 @@ export class AdminService {
       where: { orgId, userId },
     });
     return { removed: result.count };
+  }
+
+  async updateUserStatus(
+    subject: string,
+    userId: string,
+    dto: UpdateUserStatusDto,
+  ) {
+    await this.assertAdmin(subject);
+    if (dto.status === UserStatus.active && (!dto.orgId || !dto.role)) {
+      throw new BadRequestException({
+        code: 'USER_ACTIVATION_REQUIRES_ORG',
+        message: 'orgId and role are required to activate a user',
+      });
+    }
+
+    const row = await this.prisma.$transaction(async (tx) => {
+      if (dto.status === UserStatus.active && dto.orgId && dto.role) {
+        await tx.orgMembership.upsert({
+          where: { orgId_userId: { orgId: dto.orgId, userId } },
+          create: { orgId: dto.orgId, userId, role: dto.role as OrgRole },
+          update: { role: dto.role as OrgRole },
+        });
+      }
+
+      return tx.user.update({
+        where: { id: userId },
+        data: { status: dto.status as UserStatus },
+        select: {
+          id: true,
+          identityUserId: true,
+          email: true,
+          displayName: true,
+          status: true,
+          createdAt: true,
+          lastLoginAt: true,
+          memberships: {
+            select: {
+              orgId: true,
+              role: true,
+              org: {
+                select: {
+                  id: true,
+                  name: true,
+                  slug: true,
+                },
+              },
+            },
+            orderBy: { createdAt: 'asc' },
+          },
+        },
+      });
+    });
+
+    return this.serializeUser(row);
   }
 }

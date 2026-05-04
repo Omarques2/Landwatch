@@ -1,6 +1,6 @@
 import { createRouter, createWebHistory } from "vue-router";
 import { authClient } from "../auth/sigfarm-auth";
-import { getMeCached } from "../auth/me";
+import { getAccessStatus, getMeCached } from "../auth/me";
 import { createAuthNavigationGuard } from "./auth-guard";
 
 import LoginView from "../views/LoginView.vue";
@@ -96,6 +96,7 @@ router.beforeEach(
     ensureSession: () => authClient.ensureSession(),
     exchangeSession: () => authClient.exchangeSession(),
     getMeCached,
+    getAccessStatus,
   }),
 );
 

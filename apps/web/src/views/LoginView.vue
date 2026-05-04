@@ -50,7 +50,7 @@ import {
   buildAuthPortalLoginUrl,
   getRouteReturnTo,
 } from "../auth/sigfarm-auth";
-import { getMeCached } from "../auth/me";
+import { getAccessStatus, getMeCached } from "../auth/me";
 import { Button as UiButton } from "@/components/ui";
 import logoUrl from "../assets/logo.png";
 
@@ -117,9 +117,15 @@ async function tryResumeSessionFromLogin() {
   const exchanged = await exchangeSessionWithRetry();
 
   try {
-    const me = await withTimeout(getMeCached(true), 8_000, "/users/me");
+    const me =
+      (await withTimeout(getMeCached(true), 8_000, "/users/me")) ??
+      (await withTimeout(getAccessStatus(), 8_000, "/users/access-status"));
     if (!me || me.status === "disabled") {
       if (!exchanged) return;
+      return;
+    }
+    if (me.status !== "active") {
+      await router.replace("/pending");
       return;
     }
 

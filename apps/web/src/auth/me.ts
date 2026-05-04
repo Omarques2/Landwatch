@@ -30,6 +30,24 @@ export function clearMeCache() {
   cache = null;
 }
 
+async function authenticatedGet<T>(
+  path: string,
+  reason: string,
+): Promise<T> {
+  const token = await acquireApiToken({ reason });
+  if (!token && isLocalAuthBypassEnabled()) {
+    const res = await http.get(path);
+    return unwrapData(res.data as ApiEnvelope<T>);
+  }
+
+  const res = await http.get(path, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+  return unwrapData(res.data as ApiEnvelope<T>);
+}
+
 /**
  * Busca /users/me com cache e dedupe de requests concorrentes.
  * - force=true ignora TTL
@@ -48,17 +66,8 @@ export async function getMeCached(force = false): Promise<MeResponse | null> {
   const inflight = (async () => {
     try {
       const res = await runWithRetryBackoff(
-        async () => {
-          const token = await acquireApiToken({ reason: "/v1/users/me" });
-          if (!token && isLocalAuthBypassEnabled()) {
-            return http.get("/v1/users/me");
-          }
-          return http.get("/v1/users/me", {
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          });
-        },
+        async () =>
+          authenticatedGet<MeResponse>("/v1/users/me", "/v1/users/me"),
         {
           attempts: 3,
           baseDelayMs: 150,
@@ -72,7 +81,7 @@ export async function getMeCached(force = false): Promise<MeResponse | null> {
           },
         },
       );
-      const me = unwrapData(res.data as ApiEnvelope<MeResponse>);
+      const me = res;
       cache = { value: me, fetchedAt: Date.now() };
       return me;
     } catch (error: any) {
@@ -94,4 +103,33 @@ export async function getMeCached(force = false): Promise<MeResponse | null> {
 
   cache = { value: cache?.value ?? null, fetchedAt: cache?.fetchedAt ?? 0, inflight };
   return inflight;
+}
+
+export async function getAccessStatus(): Promise<MeResponse | null> {
+  try {
+    return await runWithRetryBackoff(
+      async () =>
+        authenticatedGet<MeResponse>(
+          "/v1/users/access-status",
+          "/v1/users/access-status",
+        ),
+      {
+        attempts: 3,
+        baseDelayMs: 150,
+        maxDelayMs: 1_000,
+        jitterMs: 80,
+        shouldRetry: (error) => {
+          if (isRetryableHttpError(error)) return true;
+          const status = (error as any)?.response?.status;
+          return status === undefined || status === null;
+        },
+      },
+    );
+  } catch (error: any) {
+    const status = error?.response?.status;
+    if (status === 401 || status === 403) {
+      return null;
+    }
+    throw error;
+  }
 }

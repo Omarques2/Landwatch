@@ -103,8 +103,46 @@
             :key="user.id"
             class="mb-2 rounded-2xl border border-border bg-background px-4 py-3"
           >
-            <div class="truncate text-sm font-semibold text-foreground">{{ user.displayName || user.email || user.id }}</div>
-            <div class="truncate text-xs text-muted-foreground">{{ user.email || user.identityUserId || user.id }}</div>
+            <div class="flex items-start justify-between gap-3">
+              <div class="min-w-0">
+                <div class="truncate text-sm font-semibold text-foreground">{{ user.displayName || user.email || user.id }}</div>
+                <div class="truncate text-xs text-muted-foreground">{{ user.email || user.identityUserId || user.id }}</div>
+                <div class="mt-2 flex flex-wrap items-center gap-2">
+                  <span
+                    class="rounded-full px-2 py-0.5 text-[11px] font-semibold"
+                    :class="user.status === 'active'
+                      ? 'bg-emerald-50 text-emerald-700'
+                      : user.status === 'pending'
+                        ? 'bg-amber-50 text-amber-700'
+                        : 'bg-rose-50 text-rose-700'"
+                  >
+                    {{ user.status === 'active' ? 'Ativo' : user.status === 'pending' ? 'Pendente' : 'Desativado' }}
+                  </span>
+                  <span v-for="membership in user.memberships" :key="`${user.id}-${membership.orgId}`" class="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
+                    {{ membership.org?.name || membership.orgId }} · {{ membership.role }}
+                  </span>
+                </div>
+              </div>
+              <div class="flex shrink-0 items-center gap-2">
+                <UiButton
+                  v-if="user.status !== 'active'"
+                  size="sm"
+                  :disabled="orgs.length === 0"
+                  @click="openActivateUser(user)"
+                >
+                  Ativar
+                </UiButton>
+                <UiButton
+                  v-else
+                  variant="outline"
+                  size="sm"
+                  class="border-destructive/30 text-destructive hover:bg-destructive/10"
+                  @click="disableUser(user)"
+                >
+                  Desativar
+                </UiButton>
+              </div>
+            </div>
           </article>
           <div v-if="!loadingUsers && users.length === 0" class="rounded-2xl border border-dashed border-border px-4 py-8 text-sm text-muted-foreground">
             Nenhum usuário.
@@ -147,6 +185,53 @@
         </div>
       </div>
     </UiDialog>
+
+    <UiDialog :open="userStatusDialogOpen" max-width-class="max-w-lg" @close="closeUserStatusDialog">
+      <div class="border-b border-border px-6 py-5">
+        <div class="flex items-center justify-between gap-3">
+          <div>
+            <div class="text-lg font-semibold text-foreground">Ativar usuário</div>
+            <div class="mt-1 text-sm text-muted-foreground">
+              {{ selectedUserForStatus?.displayName || selectedUserForStatus?.email || selectedUserForStatus?.id }}
+            </div>
+          </div>
+          <UiButton variant="ghost" size="icon" @click="closeUserStatusDialog">
+            <X class="h-4 w-4" />
+          </UiButton>
+        </div>
+      </div>
+      <div class="space-y-4 px-6 py-5">
+        <div class="space-y-2">
+          <div class="text-sm font-medium text-foreground">Organização inicial</div>
+          <UiSelect v-model="activationOrgId">
+            <option disabled value="">Selecione uma organização</option>
+            <option v-for="org in orgs" :key="org.id" :value="org.id">
+              {{ org.name }}
+            </option>
+          </UiSelect>
+        </div>
+        <div class="space-y-2">
+          <div class="text-sm font-medium text-foreground">Perfil</div>
+          <UiSelect v-model="activationRole">
+            <option value="member">member</option>
+            <option value="admin">admin</option>
+            <option value="owner">owner</option>
+          </UiSelect>
+        </div>
+        <div class="text-xs text-muted-foreground">
+          Ativação cria ou atualiza membership na organização escolhida.
+        </div>
+      </div>
+      <div class="flex justify-end gap-2 border-t border-border px-6 py-4">
+        <UiButton variant="outline" @click="closeUserStatusDialog">Cancelar</UiButton>
+        <UiButton
+          :disabled="!selectedUserForStatus || !activationOrgId"
+          @click="activateUser"
+        >
+          Confirmar ativação
+        </UiButton>
+      </div>
+    </UiDialog>
   </div>
 </template>
 
@@ -161,6 +246,7 @@ import {
   listAdminOrgs,
   listAdminUsers,
   removeAdminMembership,
+  updateAdminUserStatus,
   updateAdminMembership,
   updateAdminOrg,
 } from '@/features/attachments/api';
@@ -181,6 +267,10 @@ const loadingOrgs = ref(false);
 const loadingUsers = ref(false);
 const loadingMemberships = ref(false);
 const savingOrg = ref(false);
+const userStatusDialogOpen = ref(false);
+const selectedUserForStatus = ref<AdminUserRow | null>(null);
+const activationOrgId = ref('');
+const activationRole = ref<AdminMembershipRow['role']>('member');
 let userDebounce: number | undefined;
 let candidateDebounce: number | undefined;
 
@@ -286,6 +376,46 @@ async function removeMember(userId: string) {
   if (!selectedOrg.value) return;
   await removeAdminMembership(selectedOrg.value.id, userId);
   await loadMemberships();
+}
+
+function closeUserStatusDialog() {
+  userStatusDialogOpen.value = false;
+  selectedUserForStatus.value = null;
+  activationOrgId.value = '';
+  activationRole.value = 'member';
+}
+
+function openActivateUser(user: AdminUserRow) {
+  selectedUserForStatus.value = user;
+  activationOrgId.value = selectedOrg.value?.id ?? user.memberships[0]?.orgId ?? '';
+  activationRole.value = user.memberships[0]?.role ?? 'member';
+  userStatusDialogOpen.value = true;
+}
+
+async function activateUser() {
+  if (!selectedUserForStatus.value || !activationOrgId.value) return;
+  await updateAdminUserStatus(selectedUserForStatus.value.id, {
+    status: 'active',
+    orgId: activationOrgId.value,
+    role: activationRole.value,
+  });
+  closeUserStatusDialog();
+  await Promise.all([loadUsers(), loadMemberships()]);
+  pushToast({
+    kind: 'success',
+    title: 'Usuário ativado',
+    message: 'Acesso liberado com organização inicial.',
+  });
+}
+
+async function disableUser(user: AdminUserRow) {
+  await updateAdminUserStatus(user.id, { status: 'disabled' });
+  await Promise.all([loadUsers(), loadMemberships()]);
+  pushToast({
+    kind: 'success',
+    title: 'Usuário desativado',
+    message: 'Acesso bloqueado até nova ativação.',
+  });
 }
 
 watch(userQuery, () => {

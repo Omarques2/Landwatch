@@ -382,6 +382,21 @@ export async function listAdminUsers(q?: string) {
   return unwrapData(response.data);
 }
 
+export async function updateAdminUserStatus(
+  userId: string,
+  payload: {
+    status: 'active' | 'disabled';
+    orgId?: string;
+    role?: AdminMembershipRow['role'];
+  },
+) {
+  const response = await http.patch<ApiEnvelope<AdminUserRow>>(
+    `/v1/admin/users/${encodeURIComponent(userId)}/status`,
+    payload,
+  );
+  return unwrapData(response.data);
+}
+
 export async function listAdminMemberships(orgId: string) {
   const response = await http.get<ApiEnvelope<AdminMembershipRow[]>>(
     `/v1/admin/orgs/${encodeURIComponent(orgId)}/memberships`,

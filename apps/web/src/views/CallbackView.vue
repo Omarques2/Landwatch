@@ -27,7 +27,7 @@ import { AuthApiError } from "@sigfarm/auth-client-vue";
 import { onMounted } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { authClient, buildProductLoginRoute, getRouteReturnTo } from "../auth/sigfarm-auth";
-import { getMeCached } from "../auth/me";
+import { getAccessStatus, getMeCached } from "../auth/me";
 
 const router = useRouter();
 const route = useRoute();
@@ -106,8 +106,10 @@ onMounted(async () => {
       exchangeError = error;
     }
 
-    const me = await withTimeout(getMeCached(true), 8_000, "/users/me");
-    if (me && me.status !== "disabled") {
+    const me =
+      (await withTimeout(getMeCached(true), 8_000, "/users/me")) ??
+      (await withTimeout(getAccessStatus(), 8_000, "/users/access-status"));
+    if (me?.status === "active") {
       const target = resolveTargetPath(safeReturnTo);
       await router.replace(target);
       return;

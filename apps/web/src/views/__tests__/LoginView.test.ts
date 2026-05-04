@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
 import LoginView from "@/views/LoginView.vue";
 import { authClient, getRouteReturnTo } from "@/auth/sigfarm-auth";
-import { getMeCached } from "@/auth/me";
+import { getAccessStatus, getMeCached } from "@/auth/me";
 
 const replaceMock = vi.fn();
 let currentRouteQuery: Record<string, unknown> = {};
@@ -27,6 +27,7 @@ vi.mock("@/auth/sigfarm-auth", () => ({
 
 vi.mock("@/auth/me", () => ({
   getMeCached: vi.fn(),
+  getAccessStatus: vi.fn(),
 }));
 
 describe("LoginView", () => {
@@ -43,7 +44,9 @@ describe("LoginView", () => {
       `${window.location.origin}/dashboard`,
     );
     (getMeCached as unknown as ReturnType<typeof vi.fn>).mockReset();
-    (getMeCached as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ status: "pending" });
+    (getMeCached as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+    (getAccessStatus as unknown as ReturnType<typeof vi.fn>).mockReset();
+    (getAccessStatus as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ status: "pending" });
   });
 
   afterEach(() => {
@@ -53,7 +56,7 @@ describe("LoginView", () => {
     }
   });
 
-  it("auto-resumes session and redirects when login has returnTo", async () => {
+  it("redirects pending users to /pending during login auto-resume", async () => {
     currentRouteQuery = { returnTo: "/dashboard" };
 
     mount(LoginView, {
@@ -69,6 +72,28 @@ describe("LoginView", () => {
 
     expect(authClient.exchangeSession).toHaveBeenCalled();
     expect(getMeCached).toHaveBeenCalledWith(true);
+    expect(getAccessStatus).toHaveBeenCalled();
+    expect(replaceMock).toHaveBeenCalledWith("/pending");
+  });
+
+  it("auto-resumes session and redirects active users when login has returnTo", async () => {
+    currentRouteQuery = { returnTo: "/dashboard" };
+    (getMeCached as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ status: "active" });
+
+    mount(LoginView, {
+      global: {
+        stubs: {
+          UiButton: { template: "<button><slot /></button>" },
+        },
+      },
+    });
+
+    await flushPromises();
+    await flushPromises();
+
+    expect(authClient.exchangeSession).toHaveBeenCalled();
+    expect(getMeCached).toHaveBeenCalledWith(true);
+    expect(getAccessStatus).not.toHaveBeenCalled();
     expect(replaceMock).toHaveBeenCalledWith("/dashboard");
   });
 
@@ -94,6 +119,7 @@ describe("LoginView", () => {
   it("retries exchange before resolving login auto-resume", async () => {
     vi.useFakeTimers();
     currentRouteQuery = { returnTo: "/dashboard" };
+    (getMeCached as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ status: "active" });
     (authClient.exchangeSession as unknown as ReturnType<typeof vi.fn>)
       .mockRejectedValueOnce(new Error("temporary"))
       .mockResolvedValueOnce({ session: { accessToken: "token" } });
@@ -112,6 +138,7 @@ describe("LoginView", () => {
 
     expect((authClient.exchangeSession as unknown as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThanOrEqual(2);
     expect(getMeCached).toHaveBeenCalledWith(true);
+    expect(getAccessStatus).not.toHaveBeenCalled();
     expect(replaceMock).toHaveBeenCalledWith("/dashboard");
   });
 });

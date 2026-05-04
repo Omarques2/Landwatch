@@ -8,6 +8,7 @@ import { Reflector } from '@nestjs/core';
 import type { AuthedRequest } from './authed-request.type';
 import { IS_PUBLIC_KEY } from './public.decorator';
 import { UsersService } from '../users/users.service';
+import { ALLOW_INACTIVE_SELF_STATUS_KEY } from './allow-inactive-self-status.decorator';
 
 @Injectable()
 export class ActiveUserGuard implements CanActivate {
@@ -24,6 +25,12 @@ export class ActiveUserGuard implements CanActivate {
       ]) ?? false;
     if (isPublic) return true;
 
+    const allowInactiveSelfStatus =
+      this.reflector.getAllAndOverride<boolean>(
+        ALLOW_INACTIVE_SELF_STATUS_KEY,
+        [ctx.getHandler(), ctx.getClass()],
+      ) ?? false;
+
     const req = ctx.switchToHttp().getRequest<AuthedRequest>();
     const claims = req.user;
     if (!claims?.sub) {
@@ -33,21 +40,18 @@ export class ActiveUserGuard implements CanActivate {
       });
     }
 
-    if (claims.globalStatus === 'disabled') {
-      throw new ForbiddenException({
-        code: 'GLOBAL_USER_DISABLED',
-        message: 'User disabled in central auth',
-      });
-    }
-
     const user = await this.usersService.upsertFromClaims(claims, {
       touchLastLoginAt: false,
     });
 
-    if (user.status === 'disabled') {
+    if (allowInactiveSelfStatus) {
+      return true;
+    }
+
+    if (claims.globalStatus === 'disabled' || user.status !== 'active') {
       throw new ForbiddenException({
-        code: 'USER_DISABLED',
-        message: 'User disabled',
+        code: 'USER_NOT_ACTIVE',
+        message: 'User not active',
       });
     }
 

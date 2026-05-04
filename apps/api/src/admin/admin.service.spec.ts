@@ -1,8 +1,8 @@
-import { ForbiddenException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { AdminService } from './admin.service';
 
 function makePrismaMock() {
-  return {
+  const prisma = {
     org: {
       findMany: jest.fn(),
       create: jest.fn(),
@@ -10,6 +10,7 @@ function makePrismaMock() {
     },
     user: {
       findMany: jest.fn(),
+      update: jest.fn(),
     },
     orgMembership: {
       findMany: jest.fn(),
@@ -17,6 +18,10 @@ function makePrismaMock() {
       update: jest.fn(),
       deleteMany: jest.fn(),
     },
+  };
+  return {
+    ...prisma,
+    $transaction: jest.fn(async (callback: any) => callback(prisma)),
   };
 }
 
@@ -96,5 +101,97 @@ describe('AdminService', () => {
       }),
     );
     expect(result.role).toBe('admin');
+  });
+
+  it('activates pending users with membership in selected org', async () => {
+    process.env.PLATFORM_ADMIN_SUBS = 'admin-sub';
+    const prisma = makePrismaMock();
+    prisma.orgMembership.upsert.mockResolvedValue({
+      id: 'membership-1',
+      orgId: 'org-1',
+      userId: 'user-1',
+      role: 'member',
+    });
+    prisma.user.update.mockResolvedValue({
+      id: 'user-1',
+      identityUserId: 'identity-1',
+      email: 'pending@example.com',
+      displayName: 'Pending User',
+      status: 'active',
+      createdAt: new Date('2026-05-04T00:00:00Z'),
+      lastLoginAt: null,
+      memberships: [
+        {
+          orgId: 'org-1',
+          role: 'member',
+          org: { id: 'org-1', name: 'Org 1', slug: 'org-1' },
+        },
+      ],
+    });
+    const service = new AdminService(prisma as any);
+
+    const result = await service.updateUserStatus('admin-sub', 'user-1', {
+      status: 'active',
+      orgId: 'org-1',
+      role: 'member',
+    });
+
+    expect(prisma.orgMembership.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { orgId_userId: { orgId: 'org-1', userId: 'user-1' } },
+        create: { orgId: 'org-1', userId: 'user-1', role: 'member' },
+        update: { role: 'member' },
+      }),
+    );
+    expect(prisma.user.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'user-1' },
+        data: { status: 'active' },
+      }),
+    );
+    expect(result.status).toBe('active');
+    expect(result.memberships).toEqual([
+      expect.objectContaining({ orgId: 'org-1', role: 'member' }),
+    ]);
+  });
+
+  it('disables active users without changing memberships', async () => {
+    process.env.PLATFORM_ADMIN_SUBS = 'admin-sub';
+    const prisma = makePrismaMock();
+    prisma.user.update.mockResolvedValue({
+      id: 'user-1',
+      identityUserId: 'identity-1',
+      email: 'active@example.com',
+      displayName: 'Active User',
+      status: 'disabled',
+      createdAt: new Date('2026-05-04T00:00:00Z'),
+      lastLoginAt: null,
+      memberships: [],
+    });
+    const service = new AdminService(prisma as any);
+
+    const result = await service.updateUserStatus('admin-sub', 'user-1', {
+      status: 'disabled',
+    });
+
+    expect(prisma.orgMembership.upsert).not.toHaveBeenCalled();
+    expect(prisma.user.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'user-1' },
+        data: { status: 'disabled' },
+      }),
+    );
+    expect(result.status).toBe('disabled');
+  });
+
+  it('rejects activation without org and role', async () => {
+    process.env.PLATFORM_ADMIN_SUBS = 'admin-sub';
+    const service = new AdminService(makePrismaMock() as any);
+
+    await expect(
+      service.updateUserStatus('admin-sub', 'user-1', {
+        status: 'active',
+      } as any),
+    ).rejects.toBeInstanceOf(BadRequestException);
   });
 });

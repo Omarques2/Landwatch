@@ -321,9 +321,18 @@ export type AdminUserRow = {
   identityUserId: string | null;
   email: string | null;
   displayName: string | null;
-  status: string;
+  status: 'pending' | 'active' | 'disabled';
   createdAt: string;
   lastLoginAt: string | null;
+  memberships: Array<{
+    orgId: string;
+    role: AdminMembershipRow['role'];
+    org: {
+      id: string;
+      name: string;
+      slug: string;
+    } | null;
+  }>;
 };
 
 export type AdminMembershipRow = {

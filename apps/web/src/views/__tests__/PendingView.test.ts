@@ -1,18 +1,16 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { mount } from "@vue/test-utils";
 import PendingView from "@/views/PendingView.vue";
-import { http } from "@/api/http";
-
-vi.mock("@/api/http", () => ({
-  http: {
-    get: vi.fn(),
-  },
-}));
+import { getAccessStatus } from "@/auth/me";
+const replaceMock = vi.fn();
 
 vi.mock("@/auth/auth", () => ({
-  acquireApiToken: vi.fn().mockResolvedValue("test-token"),
   logout: vi.fn(),
   hardResetAuthState: vi.fn(),
+}));
+
+vi.mock("@/auth/me", () => ({
+  getAccessStatus: vi.fn(),
 }));
 
 vi.mock("@/auth/sigfarm-auth", () => ({
@@ -24,26 +22,52 @@ vi.mock("@/auth/sigfarm-auth", () => ({
 }));
 
 vi.mock("vue-router", () => ({
-  useRouter: () => ({ replace: vi.fn() }),
+  useRouter: () => ({ replace: replaceMock }),
 }));
 
 describe("PendingView", () => {
-  it("retries /v1/users/me on transient errors before failing over", async () => {
-    (http.get as unknown as ReturnType<typeof vi.fn>)
-      .mockRejectedValueOnce({ response: { status: 503 } })
-      .mockRejectedValueOnce({ response: { status: 503 } })
-      .mockResolvedValueOnce({ data: { data: { status: "active" } } });
+  beforeEach(() => {
+    vi.useFakeTimers();
+    replaceMock.mockReset();
+    (getAccessStatus as unknown as ReturnType<typeof vi.fn>).mockReset();
+  });
+
+  it("redirects to app when access-status returns active", async () => {
+    (getAccessStatus as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      status: "active",
+    });
 
     const wrapper = mount(PendingView, {
       global: {
         stubs: {
-          UiButton: { template: "<button><slot /></button>" },
+          UiButton: { template: "<button @click=\"$emit('click')\"><slot /></button>" },
         },
       },
     });
 
-    await new Promise((resolve) => setTimeout(resolve, 700));
-    expect(http.get).toHaveBeenCalledTimes(3);
+    await vi.advanceTimersByTimeAsync(50);
+    expect(getAccessStatus).toHaveBeenCalledTimes(1);
+    expect(replaceMock).toHaveBeenCalledWith("/");
+    wrapper.unmount();
+  });
+
+  it("does not poll automatically after initial check", async () => {
+    (getAccessStatus as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      status: "pending",
+    });
+
+    const wrapper = mount(PendingView, {
+      global: {
+        stubs: {
+          UiButton: { template: "<button @click=\"$emit('click')\"><slot /></button>" },
+        },
+      },
+    });
+
+    await vi.advanceTimersByTimeAsync(20_000);
+
+    expect(getAccessStatus).toHaveBeenCalledTimes(1);
+    expect(replaceMock).not.toHaveBeenCalled();
     wrapper.unmount();
   });
 });

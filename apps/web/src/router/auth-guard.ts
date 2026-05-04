@@ -5,6 +5,7 @@ type AuthGuardDeps = {
   ensureSession: () => Promise<unknown | null>;
   exchangeSession: () => Promise<unknown>;
   getMeCached: (force?: boolean) => Promise<{ status?: string } | null>;
+  getAccessStatus: () => Promise<{ status?: string } | null>;
 };
 
 type AuthGuardResult = true | string;
@@ -13,7 +14,7 @@ const EXCHANGE_RETRY_ATTEMPTS = 2;
 const LOGIN_EXCHANGE_RETRY_ATTEMPTS = 1;
 
 function canAccessApp(me: { status?: string } | null): boolean {
-  return Boolean(me && me.status !== "disabled");
+  return me?.status === "active";
 }
 
 type EnsureSessionOptions = {
@@ -32,7 +33,7 @@ export function createAuthNavigationGuard(deps: AuthGuardDeps) {
 
   async function hasProfileFallback(): Promise<boolean> {
     try {
-      const me = await deps.getMeCached(true);
+      const me = await deps.getAccessStatus();
       return Boolean(me);
     } catch {
       return false;
@@ -83,7 +84,7 @@ export function createAuthNavigationGuard(deps: AuthGuardDeps) {
         allowProfileFallback: false,
       });
       if (!session) return true;
-      const me = await deps.getMeCached(false);
+      const me = (await deps.getMeCached(false)) ?? (await deps.getAccessStatus());
       if (!me) return "/pending";
       if (!canAccessApp(me)) return "/pending";
       return "/";
@@ -101,7 +102,7 @@ export function createAuthNavigationGuard(deps: AuthGuardDeps) {
       return true;
     }
 
-    const me = await deps.getMeCached(false);
+    const me = (await deps.getMeCached(false)) ?? (await deps.getAccessStatus());
     if (!me) return "/pending";
     if (!canAccessApp(me)) return "/pending";
     return true;

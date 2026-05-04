@@ -3,6 +3,7 @@ import { ForbiddenException } from '@nestjs/common';
 import type { ExecutionContext } from '@nestjs/common';
 import type { AuthedRequest } from './authed-request.type';
 import { ActiveUserGuard } from './active-user.guard';
+import { ALLOW_INACTIVE_SELF_STATUS_KEY } from './allow-inactive-self-status.decorator';
 import { IS_PUBLIC_KEY } from './public.decorator';
 import { Reflector } from '@nestjs/core';
 
@@ -72,6 +73,34 @@ describe('ActiveUserGuard', () => {
     );
   });
 
+  it('rejects pending users', async () => {
+    const usersService = {
+      upsertFromClaims: jest.fn().mockResolvedValue({ status: 'pending' }),
+    };
+    const guard = new ActiveUserGuard(usersService as never, new Reflector());
+    const handler = () => undefined;
+
+    const req = {
+      user: {
+        sub: '6f8cfca5-cb58-4f83-b7a5-8d1dd43d00d5',
+        sid: 'sid-1',
+        amr: 'password',
+        email: 'user@example.com',
+        emailVerified: true,
+        globalStatus: 'pending',
+        apps: [],
+        ver: 1,
+      },
+    } as AuthedRequest;
+    const ctx = makeContext(req, handler);
+
+    await expect(guard.canActivate(ctx)).rejects.toMatchObject({
+      response: {
+        code: 'USER_NOT_ACTIVE',
+      },
+    });
+  });
+
   it('rejects disabled users from global auth status before local upsert', async () => {
     const usersService = {
       upsertFromClaims: jest.fn(),
@@ -93,9 +122,37 @@ describe('ActiveUserGuard', () => {
     } as AuthedRequest;
     const ctx = makeContext(req, handler);
 
-    await expect(guard.canActivate(ctx)).rejects.toBeInstanceOf(
-      ForbiddenException,
-    );
-    expect(usersService.upsertFromClaims).not.toHaveBeenCalled();
+    await expect(guard.canActivate(ctx)).rejects.toMatchObject({
+      response: {
+        code: 'USER_NOT_ACTIVE',
+      },
+    });
+    expect(usersService.upsertFromClaims).toHaveBeenCalledTimes(1);
+  });
+
+  it('allows inactive users on access-status route', async () => {
+    const usersService = {
+      upsertFromClaims: jest.fn().mockResolvedValue({ status: 'pending' }),
+    };
+    const guard = new ActiveUserGuard(usersService as never, new Reflector());
+    const handler = () => undefined;
+    Reflect.defineMetadata(ALLOW_INACTIVE_SELF_STATUS_KEY, true, handler);
+
+    const req = {
+      user: {
+        sub: '6f8cfca5-cb58-4f83-b7a5-8d1dd43d00d5',
+        sid: 'sid-1',
+        amr: 'password',
+        email: 'user@example.com',
+        emailVerified: true,
+        globalStatus: 'disabled',
+        apps: [],
+        ver: 1,
+      },
+    } as AuthedRequest;
+    const ctx = makeContext(req, handler);
+
+    await expect(guard.canActivate(ctx)).resolves.toBe(true);
+    expect(usersService.upsertFromClaims).toHaveBeenCalledTimes(1);
   });
 });
