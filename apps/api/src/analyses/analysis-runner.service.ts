@@ -731,10 +731,16 @@ export class AnalysisRunnerService implements OnModuleInit, OnModuleDestroy {
     return row.feature_area_m2 == null && row.overlap_area_m2 == null;
   }
 
-  private isPolygonalGeometry(geometryType: string | null | undefined): boolean {
+  private isKeepableIntersectionGeometry(
+    geometryType: string | null | undefined,
+  ): boolean {
     if (!geometryType) return false;
     const normalized = geometryType.trim().toUpperCase().replace(/^ST_/, '');
-    return normalized === 'POLYGON' || normalized === 'MULTIPOLYGON';
+    return (
+      normalized === 'POLYGON' ||
+      normalized === 'MULTIPOLYGON' ||
+      normalized === 'GEOMETRYCOLLECTION'
+    );
   }
 
   private shouldKeepRow(row: IntersectionRow, kind: AnalysisKind): boolean {
@@ -745,7 +751,7 @@ export class AnalysisRunnerService implements OnModuleInit, OnModuleDestroy {
     }
     if (
       !this.isBaseSicarIntersection(row) &&
-      !this.isPolygonalGeometry(row.geometry_type)
+      !this.isKeepableIntersectionGeometry(row.geometry_type)
     ) {
       return false;
     }

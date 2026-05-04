@@ -721,7 +721,7 @@ describe('AnalysisRunnerService', () => {
     );
   });
 
-  it('filters non-polygonal features from STANDARD current fast intersections', async () => {
+  it('filters line intersections but keeps geometry collections in STANDARD current fast', async () => {
     process.env.ANALYSIS_STANDARD_CURRENT_USE_FAST_INTERSECTIONS = 'true';
     const prisma = makePrismaMock();
     prisma.analysis.updateMany.mockResolvedValue({ count: 1 });
@@ -764,6 +764,18 @@ describe('AnalysisRunnerService', () => {
         snapshot_date: '2026-02-01',
         feature_id: 15685424n,
         geom_id: 303n,
+        geometry_type: 'ST_GeometryCollection',
+        sicar_area_m2: null,
+        feature_area_m2: null,
+        overlap_area_m2: null,
+        overlap_pct_of_sicar: null,
+      },
+      {
+        category_code: 'PRODES',
+        dataset_code: 'PRODES_LEGAL_AMZ_2023',
+        snapshot_date: '2026-02-01',
+        feature_id: 19614419n,
+        geom_id: 404n,
         geometry_type: 'ST_Polygon',
         sicar_area_m2: null,
         feature_area_m2: null,
@@ -794,6 +806,10 @@ describe('AnalysisRunnerService', () => {
             categoryCode: 'PRODES',
             featureId: 15685424n,
           }),
+          expect.objectContaining({
+            categoryCode: 'PRODES',
+            featureId: 19614419n,
+          }),
         ],
       }),
     );
@@ -803,7 +819,7 @@ describe('AnalysisRunnerService', () => {
         data: expect.objectContaining({
           status: 'completed',
           hasIntersections: true,
-          intersectionCount: 1,
+          intersectionCount: 2,
         }),
       }),
     );
