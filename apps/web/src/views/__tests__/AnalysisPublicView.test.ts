@@ -132,6 +132,52 @@ describe("AnalysisPublicView", () => {
     }
   });
 
+  it("renders farm name in title case and keeps SICAR status uppercase", async () => {
+    const getMock = http.get as unknown as ReturnType<typeof vi.fn>;
+    getMock.mockImplementation((url: string) => {
+      if (url === "/v1/public/analyses/analysis-public-1") {
+        return Promise.resolve({
+          data: {
+            data: {
+              id: "analysis-public-1",
+              carKey: "MT-123",
+              farmName: "fazenda de teste desmatamento",
+              analysisDate: "2026-02-12",
+              status: "completed",
+              analysisKind: "STANDARD",
+              sicarStatus: "AT",
+              biomas: ["Cerrado"],
+              intersectionCount: 1,
+              datasetGroups: [],
+              results: [],
+            },
+          },
+        });
+      }
+      if (url === "/v1/public/analyses/analysis-public-1/vector-map") {
+        return Promise.resolve({
+          data: { data: publicVectorMapPayload([], false) },
+        });
+      }
+      return Promise.reject(new Error(`unexpected request: ${url}`));
+    });
+
+    const wrapper = mount(AnalysisPublicView, {
+      global: {
+        stubs: {
+          AnalysisVectorMap: { template: "<div data-test='analysis-map'></div>" },
+          AnalysisPrintLayout: { template: "<div />" },
+          AnalysisWatermark: { template: "<div />" },
+        },
+      },
+    });
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("Fazenda De Teste Desmatamento");
+    expect(wrapper.text()).toContain("ATIVO");
+    expect(wrapper.text()).not.toContain("Ativo");
+  });
+
   it("downloads public geojson and attachments using only the analysis id", async () => {
     const getMock = http.get as unknown as ReturnType<typeof vi.fn>;
     const geojsonPayload = {

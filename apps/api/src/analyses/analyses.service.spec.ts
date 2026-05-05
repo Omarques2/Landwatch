@@ -13,6 +13,7 @@ function makePrismaMock() {
     farm: {
       findUnique: jest.fn(),
       findFirst: jest.fn(),
+      update: jest.fn(),
     },
     farmDocument: {
       upsert: jest.fn(),
@@ -23,6 +24,7 @@ function makePrismaMock() {
         status: 'pending',
         analysisKind: AnalysisKind.STANDARD,
       }),
+      updateMany: jest.fn().mockResolvedValue({ count: 0 }),
       findUnique: jest.fn(),
       findMany: jest.fn(),
       count: jest.fn(),
@@ -130,6 +132,111 @@ describe('AnalysesService', () => {
         }),
       }),
     );
+  });
+
+  it('does not update farm when requested name matches current name after trim', async () => {
+    const prisma = makePrismaMock();
+    prisma.$queryRaw.mockResolvedValueOnce([{ ok: 1 }]);
+    prisma.farm.findFirst.mockResolvedValue({ id: 'farm-1', name: 'Fazenda Atual' });
+    const deps = makeDeps();
+
+    const service = new AnalysesService(
+      prisma,
+      deps.runner as any,
+      deps.detail as any,
+      deps.cache as any,
+      deps.vectorMap as any,
+      deps.postprocess as any,
+      deps.landwatchStatus as any,
+      () => now,
+    );
+    await service.create({ sub: 'entra-1' } as any, {
+      carKey: 'CAR-1',
+      farmName: '  Fazenda Atual  ',
+    });
+
+    expect(prisma.farm.update).not.toHaveBeenCalled();
+    expect(prisma.analysis.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          farmNameSnapshot: 'Fazenda Atual',
+        }),
+      }),
+    );
+  });
+
+  it('updates farm name when edited and stores updated snapshot in new analysis', async () => {
+    const prisma = makePrismaMock();
+    prisma.$queryRaw.mockResolvedValueOnce([{ ok: 1 }]);
+    prisma.farm.findFirst.mockResolvedValue({ id: 'farm-1', name: 'Fazenda Antiga' });
+    prisma.farm.update.mockResolvedValue({ id: 'farm-1', name: 'Fazenda Nova' });
+    const deps = makeDeps();
+
+    const service = new AnalysesService(
+      prisma,
+      deps.runner as any,
+      deps.detail as any,
+      deps.cache as any,
+      deps.vectorMap as any,
+      deps.postprocess as any,
+      deps.landwatchStatus as any,
+      () => now,
+    );
+    await service.create({ sub: 'entra-1' } as any, {
+      carKey: 'CAR-1',
+      farmName: '  Fazenda Nova  ',
+    });
+
+    expect(prisma.analysis.updateMany).toHaveBeenCalledWith({
+      where: {
+        farmId: 'farm-1',
+        farmNameSnapshot: null,
+      },
+      data: {
+        farmNameSnapshot: 'Fazenda Antiga',
+      },
+    });
+    expect(prisma.farm.update).toHaveBeenCalledWith({
+      where: { id: 'farm-1' },
+      data: { name: 'Fazenda Nova' },
+      select: { id: true, name: true },
+    });
+    expect(prisma.analysis.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          farmNameSnapshot: 'Fazenda Nova',
+        }),
+      }),
+    );
+  });
+
+  it('rejects existing-farm create when requested farmName is blank after trim', async () => {
+    const prisma = makePrismaMock();
+    prisma.$queryRaw.mockResolvedValueOnce([{ ok: 1 }]);
+    prisma.farm.findFirst.mockResolvedValue({ id: 'farm-1', name: 'Fazenda Antiga' });
+    const deps = makeDeps();
+
+    const service = new AnalysesService(
+      prisma,
+      deps.runner as any,
+      deps.detail as any,
+      deps.cache as any,
+      deps.vectorMap as any,
+      deps.postprocess as any,
+      deps.landwatchStatus as any,
+      () => now,
+    );
+
+    await expect(
+      service.create({ sub: 'entra-1' } as any, {
+        carKey: 'CAR-1',
+        farmName: '   ',
+      }),
+    ).rejects.toMatchObject({
+      response: {
+        code: 'INVALID_FARM_NAME',
+      },
+    });
   });
 
   it('persists DETER analysis kind and skips docs for DETER analyses', async () => {

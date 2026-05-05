@@ -33,7 +33,7 @@
       </template>
       <template v-else>
         <div class="public-subtitle">
-          <span>{{ analysis?.farmName ?? "Fazenda sem cadastro" }}</span>
+          <span>{{ displayFarmName }}</span>
           <span class="public-divider">·</span>
           <span>{{ analysis?.carKey ?? "-" }}</span>
           <span
@@ -291,6 +291,7 @@ import AnalysisVectorMap from "@/components/maps/AnalysisVectorMap.vue";
 import AnalysisPrintLayout from "@/components/analyses/AnalysisPrintLayout.vue";
 import AnalysisWatermark from "@/components/analyses/AnalysisWatermark.vue";
 import printLogo from "@/assets/logo.png";
+import { toTitleCase } from "@/lib/formatters";
 
 type AnalysisResult = {
   id: string;
@@ -391,6 +392,10 @@ const sicarStatusOk = computed(() => {
   const status = analysis.value?.sicarStatus;
   if (!status) return true;
   return status.toUpperCase() === "AT";
+});
+
+const displayFarmName = computed(() => {
+  return toTitleCase(analysis.value?.farmName) || "Fazenda sem cadastro";
 });
 
 const docInfos = computed(() => analysis.value?.docInfos ?? []);

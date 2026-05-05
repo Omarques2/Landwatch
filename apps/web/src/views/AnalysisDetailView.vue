@@ -26,7 +26,7 @@
           {{ loadError }}
         </div>
         <div v-else class="text-sm text-muted-foreground">
-          <span>Estabelecimento {{ analysis?.farmName ?? "Fazenda sem cadastro" }}</span>
+          <span>Estabelecimento {{ displayFarmName }}</span>
           <template v-if="analysis?.sicarStatus">
             <span class="mx-1 text-muted-foreground/70">-</span>
             <span
@@ -391,6 +391,7 @@ import {
   buildAnalysisLegendEntries,
   type AnalysisVectorMap as AnalysisVectorMapPayload,
 } from "@/features/analyses/analysis-vector-map";
+import { toTitleCase } from "@/lib/formatters";
 import AnalysisVectorMap from "@/components/maps/AnalysisVectorMap.vue";
 import AnalysisPrintLayout from "@/components/analyses/AnalysisPrintLayout.vue";
 import printLogo from "@/assets/logo.png";
@@ -548,6 +549,9 @@ const sicarStatusOk = computed(() => {
 });
 
 const docInfos = computed(() => analysis.value?.docInfos ?? []);
+const displayFarmName = computed(() => {
+  return toTitleCase(analysis.value?.farmName) || "Fazenda sem cadastro";
+});
 const docFlagBadges = (info: DocInfo) => {
   const flags: string[] = [];
   if (info.docFlags?.mte) flags.push("MTE");

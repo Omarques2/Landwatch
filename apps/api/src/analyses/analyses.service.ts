@@ -148,6 +148,12 @@ export class AnalysesService {
     return input.trim();
   }
 
+  private normalizeFarmNameInput(input?: string | null): string | null {
+    if (typeof input !== 'string') return null;
+    const trimmed = input.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }
+
   private normalizeAnalysisKind(input?: AnalysisKind): AnalysisKind {
     return input ?? AnalysisKind.STANDARD;
   }
@@ -281,11 +287,28 @@ export class AnalysesService {
       await this.landwatchStatus.assertNotRefreshing();
     }
 
+    const requestedFarmName =
+      input.farmName === undefined
+        ? undefined
+        : this.normalizeFarmNameInput(input.farmName);
+    if (input.farmName !== undefined && requestedFarmName === null) {
+      throw new BadRequestException({
+        code: 'INVALID_FARM_NAME',
+        message: 'Nome da fazenda é obrigatório',
+      });
+    }
+
     await this.ensureCarExists(carKey, analysisDate);
 
     const farm = input.farmId
-      ? await this.prisma.farm.findUnique({ where: { id: input.farmId } })
-      : await this.prisma.farm.findFirst({ where: { carKey } });
+      ? await this.prisma.farm.findUnique({
+          where: { id: input.farmId },
+          select: { id: true, name: true },
+        })
+      : await this.prisma.farm.findFirst({
+          where: { carKey },
+          select: { id: true, name: true },
+        });
 
     if (input.farmId && !farm) {
       throw new NotFoundException({
@@ -299,18 +322,43 @@ export class AnalysesService {
       .map((doc) => doc.docNormalized);
 
     let farmId = farm?.id ?? null;
+    let farmNameSnapshot = this.normalizeFarmNameInput(farm?.name ?? null);
     const analysis = await this.prisma.$transaction(async (tx) => {
-      if (!farm && input.farmName?.trim()) {
+      if (!farm && requestedFarmName) {
         const createdFarm = await tx.farm.create({
           data: {
-            name: input.farmName.trim(),
+            name: requestedFarmName,
             carKey,
             ownerUserId: userId,
             orgId: orgId ?? undefined,
           },
-          select: { id: true },
+          select: { id: true, name: true },
         });
         farmId = createdFarm.id;
+        farmNameSnapshot = this.normalizeFarmNameInput(createdFarm.name);
+      }
+
+      if (farm && requestedFarmName) {
+        const currentFarmName = this.normalizeFarmNameInput(farm.name) ?? farm.name;
+        if (requestedFarmName !== currentFarmName) {
+          await tx.analysis.updateMany({
+            where: {
+              farmId: farm.id,
+              farmNameSnapshot: null,
+            },
+            data: {
+              farmNameSnapshot: currentFarmName,
+            },
+          });
+          const updatedFarm = await tx.farm.update({
+            where: { id: farm.id },
+            data: { name: requestedFarmName },
+            select: { id: true, name: true },
+          });
+          farmNameSnapshot = this.normalizeFarmNameInput(updatedFarm.name);
+        } else {
+          farmNameSnapshot = currentFarmName;
+        }
       }
 
       if (farmId && documents.length) {
@@ -342,6 +390,7 @@ export class AnalysesService {
           createdByUserId: userId,
           orgId: orgId ?? undefined,
           farmId,
+          farmNameSnapshot,
           hasIntersections: false,
           intersectionCount: 0,
         },
@@ -420,6 +469,7 @@ export class AnalysesService {
         analysisKind: input.analysisKind,
         createdByUserId: input.createdByUserId,
         farmId: farm.id,
+        farmNameSnapshot: this.normalizeFarmNameInput(farm.name),
         scheduleId: input.scheduleId,
         hasIntersections: false,
         intersectionCount: 0,
@@ -477,7 +527,7 @@ export class AnalysesService {
       return {
         ...rest,
         pdfPath: undefined,
-        farmName: farm?.name ?? null,
+        farmName: row.farmNameSnapshot ?? farm?.name ?? null,
       };
     });
 
@@ -616,6 +666,7 @@ export class AnalysesService {
         hasIntersections: true,
         createdAt: true,
         completedAt: true,
+        farmNameSnapshot: true,
         farm: { select: { name: true } },
       },
     });
@@ -630,7 +681,7 @@ export class AnalysesService {
       carKey: analysis.carKey,
       analysisDate: analysis.analysisDate,
       analysisKind: analysis.analysisKind ?? AnalysisKind.STANDARD,
-      farmName: analysis.farm?.name ?? null,
+      farmName: analysis.farmNameSnapshot ?? analysis.farm?.name ?? null,
       status: analysis.status,
       intersectionCount: analysis.intersectionCount,
       hasIntersections: analysis.hasIntersections,

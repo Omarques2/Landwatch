@@ -15,7 +15,6 @@
         <UiInput
           id="analysis-name"
           v-model="analysisForm.farmName"
-          :disabled="Boolean(analysisForm.farmId)"
           placeholder="Nome da fazenda"
         />
         <div class="text-xs text-muted-foreground">
@@ -528,6 +527,10 @@ async function submitAnalysis() {
     message.value = "Selecione um CAR para continuar.";
     return;
   }
+  if (analysisForm.farmId && !analysisForm.farmName.trim()) {
+    message.value = "Nome da fazenda é obrigatório.";
+    return;
+  }
   if (docError.value) {
     message.value = docError.value;
     return;
@@ -551,12 +554,13 @@ async function performSubmit() {
   const documents = analysisForm.documents.length
     ? [...analysisForm.documents]
     : undefined;
+  const farmName = analysisForm.farmName?.trim() || undefined;
   const payload = {
     carKey: analysisForm.carKey.trim(),
     documents,
     analysisDate: normalizedDate,
     farmId: analysisForm.farmId || undefined,
-    farmName: analysisForm.farmId ? undefined : analysisForm.farmName?.trim() || undefined,
+    farmName,
   };
   try {
     const res = await http.post<ApiEnvelope<{ analysisId: string }>>(

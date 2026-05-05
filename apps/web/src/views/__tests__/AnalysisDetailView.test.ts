@@ -137,6 +137,51 @@ describe("AnalysisDetailView", () => {
     );
   });
 
+  it("renders farm name in title case and preserves SICAR badge uppercase", async () => {
+    const getMock = http.get as unknown as ReturnType<typeof vi.fn>;
+    getMock.mockImplementation((url: string) => {
+      if (url === "/v1/analyses/analysis-deter-1/status") {
+        return Promise.resolve({
+          data: {
+            data: completedStatus({
+              farmName: "fazenda de teste desmatamento",
+            }),
+          },
+        });
+      }
+      if (url === "/v1/analyses/analysis-deter-1") {
+        return Promise.resolve({
+          data: {
+            data: {
+              id: "analysis-deter-1",
+              carKey: "MT-123",
+              farmName: "fazenda de teste desmatamento",
+              analysisDate: "2026-02-12",
+              status: "completed",
+              analysisKind: "STANDARD",
+              sicarStatus: "AT",
+              biomas: ["Cerrado"],
+              intersectionCount: 1,
+              datasetGroups: [],
+              results: [],
+            },
+          },
+        });
+      }
+      if (url === "/v1/analyses/analysis-deter-1/vector-map") {
+        return Promise.resolve({ data: { data: vectorMapPayload([], false) } });
+      }
+      return Promise.reject(new Error("unexpected request"));
+    });
+
+    const wrapper = mount(AnalysisDetailView);
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("Estabelecimento Fazenda De Teste Desmatamento");
+    expect(wrapper.text()).toContain("SICAR MT-123 ATIVO");
+    expect(wrapper.text()).not.toContain("Sicar Mt-123 Ativo");
+  });
+
   it("does not request a public token for the analysis public URL", async () => {
     const getMock = http.get as unknown as ReturnType<typeof vi.fn>;
     const postMock = http.post as unknown as ReturnType<typeof vi.fn>;

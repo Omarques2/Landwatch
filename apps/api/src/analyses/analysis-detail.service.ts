@@ -198,6 +198,10 @@ export class AnalysisDetailService {
     }
 
     const { farm, results, ...rest } = analysis;
+    const resolvedFarmName =
+      this.normalizeDisplayFarmName(analysis.farmNameSnapshot) ??
+      this.normalizeDisplayFarmName(farm?.name) ??
+      null;
     const analysisKind = analysis.analysisKind ?? AnalysisKind.STANDARD;
     const isBaseSicarResult = (row: (typeof results)[number]) => {
       const category = (row.categoryCode ?? '').toUpperCase();
@@ -241,7 +245,7 @@ export class AnalysisDetailService {
       return {
         ...rest,
         pdfPath: undefined,
-        farmName: farm?.name ?? null,
+        farmName: resolvedFarmName,
         municipio: sicarMeta.municipio,
         uf: sicarMeta.uf,
         sicarStatus: sicarMeta.status,
@@ -365,6 +369,7 @@ export class AnalysisDetailService {
 
   private buildIncompleteDetailResponse(
     analysis: {
+      farmNameSnapshot?: string | null;
       farm?: { name: string | null } | null;
       results?: unknown[];
       [key: string]: unknown;
@@ -372,10 +377,14 @@ export class AnalysisDetailService {
   ) {
     if (!analysis) return null;
     const { farm, results: _results, ...rest } = analysis;
+    const resolvedFarmName =
+      this.normalizeDisplayFarmName(analysis.farmNameSnapshot) ??
+      this.normalizeDisplayFarmName(farm?.name) ??
+      null;
     return {
       ...rest,
       pdfPath: undefined,
-      farmName: farm?.name ?? null,
+      farmName: resolvedFarmName,
       municipio: null,
       uf: null,
       sicarStatus: null,
@@ -385,6 +394,12 @@ export class AnalysisDetailService {
       docInfos: [],
       results: [],
     };
+  }
+
+  private normalizeDisplayFarmName(value?: string | null): string | null {
+    if (typeof value !== 'string') return null;
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
   }
 
   async getMapById(id: string, tolerance?: number): Promise<AnalysisMapRow[]> {

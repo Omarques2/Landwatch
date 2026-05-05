@@ -11,7 +11,7 @@
           Análise preventiva DETER. Este material é destinado à prevenção e não substitui a análise socioambiental completa.
         </div>
         <div class="print-subtitle">
-          <span>Estabelecimento {{ analysis?.farmName ?? "Fazenda sem cadastro" }}</span>
+          <span>Estabelecimento {{ displayFarmName }}</span>
           <template v-if="analysis?.sicarStatus">
             <span class="print-divider">-</span>
             <span
@@ -226,6 +226,7 @@ import {
 import AnalysisVectorMap from "@/components/maps/AnalysisVectorMap.vue";
 import AnalysisWatermark from "@/components/analyses/AnalysisWatermark.vue";
 import QRCode from "qrcode";
+import { toTitleCase } from "@/lib/formatters";
 
 type AnalysisResult = {
   id: string;
@@ -293,6 +294,10 @@ const props = defineProps<{
 const isPreventiveDeter = computed(
   () => props.analysis?.analysisKind === "DETER",
 );
+
+const displayFarmName = computed(() => {
+  return toTitleCase(props.analysis?.farmName) || "Fazenda sem cadastro";
+});
 
 const reportTitle = computed(() =>
   isPreventiveDeter.value ? "Análise Preventiva DETER" : "Análise Socioambiental",

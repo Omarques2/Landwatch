@@ -235,6 +235,66 @@ describe("NewAnalysisView", () => {
     expect(nameInput.value).toBe("Fazenda Teste");
   });
 
+  it("keeps farm name editable after auto-fill by CAR", async () => {
+    (http.get as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      data: {
+        data: {
+          id: "farm-1",
+          name: "Fazenda Teste",
+          carKey: "SP-1234567-0000000000000000000000000000000000",
+          documents: [],
+        },
+      },
+    });
+
+    const wrapper = mount(NewAnalysisView);
+
+    await wrapper
+      .find("#analysis-car")
+      .setValue("SP-1234567-0000000000000000000000000000000000");
+    await wrapper.find("#analysis-car").trigger("blur");
+    await flushPromises();
+
+    expect(wrapper.find("#analysis-name").attributes("disabled")).toBeUndefined();
+  });
+
+  it("submits edited farm name for existing farm", async () => {
+    const getMock = http.get as unknown as ReturnType<typeof vi.fn>;
+    getMock.mockResolvedValueOnce({
+      data: {
+        data: {
+          id: "farm-1",
+          name: "Fazenda Antiga",
+          carKey: "SP-1234567-0000000000000000000000000000000000",
+          documents: [],
+        },
+      },
+    });
+    (http.post as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      data: { data: { analysisId: "analysis-1" } },
+    });
+
+    const wrapper = mount(NewAnalysisView);
+
+    await wrapper
+      .find("#analysis-car")
+      .setValue("SP-1234567-0000000000000000000000000000000000");
+    await wrapper.find("#analysis-car").trigger("blur");
+    await flushPromises();
+
+    await wrapper.find("#analysis-name").setValue("  Fazenda Nova  ");
+    await wrapper.find('[data-testid="analysis-submit"]').trigger("click");
+    await flushPromises();
+
+    expect(http.post).toHaveBeenCalledWith(
+      "/v1/analyses",
+      expect.objectContaining({
+        farmId: "farm-1",
+        farmName: "Fazenda Nova",
+      }),
+    );
+  });
+
   it("auto-fills farm data on Enter when CPF/CNPJ is valid", async () => {
     (http.get as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       data: {

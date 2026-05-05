@@ -209,6 +209,7 @@ model Analysis {
   attachmentsSnapshotCapturedAt DateTime? @map("attachments_snapshot_captured_at") @db.Timestamptz(6)
   completedAt       DateTime?          @map("completed_at") @db.Timestamptz(6)
   farmId            String?            @map("farm_id") @db.Uuid
+  farmNameSnapshot  String?            @map("farm_name_snapshot")
   pdfStatus         AnalysisPdfStatus? @map("pdf_status")
   pdfPath           String?            @map("pdf_path")
   pdfGeneratedAt    DateTime?          @map("pdf_generated_at") @db.Timestamptz(6)
