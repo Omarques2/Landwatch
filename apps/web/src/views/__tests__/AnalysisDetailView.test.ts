@@ -219,6 +219,113 @@ describe("AnalysisDetailView", () => {
     expect(postMock).not.toHaveBeenCalled();
   });
 
+  it("hides attachment actions when analysis has no attachments", async () => {
+    const getMock = http.get as unknown as ReturnType<typeof vi.fn>;
+    getMock.mockImplementation((url: string) => {
+      if (url === "/v1/analyses/analysis-deter-1/status") {
+        return Promise.resolve({ data: { data: completedStatus() } });
+      }
+      if (url === "/v1/analyses/analysis-deter-1") {
+        return Promise.resolve({
+          data: {
+            data: {
+              id: "analysis-deter-1",
+              carKey: "MT-123",
+              farmName: "Fazenda DETER",
+              analysisDate: "2026-02-12",
+              status: "completed",
+              analysisKind: "STANDARD",
+              biomas: ["Cerrado"],
+              intersectionCount: 1,
+              datasetGroups: [],
+              results: [],
+            },
+          },
+        });
+      }
+      if (url === "/v1/analyses/analysis-deter-1/vector-map") {
+        return Promise.resolve({ data: { data: vectorMapPayload([], false) } });
+      }
+      if (url === "/v1/attachments/analysis/analysis-deter-1") {
+        return Promise.resolve({ data: { data: [] } });
+      }
+      return Promise.reject(new Error(`unexpected request: ${url}`));
+    });
+
+    const wrapper = mount(AnalysisDetailView);
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("Baixar GeoJSON");
+    expect(wrapper.text()).not.toContain("Anexos");
+    expect(wrapper.text()).not.toContain("Baixar ZIP anexos");
+  });
+
+  it("shows attachment actions when analysis has attachments", async () => {
+    const getMock = http.get as unknown as ReturnType<typeof vi.fn>;
+    getMock.mockImplementation((url: string) => {
+      if (url === "/v1/analyses/analysis-deter-1/status") {
+        return Promise.resolve({ data: { data: completedStatus() } });
+      }
+      if (url === "/v1/analyses/analysis-deter-1") {
+        return Promise.resolve({
+          data: {
+            data: {
+              id: "analysis-deter-1",
+              carKey: "MT-123",
+              farmName: "Fazenda DETER",
+              analysisDate: "2026-02-12",
+              status: "completed",
+              analysisKind: "STANDARD",
+              biomas: ["Cerrado"],
+              intersectionCount: 1,
+              datasetGroups: [],
+              results: [],
+            },
+          },
+        });
+      }
+      if (url === "/v1/analyses/analysis-deter-1/vector-map") {
+        return Promise.resolve({ data: { data: vectorMapPayload([], false) } });
+      }
+      if (url === "/v1/attachments/analysis/analysis-deter-1") {
+        return Promise.resolve({
+          data: {
+            data: [
+              {
+                id: "att-1",
+                categoryCode: "JUSTIFICATIVA_TECNICA",
+                categoryName: "Justificativa técnica",
+                isJustification: true,
+                visibility: "PUBLIC",
+                originalFilename: "justificativa.pdf",
+                contentType: "application/pdf",
+                sizeBytes: "120",
+                target: {
+                  id: "target-1",
+                  datasetCode: "PRODES_CERRADO_NB_2021",
+                  featureId: "7426006",
+                  featureKey: "3796679",
+                  naturalId: null,
+                  carKey: "MT-123",
+                  scope: "PLATFORM_CAR",
+                  validFrom: "2026-02-01",
+                  validTo: null,
+                },
+              },
+            ],
+          },
+        });
+      }
+      return Promise.reject(new Error(`unexpected request: ${url}`));
+    });
+
+    const wrapper = mount(AnalysisDetailView);
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("Anexos");
+    expect(wrapper.text()).toContain("Baixar ZIP anexos");
+  });
+
   it("downloads enriched geojson from API endpoint", async () => {
     const getMock = http.get as unknown as ReturnType<typeof vi.fn>;
     const geojsonPayload = {

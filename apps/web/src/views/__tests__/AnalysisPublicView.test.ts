@@ -75,7 +75,7 @@ describe("AnalysisPublicView", () => {
     clearAnalysisMapCache();
   });
 
-  it("renders public geojson and attachment actions", async () => {
+  it("hides attachment actions when public analysis has no attachments", async () => {
     const getMock = http.get as unknown as ReturnType<typeof vi.fn>;
     getMock.mockImplementation((url: string) => {
       if (url === "/v1/public/analyses/analysis-public-1") {
@@ -101,6 +101,85 @@ describe("AnalysisPublicView", () => {
           data: { data: publicVectorMapPayload([], false) },
         });
       }
+      if (url === "/v1/public/analyses/analysis-public-1/attachments") {
+        return Promise.resolve({
+          data: {
+            data: [],
+          },
+        });
+      }
+      return Promise.reject(new Error(`unexpected request: ${url}`));
+    });
+
+    const wrapper = mount(AnalysisPublicView, {
+      global: {
+        stubs: {
+          AnalysisVectorMap: { template: "<div data-test='analysis-map'></div>" },
+          AnalysisPrintLayout: { template: "<div />" },
+          AnalysisWatermark: { template: "<div />" },
+        },
+      },
+    });
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("Baixar GeoJSON");
+    expect(wrapper.text()).not.toContain("Ver anexos");
+    expect(wrapper.text()).not.toContain("Baixar ZIP anexos");
+
+    const actionButtons = wrapper
+      .findAll("button")
+      .filter((item) => ["Baixar GeoJSON"].includes(item.text().trim()));
+    expect(actionButtons).toHaveLength(1);
+    for (const button of actionButtons) {
+      expect(button.classes()).toContain("transition-colors");
+      expect(button.classes()).toContain("hover:bg-muted");
+      expect(button.classes()).toContain("active:scale-[0.98]");
+    }
+  });
+
+  it("shows attachment actions when public analysis has attachments", async () => {
+    const getMock = http.get as unknown as ReturnType<typeof vi.fn>;
+    getMock.mockImplementation((url: string) => {
+      if (url === "/v1/public/analyses/analysis-public-1") {
+        return Promise.resolve({
+          data: {
+            data: {
+              id: "analysis-public-1",
+              carKey: "MT-123",
+              farmName: "Fazenda pública",
+              analysisDate: "2026-02-12",
+              status: "completed",
+              analysisKind: "STANDARD",
+              biomas: ["Cerrado"],
+              intersectionCount: 1,
+              datasetGroups: [],
+              results: [],
+            },
+          },
+        });
+      }
+      if (url === "/v1/public/analyses/analysis-public-1/vector-map") {
+        return Promise.resolve({
+          data: { data: publicVectorMapPayload([], false) },
+        });
+      }
+      if (url === "/v1/public/analyses/analysis-public-1/attachments") {
+        return Promise.resolve({
+          data: {
+            data: [
+              {
+                id: "att-1",
+                categoryCode: "JUSTIFICATIVA_TECNICA",
+                categoryName: "Justificativa técnica",
+                isJustification: true,
+                originalFilename: "arquivo-publico.pdf",
+                contentType: "application/pdf",
+                sizeBytes: "120",
+              },
+            ],
+          },
+        });
+      }
       return Promise.reject(new Error(`unexpected request: ${url}`));
     });
 
@@ -118,18 +197,6 @@ describe("AnalysisPublicView", () => {
     expect(wrapper.text()).toContain("Baixar GeoJSON");
     expect(wrapper.text()).toContain("Ver anexos");
     expect(wrapper.text()).toContain("Baixar ZIP anexos");
-
-    const actionButtons = wrapper
-      .findAll("button")
-      .filter((item) =>
-        ["Baixar GeoJSON", "Ver anexos", "Baixar ZIP anexos"].includes(item.text().trim()),
-      );
-    expect(actionButtons).toHaveLength(3);
-    for (const button of actionButtons) {
-      expect(button.classes()).toContain("transition-colors");
-      expect(button.classes()).toContain("hover:bg-muted");
-      expect(button.classes()).toContain("active:scale-[0.98]");
-    }
   });
 
   it("renders farm name in title case and keeps SICAR status uppercase", async () => {

@@ -9,13 +9,34 @@ import {
   isLocalAuthBypassEnabled,
 } from "@/auth/local-bypass";
 
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:3001";
+const DEFAULT_API_BASE_URL = "http://localhost:3001";
+export const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? DEFAULT_API_BASE_URL;
 const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export const http = axios.create({
   baseURL: apiBaseUrl,
 });
+
+function isAbsoluteUrl(value: string): boolean {
+  return /^[a-zA-Z][a-zA-Z\d+\-.]*:\/\//.test(value);
+}
+
+export function resolveApiUrl(path: string): string {
+  const normalizedPath = `/${path.replace(/^\/+/, "")}`;
+  const origin =
+    typeof window !== "undefined" ? window.location.origin : DEFAULT_API_BASE_URL;
+  const base = isAbsoluteUrl(apiBaseUrl)
+    ? new URL(apiBaseUrl)
+    : new URL(apiBaseUrl, origin);
+  const basePath = base.pathname.replace(/\/+$/, "");
+
+  base.pathname = `${basePath}${normalizedPath}`.replace(/\/{2,}/g, "/");
+  base.search = "";
+  base.hash = "";
+
+  return base.toString();
+}
 
 type RetriableAuthRequestConfig = AxiosRequestConfig & {
   skipAuth?: boolean;

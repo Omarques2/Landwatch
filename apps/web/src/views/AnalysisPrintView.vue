@@ -7,6 +7,7 @@
     :is-loading="isLoading"
     :analysis-public-url="analysisPublicUrl"
     :logo-src="printLogo"
+    :has-attachments="hasAnalysisAttachments"
     map-auth-mode="private"
   />
 </template>
@@ -58,13 +59,20 @@ type AnalysisDetail = {
   results: AnalysisResult[];
 };
 
+type AnalysisAttachment = {
+  id: string;
+};
+
 const route = useRoute();
 const analysis = ref<AnalysisDetail | null>(null);
 const vectorMap = ref<AnalysisVectorMapPayload | null>(null);
+const analysisAttachments = ref<AnalysisAttachment[]>([]);
 const mapLoading = ref(false);
 const isLoading = ref(false);
 const printLayoutRef = ref<InstanceType<typeof AnalysisPrintLayout> | null>(null);
 const mapReady = computed(() => !mapLoading.value && Boolean(vectorMap.value?.vectorSource));
+const attachmentsResolved = ref(false);
+const hasAnalysisAttachments = computed(() => analysisAttachments.value.length > 0);
 const CACHE_TTL_MS = 5 * 60 * 1000;
 const hasTriggeredBrowserPrint = ref(false);
 
@@ -77,10 +85,13 @@ async function loadAnalysis() {
   const id = route.params.id as string;
   isLoading.value = true;
   try {
+    attachmentsResolved.value = false;
+    analysisAttachments.value = [];
     const cached = readPrintCache(id);
     if (cached) {
       analysis.value = cached.analysis;
       vectorMap.value = cached.vectorMap ?? null;
+      await loadAnalysisAttachments(id);
     } else {
       mapLoading.value = true;
       const cachedVectorMap = getAnalysisMapCache<AnalysisVectorMapPayload>(id, undefined);
@@ -91,6 +102,7 @@ async function loadAnalysis() {
           : http
               .get<ApiEnvelope<AnalysisVectorMapPayload>>(`/v1/analyses/${id}/vector-map`)
               .then((res) => unwrapData(res.data)),
+        loadAnalysisAttachments(id),
       ]);
       analysis.value = unwrapData(detailRes.data);
       vectorMap.value = vectorMapPayload;
@@ -123,10 +135,24 @@ function onAfterPrint() {
 async function triggerPrintWhenReady() {
   if (hasTriggeredBrowserPrint.value) return;
   if (!analysis.value || !mapReady.value) return;
+  if (!attachmentsResolved.value) return;
   hasTriggeredBrowserPrint.value = true;
   await nextTick();
   onBeforePrint();
   window.print();
+}
+
+async function loadAnalysisAttachments(id: string) {
+  try {
+    const res = await http.get<ApiEnvelope<AnalysisAttachment[]>>(
+      `/v1/attachments/analysis/${id}`,
+    );
+    analysisAttachments.value = unwrapData(res.data);
+  } catch {
+    analysisAttachments.value = [];
+  } finally {
+    attachmentsResolved.value = true;
+  }
 }
 
 function readPrintCache(id: string) {

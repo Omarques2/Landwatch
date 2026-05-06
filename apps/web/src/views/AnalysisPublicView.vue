@@ -10,6 +10,7 @@
           :is-loading="isLoading"
           :analysis-public-url="analysisPublicUrl"
           :logo-src="printLogo"
+          :has-attachments="hasPublicAttachments"
           map-auth-mode="public"
         />
       </div>
@@ -75,12 +76,14 @@
             Baixar GeoJSON
           </button>
           <button
+            v-if="hasPublicAttachments"
             :class="publicActionButtonClass"
             @click="openAttachmentsModal"
           >
             Ver anexos
           </button>
           <button
+            v-if="hasPublicAttachments"
             :class="publicActionButtonClass"
             @click="downloadPublicAttachmentsZip"
           >
@@ -364,8 +367,10 @@ const originalTitle = ref<string | null>(null);
 const attachmentsOpen = ref(false);
 const attachmentsLoading = ref(false);
 const publicAttachments = ref<PublicAttachment[]>([]);
+const publicAttachmentsResolved = ref(false);
 const activeLegendCode = ref<string | null>(null);
 const analysisId = computed(() => String(route.params.id ?? "").trim());
+const hasPublicAttachments = computed(() => publicAttachments.value.length > 0);
 
 const isPreventiveDeter = computed(
   () => analysis.value?.analysisKind === "DETER",
@@ -579,14 +584,19 @@ async function loadPublicAttachments() {
       },
     );
     publicAttachments.value = unwrapData(res.data);
+  } catch {
+    publicAttachments.value = [];
   } finally {
+    publicAttachmentsResolved.value = true;
     attachmentsLoading.value = false;
   }
 }
 
 async function openAttachmentsModal() {
+  if (!publicAttachmentsResolved.value) {
+    await loadPublicAttachments();
+  }
   attachmentsOpen.value = true;
-  await loadPublicAttachments();
 }
 
 async function downloadPublicAttachment(attachmentId: string, filename: string) {
@@ -601,6 +611,7 @@ async function downloadPublicAttachment(attachmentId: string, filename: string) 
 }
 
 async function downloadPublicAttachmentsZip() {
+  if (!hasPublicAttachments.value) return;
   const res = await http.get(
     `/v1/public/analyses/${route.params.id}/attachments/zip`,
     {
@@ -650,6 +661,7 @@ async function loadAnalysis() {
   mapLoading.value = true;
   try {
     activeLegendCode.value = null;
+    publicAttachmentsResolved.value = false;
     const [detailRes, vectorMapPayload] = await Promise.all([
       http.get<ApiEnvelope<AnalysisDetail>>(`/v1/public/analyses/${id}`, {
         headers: { "X-Skip-Auth": "1" },
@@ -659,6 +671,7 @@ async function loadAnalysis() {
           headers: { "X-Skip-Auth": "1" },
         })
         .then((res) => unwrapData(res.data)),
+      loadPublicAttachments(),
     ]);
     analysis.value = unwrapData(detailRes.data);
     vectorMap.value = vectorMapPayload;

@@ -10,6 +10,7 @@
           :is-loading="isLoading"
           :analysis-public-url="analysisPublicUrl"
           :logo-src="printLogo"
+          :has-attachments="hasAnalysisAttachments"
           map-auth-mode="private"
         />
       </div>
@@ -85,9 +86,9 @@
       <div class="flex gap-2">
         <UiButton variant="outline" size="sm" @click="loadAnalysis">Atualizar</UiButton>
         <UiButton
+          v-if="hasAnalysisAttachments"
           variant="outline"
           size="sm"
-          :disabled="!analysis?.id"
           @click="openAttachmentsModal"
         >
           Anexos
@@ -104,9 +105,9 @@
           Baixar PDF
         </UiButton>
         <UiButton
+          v-if="hasAnalysisAttachments"
           variant="outline"
           size="sm"
-          :disabled="analysis?.status !== 'completed'"
           @click="downloadAnalysisAttachmentsZip"
         >
           Baixar ZIP anexos
@@ -510,6 +511,7 @@ const featureContextMenuEl = ref<HTMLDivElement | null>(null);
 const attachmentsOpen = ref(false);
 const attachmentsLoading = ref(false);
 const analysisAttachments = ref<AnalysisAttachment[]>([]);
+const attachmentsResolved = ref(false);
 const activeLegendCode = ref<string | null>(null);
 const originalTitle = ref<string | null>(null);
 const featureContextMenu = ref<{
@@ -642,6 +644,7 @@ const analysisPublicUrl = computed(() => {
   return new URL(`/analyses/${String(route.params.id ?? "")}/public`, window.location.origin).toString();
 });
 
+const hasAnalysisAttachments = computed(() => analysisAttachments.value.length > 0);
 const canDownloadGeoJson = computed(() => analysis.value?.status === "completed");
 const canDownloadPdf = computed(() => {
   if (isLoading.value) return false;
@@ -902,10 +905,13 @@ async function loadVectorMap(id: string, forceReload = false) {
 
 async function loadCompletedAnalysis(id: string, forceReload = false) {
   mapLoading.value = true;
+  attachmentsResolved.value = false;
+  analysisAttachments.value = [];
   try {
     const [detailRes] = await Promise.all([
       http.get<ApiEnvelope<AnalysisDetail>>(`/v1/analyses/${id}`),
       loadVectorMap(id, forceReload),
+      loadAnalysisAttachments(id),
     ]);
     analysis.value = unwrapData(detailRes.data);
     activeLegendCode.value = null;
@@ -919,20 +925,29 @@ async function loadAnalysis(forceCompletedReload = false) {
   const id = route.params.id as string;
   isLoading.value = true;
   loadError.value = null;
+  attachmentsResolved.value = false;
+  analysisAttachments.value = [];
   try {
     if (!id) {
       loadError.value = "ID da análise inválido.";
       analysis.value = null;
       vectorMap.value = null;
+      analysisAttachments.value = [];
+      attachmentsResolved.value = true;
       return;
     }
     const status = await loadStatus(id);
     if (status.status === "completed") {
       await loadCompletedAnalysis(id, forceCompletedReload);
+    } else {
+      analysisAttachments.value = [];
+      attachmentsResolved.value = true;
     }
   } catch (err: any) {
     analysis.value = null;
     vectorMap.value = null;
+    analysisAttachments.value = [];
+    attachmentsResolved.value = true;
     const apiMessage =
       err?.response?.data?.error?.message ??
       err?.response?.data?.message ??
@@ -1004,8 +1019,7 @@ function saveBlobAsFile(blob: Blob, filename: string) {
   URL.revokeObjectURL(url);
 }
 
-async function loadAnalysisAttachments() {
-  const id = analysis.value?.id;
+async function loadAnalysisAttachments(id = analysis.value?.id) {
   if (!id) return;
   attachmentsLoading.value = true;
   try {
@@ -1013,14 +1027,19 @@ async function loadAnalysisAttachments() {
       `/v1/attachments/analysis/${id}`,
     );
     analysisAttachments.value = unwrapData(res.data);
+  } catch {
+    analysisAttachments.value = [];
   } finally {
+    attachmentsResolved.value = true;
     attachmentsLoading.value = false;
   }
 }
 
 async function openAttachmentsModal() {
+  if (!attachmentsResolved.value) {
+    await loadAnalysisAttachments();
+  }
   attachmentsOpen.value = true;
-  await loadAnalysisAttachments();
 }
 
 async function downloadAnalysisAttachment(attachmentId: string, filename: string) {
@@ -1032,7 +1051,7 @@ async function downloadAnalysisAttachment(attachmentId: string, filename: string
 
 async function downloadAnalysisAttachmentsZip() {
   const id = analysis.value?.id;
-  if (!id) return;
+  if (!id || !hasAnalysisAttachments.value) return;
   const res = await http.post(`/v1/attachments/analysis/${id}/zip`, {}, {
     responseType: "blob",
   });
@@ -1193,6 +1212,7 @@ async function tryAutoPrint() {
   if (!printRequested.value) return;
   if (!analysis.value || analysis.value.status !== "completed") return;
   if (mapLoading.value) return;
+  if (!attachmentsResolved.value) return;
   if (!vectorMap.value?.vectorSource) return;
   printRequested.value = false;
   await printPdf();

@@ -207,6 +207,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { resolveApiUrl } from "@/api/http";
 import { formatDatasetLabel } from "@/features/analyses/analysis-colors";
 import AnalysisDatasetStatusIcon from "@/components/analyses/AnalysisDatasetStatusIcon.vue";
 import AnalysisDatasetStatusLegend from "@/components/analyses/AnalysisDatasetStatusLegend.vue";
@@ -288,6 +289,7 @@ const props = defineProps<{
   isLoading: boolean;
   analysisPublicUrl: string;
   logoSrc: string;
+  hasAttachments?: boolean;
   mapAuthMode?: "private" | "public";
 }>();
 
@@ -430,33 +432,24 @@ const printActionLinks = computed<Array<{
   kind: "geojson" | "attachments";
   iconClass: string;
 }>>(() => {
-  if (!props.analysis?.id || typeof window === "undefined") return [];
-  let origin = window.location.origin;
-  if (props.analysisPublicUrl) {
-    try {
-      const parsed = new URL(props.analysisPublicUrl, window.location.origin);
-      origin = parsed.origin;
-    } catch {
-      origin = window.location.origin;
-    }
-  }
-
-  const geoJsonUrl = new URL(`/v1/public/analyses/${props.analysis.id}/geojson/download`, origin);
+  if (!props.analysis?.id) return [];
   const actions: Array<{ label: string; href: string; kind: "geojson" | "attachments"; iconClass: string }> = [
     {
       label: "GeoJSON",
-      href: geoJsonUrl.toString(),
+      href: resolveApiUrl(`/v1/public/analyses/${props.analysis.id}/geojson/download`),
       kind: "geojson",
       iconClass: "print-action-icon-geojson",
     },
   ];
 
-  actions.push({
-    label: "Anexos",
-    href: `${origin}/v1/public/analyses/${props.analysis.id}/attachments/zip`,
-    kind: "attachments",
-    iconClass: "print-action-icon-attachments",
-  });
+  if (props.hasAttachments === true) {
+    actions.push({
+      label: "Anexos",
+      href: resolveApiUrl(`/v1/public/analyses/${props.analysis.id}/attachments/zip`),
+      kind: "attachments",
+      iconClass: "print-action-icon-attachments",
+    });
+  }
 
   return actions;
 });
