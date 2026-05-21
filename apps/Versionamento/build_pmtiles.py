@@ -456,7 +456,8 @@ def build_dataset_pmtiles(
     with conn.cursor() as cur:
         metadata = fetch_dataset_metadata(cur, schema, dataset_code)
         if not metadata:
-            raise RuntimeError(f"Dataset not found: {dataset_code}")
+            log_warn(f"Skipping {dataset_code}: dataset not found")
+            return
         exportable_count = fetch_exportable_feature_count(cur, schema, dataset_code)
     if exportable_count <= 0:
         log_warn(f"Skipping {dataset_code}: no exportable active features")

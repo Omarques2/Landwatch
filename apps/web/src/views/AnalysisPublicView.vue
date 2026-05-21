@@ -635,7 +635,7 @@ function fixMojibake(value: string) {
 
 const onBeforePrint = () => {
   if (isPrintMode.value) {
-    printLayoutRef.value?.prepareForPrint();
+    void printLayoutRef.value?.prepareForPrint();
     return;
   }
   isPrintMode.value = true;

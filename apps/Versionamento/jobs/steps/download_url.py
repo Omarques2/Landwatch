@@ -33,17 +33,6 @@ DEFAULT_DOWNLOADS = [
         "filename": "Terras_Indigenas",
     },
     {
-        "url": "https://www.gov.br/icmbio/pt-br/assuntos/dados_geoespaciais/mapa-tematico-e-dados-geoestatisticos-das-unidades-de-conservacao-federais/limites_ucs_federais_032026_a-1.zip",
-        "path": "UCS",
-        "filename": "UCS_FEDERAL",
-    },
-    {
-        "url": "https://dados.mma.gov.br/dataset/44b6dc8a-dc82-4a84-8d95-1b0da7c85dac/resource/6ba9a557-87e8-4882-acb7-b3e0f0ea192d/download/shp_cnuc_2025_08.zip",
-        "path": "UCS",
-        "filename": "UCS_CNUC",
-        "zip_shp_stems": ["cnuc_2025_08"],
-    },
-    {
         "url": "https://www.gov.br/icmbio/pt-br/assuntos/dados_geoespaciais/mapa-tematico-e-dados-geoestatisticos-das-unidades-de-conservacao-federais/embargos_icmbio_shp.zip",
         "path": "EMBARGOS_ICMBIO",
         "filename": "Embargos_ICMBIO",

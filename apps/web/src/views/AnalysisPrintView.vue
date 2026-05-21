@@ -116,10 +116,10 @@ async function loadAnalysis() {
 
 function onBeforePrint() {
   const layout = printLayoutRef.value as
-    | { prepareForPrint?: (() => void) | undefined }
+    | { prepareForPrint?: (() => void | Promise<void>) | undefined }
     | null;
   if (typeof layout?.prepareForPrint === "function") {
-    layout.prepareForPrint();
+    void layout.prepareForPrint();
   }
 }
 
@@ -138,7 +138,7 @@ async function triggerPrintWhenReady() {
   if (!attachmentsResolved.value) return;
   hasTriggeredBrowserPrint.value = true;
   await nextTick();
-  onBeforePrint();
+  await printLayoutRef.value?.prepareForPrint();
   window.print();
 }
 

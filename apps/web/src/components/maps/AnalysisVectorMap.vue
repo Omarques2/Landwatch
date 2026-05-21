@@ -21,6 +21,10 @@ import { colorForUcsLegendItem } from "@/features/analyses/analysis-legend";
 import {
   getPreferredAnalysisBounds,
   getPreferredAnalysisFitMaxZoom,
+  getPrintMapIdleTimeoutMs,
+  getPrintMapReadyMaxWaitMs,
+  getPrintMapReadyPollMs,
+  isPrintMapReady,
 } from "@/features/analyses/analysis-vector-bounds";
 
 type VectorSourceContract = {
@@ -372,7 +376,7 @@ function bindMapEvents() {
 }
 
 function removeLegendLayers() {
-  if (!map) return;
+  if (!map || !map.isStyleLoaded()) return;
   for (const item of props.legendItems) {
     const fillId = fillLayerId(item.code);
     const lineId = lineLayerId(item.code);
@@ -382,7 +386,7 @@ function removeLegendLayers() {
 }
 
 function ensureSourceAndLayers() {
-  if (!map) return;
+  if (!map || !map.isStyleLoaded()) return;
   if (!props.vectorSource) {
     if (map.getLayer(SELECTED_LINE_LAYER_ID)) map.removeLayer(SELECTED_LINE_LAYER_ID);
     removeLegendLayers();
@@ -445,30 +449,34 @@ function ensureSourceAndLayers() {
     const color = colorByLegendCode.value.get(item.code) ?? colorForDataset(item.datasetCode);
     const filter = legendFilterExpression(item);
 
-    map.addLayer({
-      id: fillId,
-      type: "fill",
-      source: SOURCE_ID,
-      "source-layer": props.vectorSource.sourceLayer,
-      filter,
-      paint: {
-        "fill-color": color,
-        "fill-opacity": 0.58,
-      },
-    });
+    if (!map.getLayer(fillId)) {
+      map.addLayer({
+        id: fillId,
+        type: "fill",
+        source: SOURCE_ID,
+        "source-layer": props.vectorSource.sourceLayer,
+        filter,
+        paint: {
+          "fill-color": color,
+          "fill-opacity": 0.58,
+        },
+      });
+    }
 
-    map.addLayer({
-      id: lineId,
-      type: "line",
-      source: SOURCE_ID,
-      "source-layer": props.vectorSource.sourceLayer,
-      filter,
-      paint: {
-        "line-color": "#0f172a",
-        "line-width": 1,
-        "line-opacity": 0.8,
-      },
-    });
+    if (!map.getLayer(lineId)) {
+      map.addLayer({
+        id: lineId,
+        type: "line",
+        source: SOURCE_ID,
+        "source-layer": props.vectorSource.sourceLayer,
+        filter,
+        paint: {
+          "line-color": "#0f172a",
+          "line-width": 1,
+          "line-opacity": 0.8,
+        },
+      });
+    }
   }
 
   if (!map.getLayer(SELECTED_LINE_LAYER_ID)) {
@@ -500,7 +508,7 @@ function fitToSourceBounds(force = false) {
   const bounds = asBounds(preferredBounds);
   if (!bounds) return;
   map.fitBounds(bounds, {
-    padding: props.printMode ? 8 : 32,
+    padding: props.printMode ? 24 : 32,
     duration: 0,
     maxZoom: getPreferredAnalysisFitMaxZoom({
       sourceMaxZoom: props.vectorSource.maxzoom,
@@ -520,13 +528,109 @@ function refreshBasemapVisibility() {
 function refresh() {
   if (!map) return;
   map.resize();
+  if (!map.isStyleLoaded()) return;
   ensureSourceAndLayers();
   syncLegendVisibility();
 }
 
-function prepareForPrint() {
+function waitForPrintFrame() {
+  return new Promise<void>((resolve) => {
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => resolve());
+    });
+  });
+}
+
+async function waitForMapIdle(localMap: maplibregl.Map, timeoutMs = 5000) {
+  if (localMap.loaded() && localMap.areTilesLoaded()) {
+    return;
+  }
+  await new Promise<void>((resolve) => {
+    let settled = false;
+    let timeoutId: number | null = null;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      if (timeoutId != null) {
+        window.clearTimeout(timeoutId);
+      }
+      localMap.off("idle", handler);
+      resolve();
+    };
+    const handler = () => finish();
+    timeoutId = window.setTimeout(finish, timeoutMs);
+    localMap.on("idle", handler);
+  });
+}
+
+function waitForTimeout(ms: number) {
+  return new Promise<void>((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
+}
+
+function requiredLegendLayersReady(localMap: maplibregl.Map) {
+  return props.legendItems.every((item) => {
+    return Boolean(localMap.getLayer(fillLayerId(item.code)) && localMap.getLayer(lineLayerId(item.code)));
+  });
+}
+
+function currentPrintMapReady(localMap: maplibregl.Map) {
+  const canvas = localMap.getCanvas();
+  const rect = canvas.getBoundingClientRect();
+  return isPrintMapReady({
+    styleLoaded: Boolean(localMap.isStyleLoaded()),
+    sourceReady: Boolean(localMap.getSource(SOURCE_ID)),
+    selectedLineLayerReady: Boolean(localMap.getLayer(SELECTED_LINE_LAYER_ID)),
+    legendLayersReady: requiredLegendLayersReady(localMap),
+    canvasReady: canvas.width > 0 && canvas.height > 0 && rect.width > 0 && rect.height > 0,
+    mapLoaded: Boolean(localMap.loaded()),
+    tilesLoaded: Boolean(localMap.areTilesLoaded()),
+  });
+}
+
+async function waitUntilPrintMapReady(localMap: maplibregl.Map) {
+  const startedAt = performance.now();
+  const maxWaitMs = getPrintMapReadyMaxWaitMs();
+  const pollMs = getPrintMapReadyPollMs();
+
+  while (performance.now() - startedAt < maxWaitMs) {
+    localMap.resize();
+
+    if (localMap.isStyleLoaded()) {
+      refresh();
+      fitToSourceBounds(true);
+      await waitForPrintFrame();
+    }
+
+    if (currentPrintMapReady(localMap)) {
+      return true;
+    }
+
+    await waitForTimeout(pollMs);
+  }
+
+  if (localMap.isStyleLoaded()) {
+    refresh();
+    fitToSourceBounds(true);
+    await waitForPrintFrame();
+  }
+  return currentPrintMapReady(localMap);
+}
+
+async function prepareForPrint() {
+  if (map) {
+    await waitUntilPrintMapReady(map);
+  }
   refresh();
   fitToSourceBounds(true);
+  await waitForPrintFrame();
+  refresh();
+  fitToSourceBounds(true);
+  if (map) {
+    await waitForMapIdle(map, getPrintMapIdleTimeoutMs({ hasFreshFit: true }));
+    await waitForPrintFrame();
+  }
 }
 
 function resetAfterPrint() {
@@ -534,7 +638,34 @@ function resetAfterPrint() {
   fitToSourceBounds(true);
 }
 
-defineExpose({ refresh, prepareForPrint, resetAfterPrint });
+type PrintImageOptions = {
+  type?: "image/jpeg" | "image/png";
+  quality?: number;
+  skipPrepare?: boolean;
+};
+
+async function capturePrintImage(options: PrintImageOptions = {}) {
+  if (!map) return null;
+  if (!options.skipPrepare) {
+    await prepareForPrint();
+  }
+  map.triggerRepaint();
+  await waitForPrintFrame();
+
+  const canvas = map.getCanvas();
+  if (!canvas || canvas.width <= 0 || canvas.height <= 0) return null;
+
+  const type = options.type ?? "image/jpeg";
+  const quality = Math.max(0.1, Math.min(1, options.quality ?? 0.72));
+
+  try {
+    return canvas.toDataURL(type, quality);
+  } catch {
+    return null;
+  }
+}
+
+defineExpose({ refresh, prepareForPrint, resetAfterPrint, capturePrintImage });
 
 onMounted(async () => {
   if (!mapEl.value) return;
@@ -558,6 +689,9 @@ onMounted(async () => {
     },
     renderWorldCopies: false,
     fadeDuration: 0,
+    canvasContextAttributes: {
+      preserveDrawingBuffer: props.printMode,
+    },
     cancelPendingTileRequestsWhileZooming: true,
     transformRequest: (url) => {
       if (!shouldAttachAuthHeaders(url)) return { url };

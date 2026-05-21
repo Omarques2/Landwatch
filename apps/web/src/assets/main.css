@@ -443,7 +443,8 @@
     pointer-events: auto !important;
     left: auto !important;
     top: auto !important;
-    width: auto !important;
-    max-width: none !important;
+    width: 794px !important;
+    max-width: 794px !important;
+    margin: 0 auto !important;
   }
 }

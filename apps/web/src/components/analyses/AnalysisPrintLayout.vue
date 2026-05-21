@@ -214,6 +214,9 @@ import AnalysisDatasetStatusLegend from "@/components/analyses/AnalysisDatasetSt
 import {
   buildPrintChipRows,
   formatPrintDatasetLabel,
+  freezePrintMapFrame,
+  hasFrozenPrintMapFrame,
+  restorePrintMapFrame,
 } from "@/features/analyses/analysis-print";
 import {
   getAnalysisJustificationCoverageSummary,
@@ -555,11 +558,41 @@ async function generateQrCode() {
   }
 }
 
-function prepareForPrint() {
-  analysisMapRef.value?.prepareForPrint();
+async function freezeMapFrameForPrint() {
+  const dataUrl = await analysisMapRef.value?.capturePrintImage?.({
+    type: "image/jpeg",
+    quality: 0.72,
+    skipPrepare: true,
+  });
+  if (mapFrameRef.value && dataUrl) {
+    freezePrintMapFrame(mapFrameRef.value, dataUrl);
+  }
 }
 
-function resetAfterPrint() {
+function waitForAnimationFrame() {
+  return new Promise<void>((resolve) => {
+    window.requestAnimationFrame(() => resolve());
+  });
+}
+
+async function prepareForPrint() {
+  if (hasFrozenPrintMapFrame(mapFrameRef.value)) return;
+
+  if (mapFrameRef.value) {
+    restorePrintMapFrame(mapFrameRef.value);
+  }
+  await analysisMapRef.value?.prepareForPrint();
+  await nextTick();
+  await waitForAnimationFrame();
+  await waitForAnimationFrame();
+  await freezeMapFrameForPrint();
+}
+
+async function resetAfterPrint() {
+  if (mapFrameRef.value) {
+    restorePrintMapFrame(mapFrameRef.value);
+  }
+  await nextTick();
   analysisMapRef.value?.resetAfterPrint();
 }
 
@@ -603,6 +636,8 @@ watch(
   background: #f8fafc;
   color: #0f172a;
   padding: 18px;
+  box-sizing: border-box;
+  width: 794px;
   max-width: 794px;
   margin: 0 auto;
   font-family: "Inter", system-ui, sans-serif;
@@ -980,10 +1015,11 @@ watch(
     background: white !important;
   }
   .analysis-print-page {
-    padding: 12mm 12mm 18mm !important;
-    max-width: none !important;
-    margin: 0 !important;
-    width: 100% !important;
+    box-sizing: border-box !important;
+    padding: 18px !important;
+    width: 794px !important;
+    max-width: 794px !important;
+    margin: 0 auto !important;
     background: white !important;
     border: none !important;
     outline: none !important;

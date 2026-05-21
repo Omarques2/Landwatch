@@ -3,7 +3,10 @@ import { describe, expect, it } from "vitest";
 import {
   buildPrintChipRows,
   formatPrintDatasetLabel,
+  freezePrintMapFrame,
+  hasFrozenPrintMapFrame,
   preferredPrintColumns,
+  restorePrintMapFrame,
 } from "./analysis-print";
 
 describe("analysis-print", () => {
@@ -66,5 +69,44 @@ describe("analysis-print", () => {
         ],
       },
     ]);
+  });
+
+  it("temporarily replaces a print map frame with a compressed image", () => {
+    const frame = document.createElement("div");
+    frame.className = "print-map-frame";
+    frame.style.position = "";
+    const mapCanvas = document.createElement("canvas");
+    mapCanvas.style.display = "block";
+    frame.appendChild(mapCanvas);
+
+    freezePrintMapFrame(frame, "data:image/jpeg;base64,abc123");
+
+    const frozenImage = frame.querySelector<HTMLImageElement>("img[data-print-map-freeze='true']");
+    expect(frozenImage?.src).toBe("data:image/jpeg;base64,abc123");
+    expect(frozenImage?.style.objectFit).toBe("contain");
+    expect(frozenImage?.style.objectPosition).toBe("center");
+    expect(frozenImage?.style.position).toBe("static");
+    expect(mapCanvas.style.display).toBe("none");
+    expect(frame.dataset.printMapFrozen).toBe("true");
+    expect(hasFrozenPrintMapFrame(frame)).toBe(true);
+
+    restorePrintMapFrame(frame);
+
+    expect(frame.querySelector("img[data-print-map-freeze='true']")).toBeNull();
+    expect(mapCanvas.style.display).toBe("block");
+    expect(frame.dataset.printMapFrozen).toBeUndefined();
+    expect(hasFrozenPrintMapFrame(frame)).toBe(false);
+  });
+
+  it("updates the frozen image when a print map frame is frozen again", () => {
+    const frame = document.createElement("div");
+    frame.appendChild(document.createElement("canvas"));
+
+    freezePrintMapFrame(frame, "data:image/jpeg;base64,old");
+    freezePrintMapFrame(frame, "data:image/jpeg;base64,new");
+
+    const frozenImages = frame.querySelectorAll("img[data-print-map-freeze='true']");
+    expect(frozenImages).toHaveLength(1);
+    expect((frozenImages[0] as HTMLImageElement).src).toBe("data:image/jpeg;base64,new");
   });
 });

@@ -652,22 +652,22 @@ const canDownloadPdf = computed(() => {
   return analysis.value?.status === "completed";
 });
 
-function preparePrintLayoutSafely() {
+async function preparePrintLayoutSafely() {
   const layout = printLayoutRef.value as
-    | { prepareForPrint?: (() => void) | undefined; refresh?: (() => void) | undefined }
+    | { prepareForPrint?: (() => void | Promise<void>) | undefined; refresh?: (() => void) | undefined }
     | null;
   if (typeof layout?.refresh === "function") {
     layout.refresh();
   }
   if (typeof layout?.prepareForPrint === "function") {
-    layout.prepareForPrint();
+    await layout.prepareForPrint();
   }
 }
 
 const onBeforePrint = () => {
   setBodyPrintMode(true);
   setPrintTitle();
-  preparePrintLayoutSafely();
+  void preparePrintLayoutSafely();
 };
 const onAfterPrint = () => {
   setBodyPrintMode(false);
@@ -1076,7 +1076,7 @@ async function printPdf() {
   if (!canDownloadPdf.value) return;
   setBodyPrintMode(true);
   setPrintTitle();
-  preparePrintLayoutSafely();
+  await preparePrintLayoutSafely();
   window.print();
 }
 

@@ -1,7 +1,14 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { mount } from "@vue/test-utils";
-import { defineComponent } from "vue";
+import { defineComponent, h } from "vue";
 import AnalysisPrintLayout from "@/components/analyses/AnalysisPrintLayout.vue";
+
+const analysisVectorMapMethods = vi.hoisted(() => ({
+  prepareForPrint: vi.fn<() => Promise<void>>(() => Promise.resolve()),
+  capturePrintImage: vi.fn<() => Promise<string>>(() => Promise.resolve("data:image/jpeg;base64,map")),
+  resetAfterPrint: vi.fn(),
+  refresh: vi.fn(),
+}));
 
 vi.mock("@/api/http", () => ({
   resolveApiUrl: (path: string) => `https://api.example.com${path}`,
@@ -10,7 +17,10 @@ vi.mock("@/api/http", () => ({
 vi.mock("@/components/maps/AnalysisVectorMap.vue", () => ({
   default: defineComponent({
     name: "AnalysisVectorMap",
-    template: "<div data-test='analysis-vector-map'></div>",
+    setup(_, { expose }) {
+      expose(analysisVectorMapMethods);
+      return () => h("div", { "data-test": "analysis-vector-map" });
+    },
   }),
 }));
 
@@ -29,6 +39,13 @@ vi.mock("@/components/analyses/AnalysisDatasetStatusLegend.vue", () => ({
 }));
 
 describe("AnalysisPrintLayout", () => {
+  beforeEach(() => {
+    analysisVectorMapMethods.prepareForPrint.mockClear();
+    analysisVectorMapMethods.capturePrintImage.mockClear();
+    analysisVectorMapMethods.resetAfterPrint.mockClear();
+    analysisVectorMapMethods.refresh.mockClear();
+  });
+
   it("renders farm name in title case and keeps SICAR badge uppercase", () => {
     const wrapper = mount(AnalysisPrintLayout, {
       props: {
@@ -117,5 +134,48 @@ describe("AnalysisPrintLayout", () => {
     expect(links[1]!.attributes("href")).toBe(
       "https://api.example.com/v1/public/analyses/analysis-1/attachments/zip",
     );
+  });
+
+  it("does not prepare the map twice before freezing it for print", async () => {
+    const wrapper = mount(AnalysisPrintLayout, {
+      props: {
+        analysis: {
+          id: "analysis-1",
+          carKey: "MT-123",
+          farmName: "fazenda de teste",
+          analysisDate: "2026-02-12",
+          status: "completed",
+          analysisKind: "STANDARD",
+          datasetGroups: [],
+          results: [],
+        },
+        vectorMap: {
+          renderMode: "mvt",
+          vectorSource: {
+            tiles: ["pmtiles://test.pmtiles/{z}/{x}/{y}"],
+            sourceLayer: "analysis",
+            bounds: [-50, -16, -49, -15],
+            carBounds: [-50, -16, -49, -15],
+            minzoom: 0,
+            maxzoom: 22,
+            promoteId: "id",
+          },
+          legendItems: [],
+        },
+        mapLoading: false,
+        isLoading: false,
+        analysisPublicUrl: "https://frontend.example.com/analyses/analysis-1/public",
+        logoSrc: "/logo.png",
+      },
+    });
+
+    await wrapper.vm.prepareForPrint();
+
+    expect(analysisVectorMapMethods.prepareForPrint).toHaveBeenCalledTimes(1);
+    expect(analysisVectorMapMethods.capturePrintImage).toHaveBeenCalledWith({
+      type: "image/jpeg",
+      quality: 0.72,
+      skipPrepare: true,
+    });
   });
 });
