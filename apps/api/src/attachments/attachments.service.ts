@@ -1321,14 +1321,12 @@ export class AttachmentsService {
       canManageCategories: actor.isPlatformAdmin,
       canManagePermissions: actor.isPlatformAdmin,
       canViewAudit: actor.isPlatformAdmin,
-      allowedScopes: actor.isPlatformAdmin
-        ? [
-            AttachmentScope.ORG_FEATURE,
-            AttachmentScope.ORG_CAR,
-            AttachmentScope.PLATFORM_FEATURE,
-            AttachmentScope.PLATFORM_CAR,
-          ]
-        : [AttachmentScope.ORG_FEATURE, AttachmentScope.ORG_CAR],
+      allowedScopes: [
+        AttachmentScope.ORG_FEATURE,
+        AttachmentScope.ORG_CAR,
+        AttachmentScope.PLATFORM_FEATURE,
+        AttachmentScope.PLATFORM_CAR,
+      ],
     };
   }
 
@@ -1671,16 +1669,6 @@ export class AttachmentsService {
       });
     }
     const scope = input.scope as AttachmentScope;
-    if (
-      (scope === AttachmentScope.PLATFORM_CAR ||
-        scope === AttachmentScope.PLATFORM_FEATURE) &&
-      !actor.isPlatformAdmin
-    ) {
-      throw new ForbiddenException({
-        code: 'PLATFORM_SCOPE_FORBIDDEN',
-        message: 'Only platform admin can use PLATFORM_* scope',
-      });
-    }
     const appliesOrgId =
       scope === AttachmentScope.ORG_CAR || scope === AttachmentScope.ORG_FEATURE
         ? input.appliesOrgId?.trim() || actor.orgId

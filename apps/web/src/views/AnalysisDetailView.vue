@@ -390,6 +390,7 @@ import {
 } from "@/features/analyses/analysis-dataset-status";
 import {
   buildAnalysisLegendEntries,
+  type AnalysisOverlapCandidate,
   type AnalysisVectorMap as AnalysisVectorMapPayload,
 } from "@/features/analyses/analysis-vector-map";
 import { toTitleCase } from "@/lib/formatters";
@@ -520,12 +521,14 @@ const featureContextMenu = ref<{
   y: number;
   datasetCode: string;
   featureId: string | null;
+  selectedFeatures: AnalysisOverlapCandidate[];
 }>({
   open: false,
   x: 0,
   y: 0,
   datasetCode: "",
   featureId: null,
+  selectedFeatures: [],
 });
 
 const showAnalysisOverlay = computed(() => {
@@ -1084,6 +1087,7 @@ async function onMapFeatureContextMenu(payload: {
   datasetCode: string;
   isSicar: boolean;
   featureId?: string | null;
+  selectedFeatures?: AnalysisOverlapCandidate[];
   screen: { x: number; y: number };
 }) {
   if (payload.isSicar) {
@@ -1096,6 +1100,7 @@ async function onMapFeatureContextMenu(payload: {
     y: payload.screen.y,
     datasetCode: payload.datasetCode,
     featureId: payload.featureId ?? null,
+    selectedFeatures: payload.selectedFeatures ?? [],
   };
 }
 
@@ -1111,6 +1116,7 @@ function closeFeatureContextMenu() {
     y: 0,
     datasetCode: "",
     featureId: null,
+    selectedFeatures: [],
   };
 }
 
@@ -1119,14 +1125,31 @@ async function goToAttachmentsFromContextMenu() {
   const datasetCode = featureContextMenu.value.datasetCode;
   if (!analysisId || !datasetCode) return;
   const featureId = featureContextMenu.value.featureId;
+  const selectedFeatures = featureContextMenu.value.selectedFeatures;
+  const selectedFeature = selectedFeatures[0];
   closeFeatureContextMenu();
+  if (selectedFeatures.length > 1) {
+    await router.push({
+      path: "/attachments",
+      query: {
+        tab: "explore",
+        fromAnalysisId: analysisId,
+        datasetCode: Array.from(new Set(selectedFeatures.map((item) => item.datasetCode))),
+        target: selectedFeatures.map((item) => `${item.datasetCode}:${item.featureId}`),
+        carKey: analysis.value?.carKey ?? undefined,
+      },
+    });
+    return;
+  }
+  const targetDatasetCode = selectedFeature?.datasetCode ?? datasetCode;
+  const targetFeatureId = selectedFeature?.featureId ?? featureId;
   await router.push({
     path: "/attachments",
     query: {
       tab: "explore",
       fromAnalysisId: analysisId,
-      datasetCode,
-      featureId: featureId ?? undefined,
+      datasetCode: targetDatasetCode,
+      featureId: targetFeatureId ?? undefined,
       carKey: analysis.value?.carKey ?? undefined,
     },
   });

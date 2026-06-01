@@ -1,4 +1,8 @@
-import { colorForDataset, formatDatasetLabel } from "./analysis-colors";
+import {
+  ANALYSIS_DATASET_COLORS,
+  colorForDataset,
+  formatDatasetLabel,
+} from "./analysis-colors";
 
 describe("analysis-colors", () => {
   it("formats dataset codes into readable labels", () => {
@@ -15,5 +19,30 @@ describe("analysis-colors", () => {
     expect(first).toBe(second);
     expect(first).not.toBe(other);
     expect(first).toMatch(/^#/);
+  });
+
+  it("keeps dataset colors away from the red CAR outline", () => {
+    expect(ANALYSIS_DATASET_COLORS).toEqual([
+      "#0b5cad",
+      "#007c91",
+      "#00875a",
+      "#3f7d20",
+      "#5b8c00",
+      "#706c00",
+      "#1769aa",
+      "#005f73",
+      "#00796b",
+      "#2e7d32",
+      "#558b2f",
+      "#827717",
+      "#3949ab",
+      "#5e35b1",
+      "#7b1fa2",
+      "#00838f",
+      "#00695c",
+      "#33691e",
+      "#1565c0",
+      "#4527a0",
+    ]);
   });
 });

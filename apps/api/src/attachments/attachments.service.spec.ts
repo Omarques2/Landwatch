@@ -200,7 +200,12 @@ describe('AttachmentsService', () => {
       canManageCategories: false,
       canManagePermissions: false,
       canViewAudit: false,
-      allowedScopes: ['ORG_FEATURE', 'ORG_CAR'],
+      allowedScopes: [
+        'ORG_FEATURE',
+        'ORG_CAR',
+        'PLATFORM_FEATURE',
+        'PLATFORM_CAR',
+      ],
     });
   });
 
@@ -229,6 +234,42 @@ describe('AttachmentsService', () => {
         'PLATFORM_CAR',
       ],
     });
+  });
+
+  describe('parseCreateTarget', () => {
+    it.each([
+      ['PLATFORM_FEATURE', undefined],
+      ['PLATFORM_CAR', 'CAR-1'],
+    ] as const)(
+      'allows regular organization users to create %s targets',
+      (scope, carKey) => {
+        const service = new AttachmentsService(makePrismaMock() as any);
+
+        expect(
+          (service as any).parseCreateTarget(
+            {
+              userId: 'user-1',
+              orgId: 'org-1',
+              isPlatformAdmin: false,
+              subject: 'sub-1',
+            },
+            {
+              datasetCode: 'UNIDADES_CONSERVACAO',
+              featureId: '22857615',
+              scope,
+              carKey,
+              validFrom: '2026-04-16',
+            },
+          ),
+        ).toMatchObject({
+          datasetCode: 'UNIDADES_CONSERVACAO',
+          featureId: 22857615n,
+          scope,
+          carKey: carKey ?? null,
+          appliesOrgId: null,
+        });
+      },
+    );
   });
 
   it('lets platform admin grant and list attachment reviewers in the active org', async () => {

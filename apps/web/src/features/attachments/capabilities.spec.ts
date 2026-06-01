@@ -12,7 +12,7 @@ const commonCapabilities: AttachmentsCapabilities = {
   canManageCategories: false,
   canManagePermissions: false,
   canViewAudit: false,
-  allowedScopes: ['ORG_FEATURE', 'ORG_CAR'],
+  allowedScopes: ['ORG_FEATURE', 'ORG_CAR', 'PLATFORM_FEATURE', 'PLATFORM_CAR'],
 };
 
 describe('attachments capabilities helpers', () => {

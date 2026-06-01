@@ -164,7 +164,12 @@ const mapLoadStats = ref<MapLoadStatsPayload>(createEmptyMapLoadStats());
 
 const visibleTabs = computed(() => getVisibleAttachmentTabs(capabilities.value));
 const allowedScopes = computed<AttachmentScope[]>(() => {
-  return (capabilities.value?.allowedScopes ?? ['ORG_FEATURE', 'ORG_CAR']) as AttachmentScope[];
+  return (capabilities.value?.allowedScopes ?? [
+    'ORG_FEATURE',
+    'ORG_CAR',
+    'PLATFORM_FEATURE',
+    'PLATFORM_CAR',
+  ]) as AttachmentScope[];
 });
 const mapRenderMode = computed(() => mapFilter.value?.renderMode ?? 'mvt');
 const mapVectorSource = computed(() => mapFilter.value?.vectorSource ?? null);
@@ -218,13 +223,28 @@ async function syncStateFromRoute(autoSearch: boolean) {
     : fallbackTab;
 
   activeTab.value = nextTab;
-  selectedDatasetCodes.value = nextState.datasetCodes;
+  const routedTargets = nextState.targets.map((target) => ({
+    datasetCode: target.datasetCode,
+    categoryCode: null,
+    featureId: target.featureId,
+    featureKey: null,
+    naturalId: null,
+    displayName: null,
+  }));
+  selectedDatasetCodes.value = Array.from(
+    new Set([
+      ...nextState.datasetCodes,
+      ...routedTargets.map((target) => target.datasetCode),
+    ]),
+  );
   q.value = nextState.q;
   carKey.value = nextState.carKey;
   intersectsCarOnly.value = nextState.intersectsCarOnly;
   fromAnalysisId.value = nextState.fromAnalysisId;
+  selectedTargets.value = routedTargets;
   selectedFeature.value =
-    nextState.datasetCodes[0] && nextState.featureId
+    routedTargets[0] ??
+    (nextState.datasetCodes[0] && nextState.featureId
       ? {
           datasetCode: nextState.datasetCodes[0],
           categoryCode: null,
@@ -233,12 +253,17 @@ async function syncStateFromRoute(autoSearch: boolean) {
           naturalId: null,
           displayName: null,
         }
-      : null;
+      : null);
 
   const normalizedQuery = buildAttachmentsQueryState({
     tab: nextTab,
     datasetCodes: selectedDatasetCodes.value,
-    featureId: selectedFeature.value?.featureId ?? null,
+    featureId: selectedTargets.value.length ? null : selectedFeature.value?.featureId ?? null,
+    targets: selectedTargets.value.flatMap((target) =>
+      target.featureId
+        ? [{ datasetCode: target.datasetCode, featureId: target.featureId }]
+        : [],
+    ),
     fromAnalysisId: fromAnalysisId.value,
     carKey: carKey.value,
     q: q.value,
@@ -267,7 +292,12 @@ async function replaceQueryFromState() {
       query: buildAttachmentsQueryState({
         tab: activeTab.value,
         datasetCodes: selectedDatasetCodes.value,
-        featureId: selectedFeature.value?.featureId ?? null,
+        featureId: selectedTargets.value.length ? null : selectedFeature.value?.featureId ?? null,
+        targets: selectedTargets.value.flatMap((target) =>
+          target.featureId
+            ? [{ datasetCode: target.datasetCode, featureId: target.featureId }]
+            : [],
+        ),
         fromAnalysisId: fromAnalysisId.value,
         carKey: carKey.value,
         q: q.value,

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { flushPromises, mount } from '@vue/test-utils';
 import AttachmentsView from '@/views/AttachmentsView.vue';
+import AttachmentsExploreWorkspace from '@/features/attachments/components/AttachmentsExploreWorkspace.vue';
 import { http } from '@/api/http';
 
 const routeState = {
@@ -49,7 +50,7 @@ describe('AttachmentsView', () => {
               canManageCategories: false,
               canManagePermissions: false,
               canViewAudit: false,
-              allowedScopes: ['ORG_FEATURE', 'ORG_CAR'],
+              allowedScopes: ['ORG_FEATURE', 'ORG_CAR', 'PLATFORM_FEATURE', 'PLATFORM_CAR'],
             },
           },
         });
@@ -95,7 +96,7 @@ describe('AttachmentsView', () => {
               canManageCategories: false,
               canManagePermissions: false,
               canViewAudit: false,
-              allowedScopes: ['ORG_FEATURE', 'ORG_CAR'],
+              allowedScopes: ['ORG_FEATURE', 'ORG_CAR', 'PLATFORM_FEATURE', 'PLATFORM_CAR'],
             },
           },
         });
@@ -175,5 +176,73 @@ describe('AttachmentsView', () => {
     expect(wrapper.text()).toContain('Nova categoria');
     expect(wrapper.text()).toContain('JUSTIFICATIVA_TECNICA');
     expect(wrapper.text()).not.toContain('Disponível em breve');
+  });
+
+  it('hydrates selected targets received from an analysis route', async () => {
+    routeState.query = {
+      tab: 'explore',
+      target: [
+        'PRODES_A:2',
+        'UNIDADES_CONSERVACAO:22857615',
+      ],
+    };
+    routeState.fullPath =
+      '/attachments?tab=explore&target=PRODES_A:2&target=UNIDADES_CONSERVACAO:22857615';
+
+    const getMock = http.get as unknown as ReturnType<typeof vi.fn>;
+    getMock.mockImplementation((url: string) => {
+      if (url === '/v1/attachments/capabilities') {
+        return Promise.resolve({
+          data: {
+            data: {
+              canUpload: true,
+              canReview: false,
+              canManageCategories: false,
+              canManagePermissions: false,
+              canViewAudit: false,
+              allowedScopes: ['PLATFORM_FEATURE', 'PLATFORM_CAR', 'ORG_FEATURE', 'ORG_CAR'],
+            },
+          },
+        });
+      }
+      if (url === '/v1/attachments/datasets') {
+        return Promise.resolve({ data: { data: [] } });
+      }
+      if (url === '/v1/attachments/categories') {
+        return Promise.resolve({ data: { data: [] } });
+      }
+      return Promise.reject(new Error(`unexpected request: ${url}`));
+    });
+    (http.post as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      data: {
+        data: {
+          renderMode: 'mvt',
+          vectorSource: null,
+          pmtilesSources: [],
+        },
+      },
+    });
+
+    const wrapper = mount(AttachmentsView);
+    await flushPromises();
+
+    expect(wrapper.findComponent(AttachmentsExploreWorkspace).props('selectedTargets')).toEqual([
+      {
+        datasetCode: 'PRODES_A',
+        categoryCode: null,
+        featureId: '2',
+        featureKey: null,
+        naturalId: null,
+        displayName: null,
+      },
+      {
+        datasetCode: 'UNIDADES_CONSERVACAO',
+        categoryCode: null,
+        featureId: '22857615',
+        featureKey: null,
+        naturalId: null,
+        displayName: null,
+      },
+    ]);
   });
 });

@@ -294,6 +294,10 @@ export type AttachmentsQueryState = {
   tab: AttachmentModuleTab;
   datasetCodes: string[];
   featureId: string | null;
+  targets: Array<{
+    datasetCode: string;
+    featureId: string;
+  }>;
   fromAnalysisId: string | null;
   carKey: string;
   q: string;

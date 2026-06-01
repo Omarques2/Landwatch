@@ -1,6 +1,31 @@
 <template>
   <div class="relative h-full w-full">
     <div ref="mapEl" class="h-full w-full rounded-xl border border-border"></div>
+    <div
+      v-if="overlapSelector.open && !printMode"
+      ref="overlapSelectorEl"
+      data-testid="analysis-overlap-selector"
+      class="absolute z-40 min-w-[240px] max-w-[340px] rounded-xl border border-border bg-card p-2 shadow-lg"
+      :style="{ left: `${overlapSelector.x}px`, top: `${overlapSelector.y}px` }"
+    >
+      <div class="px-2 pb-2 pt-1 text-xs font-semibold text-foreground">
+        Áreas sobrepostas
+      </div>
+      <div class="max-h-64 space-y-1 overflow-y-auto">
+        <button
+          v-for="candidate in overlapSelector.candidates"
+          :key="`${candidate.datasetCode}:${candidate.featureId}`"
+          type="button"
+          class="block w-full rounded-lg px-2 py-2 text-left text-xs transition hover:bg-accent"
+          @click="selectOverlapCandidate(candidate)"
+        >
+          <span class="block truncate font-medium text-foreground">{{ candidate.label }}</span>
+          <span class="mt-0.5 block truncate text-[11px] text-muted-foreground">
+            {{ candidate.datasetCode }} · Feature ID: {{ candidate.featureId }}
+          </span>
+        </button>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -18,6 +43,17 @@ import {
 import { getActiveOrgId } from "@/state/org-context";
 import { colorForDataset } from "@/features/analyses/analysis-colors";
 import { colorForUcsLegendItem } from "@/features/analyses/analysis-legend";
+import { useToast } from "@/components/ui";
+import {
+  ANALYSIS_SICAR_OUTLINE_LAYER_ID,
+  ANALYSIS_SICAR_OUTLINE_PAINT,
+  buildAnalysisSelectedFilterExpression,
+  getAnalysisContextSelection,
+  type AnalysisOverlapCandidate,
+  moveAnalysisSicarOutlineLayersToFront,
+  normalizeAnalysisOverlapCandidates,
+  updateAnalysisSelectedFeatures,
+} from "@/features/analyses/analysis-vector-map";
 import {
   getPreferredAnalysisBounds,
   getPreferredAnalysisFitMaxZoom,
@@ -53,6 +89,7 @@ type FeatureContextPayload = {
   displayName: string | null;
   naturalId: string | null;
   isSicar: boolean;
+  selectedFeatures: AnalysisOverlapCandidate[];
   latlng: { lat: number; lng: number };
   screen: { x: number; y: number };
 };
@@ -82,18 +119,32 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
   (event: "feature-contextmenu", payload: FeatureContextPayload): void;
 }>();
+const { push: pushToast } = useToast();
 
 const mapEl = ref<HTMLDivElement | null>(null);
+const overlapSelectorEl = ref<HTMLElement | null>(null);
+const overlapSelector = ref<{
+  open: boolean;
+  x: number;
+  y: number;
+  candidates: AnalysisOverlapCandidate[];
+  additive: boolean;
+}>({
+  open: false,
+  x: 0,
+  y: 0,
+  candidates: [],
+  additive: false,
+});
 let map: maplibregl.Map | null = null;
 let accessToken: string | null = null;
 let hoverPopup: maplibregl.Popup | null = null;
 let hoverFeatureKey: string | null = null;
-let selectedFeature: { datasetCode: string; featureId: string } | null = null;
+let selectedFeatures: AnalysisOverlapCandidate[] = [];
 let hasAutoFitApplied = false;
 
 const SOURCE_ID = "analysis-vector";
 const SICAR_FILL_LAYER_ID = "analysis-sicar-fill";
-const SICAR_LINE_LAYER_ID = "analysis-sicar-line";
 const SELECTED_LINE_LAYER_ID = "analysis-selected-line";
 const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -193,22 +244,50 @@ function legendFilterExpression(item: LegendItem): ExpressionSpecification {
 }
 
 function selectedFilterExpression(): ExpressionSpecification {
-  if (!selectedFeature?.datasetCode || !selectedFeature.featureId) {
-    return ["==", ["get", "feature_id"], "__none__"] as ExpressionSpecification;
-  }
-  return [
-    "all",
-    ["==", ["get", "dataset_code"], selectedFeature.datasetCode],
-    ["==", ["to-string", ["get", "feature_id"]], selectedFeature.featureId],
-  ] as ExpressionSpecification;
+  return buildAnalysisSelectedFilterExpression(selectedFeatures) as ExpressionSpecification;
 }
 
 function interactiveLayerIds() {
-  const layers = [SICAR_FILL_LAYER_ID];
+  const layers: string[] = [];
   for (const item of props.legendItems) {
     layers.push(fillLayerId(item.code));
   }
   return layers.filter((layerId) => Boolean(map?.getLayer(layerId)));
+}
+
+function closeOverlapSelector() {
+  overlapSelector.value = {
+    open: false,
+    x: 0,
+    y: 0,
+    candidates: [],
+    additive: false,
+  };
+}
+
+function selectFeature(candidate: AnalysisOverlapCandidate, additive: boolean) {
+  const result = updateAnalysisSelectedFeatures(selectedFeatures, candidate, additive);
+  selectedFeatures = result.selectedFeatures;
+  if (result.limitReached) {
+    pushToast({
+      kind: "info",
+      title: "Limite de seleção atingido",
+      message: "Selecione no máximo 20 áreas por anexo.",
+    });
+  }
+  syncLegendVisibility();
+}
+
+function selectOverlapCandidate(candidate: AnalysisOverlapCandidate) {
+  const additive = overlapSelector.value.additive;
+  closeOverlapSelector();
+  selectFeature(candidate, additive);
+}
+
+function normalizeRenderedCandidates(features: maplibregl.MapGeoJSONFeature[]) {
+  return normalizeAnalysisOverlapCandidates(
+    features.map((feature) => feature.properties ?? {}),
+  );
 }
 
 function visibleLegendCodes() {
@@ -325,32 +404,29 @@ function bindMapEvents() {
 
   map.on("click", (event) => {
     if (!map) return;
+    const additive = event.originalEvent.ctrlKey || event.originalEvent.metaKey;
     const features = map.queryRenderedFeatures(event.point, { layers: interactiveLayerIds() });
-    const feature = features[0] as maplibregl.MapGeoJSONFeature | undefined;
-    if (!feature) {
-      selectedFeature = null;
-      syncLegendVisibility();
+    const candidates = normalizeRenderedCandidates(features as maplibregl.MapGeoJSONFeature[]);
+    if (!candidates.length) {
+      closeOverlapSelector();
+      if (!additive) {
+        selectedFeatures = [];
+        syncLegendVisibility();
+      }
       return;
     }
-    const isSicar = Boolean(feature.properties?.is_sicar);
-    if (isSicar) {
-      selectedFeature = null;
-      syncLegendVisibility();
+    if (candidates.length === 1) {
+      closeOverlapSelector();
+      selectFeature(candidates[0]!, additive);
       return;
     }
-    const datasetCode = String(feature.properties?.dataset_code ?? "").trim();
-    const featureId = String(feature.properties?.feature_id ?? "").trim();
-    if (!datasetCode || !featureId) {
-      selectedFeature = null;
-      syncLegendVisibility();
-      return;
-    }
-    const nextSelected =
-      selectedFeature?.datasetCode === datasetCode && selectedFeature?.featureId === featureId
-        ? null
-        : { datasetCode, featureId };
-    selectedFeature = nextSelected;
-    syncLegendVisibility();
+    overlapSelector.value = {
+      open: true,
+      x: event.point.x + 12,
+      y: event.point.y + 12,
+      candidates,
+      additive,
+    };
   });
 
   map.on("contextmenu", (event) => {
@@ -361,6 +437,8 @@ function bindMapEvents() {
     if (!feature) return;
     const isSicar = Boolean(feature.properties?.is_sicar);
     if (isSicar) return;
+    const contextFeature = normalizeRenderedCandidates([feature])[0];
+    if (!contextFeature) return;
     emit("feature-contextmenu", {
       datasetCode: feature.properties?.dataset_code != null ? String(feature.properties.dataset_code) : "",
       categoryCode: feature.properties?.category_code != null ? String(feature.properties.category_code) : null,
@@ -369,10 +447,21 @@ function bindMapEvents() {
       displayName: feature.properties?.display_name != null ? String(feature.properties.display_name) : null,
       naturalId: feature.properties?.natural_id != null ? String(feature.properties.natural_id) : null,
       isSicar,
+      selectedFeatures: getAnalysisContextSelection(selectedFeatures, contextFeature),
       latlng: { lat: event.lngLat.lat, lng: event.lngLat.lng },
       screen: { x: event.originalEvent.clientX, y: event.originalEvent.clientY },
     });
   });
+
+  map.on("movestart", () => closeOverlapSelector());
+}
+
+function handleWindowPointerDown(event: PointerEvent) {
+  if (!overlapSelector.value.open) return;
+  const target = event.target;
+  if (!(target instanceof Node)) return;
+  if (overlapSelectorEl.value?.contains(target)) return;
+  closeOverlapSelector();
 }
 
 function removeLegendLayers() {
@@ -390,7 +479,7 @@ function ensureSourceAndLayers() {
   if (!props.vectorSource) {
     if (map.getLayer(SELECTED_LINE_LAYER_ID)) map.removeLayer(SELECTED_LINE_LAYER_ID);
     removeLegendLayers();
-    if (map.getLayer(SICAR_LINE_LAYER_ID)) map.removeLayer(SICAR_LINE_LAYER_ID);
+    if (map.getLayer(ANALYSIS_SICAR_OUTLINE_LAYER_ID)) map.removeLayer(ANALYSIS_SICAR_OUTLINE_LAYER_ID);
     if (map.getLayer(SICAR_FILL_LAYER_ID)) map.removeLayer(SICAR_FILL_LAYER_ID);
     if (map.getSource(SOURCE_ID)) map.removeSource(SOURCE_ID);
     return;
@@ -426,18 +515,14 @@ function ensureSourceAndLayers() {
     });
   }
 
-  if (!map.getLayer(SICAR_LINE_LAYER_ID)) {
+  if (!map.getLayer(ANALYSIS_SICAR_OUTLINE_LAYER_ID)) {
     map.addLayer({
-      id: SICAR_LINE_LAYER_ID,
+      id: ANALYSIS_SICAR_OUTLINE_LAYER_ID,
       type: "line",
       source: SOURCE_ID,
       "source-layer": props.vectorSource.sourceLayer,
       filter: ["==", ["get", "is_sicar"], true] as ExpressionSpecification,
-      paint: {
-        "line-color": "#dc2626",
-        "line-width": 2,
-        "line-dasharray": [2, 2],
-      },
+      paint: ANALYSIS_SICAR_OUTLINE_PAINT,
     });
   }
 
@@ -494,6 +579,7 @@ function ensureSourceAndLayers() {
     });
   }
 
+  moveAnalysisSicarOutlineLayersToFront(map);
   syncLegendVisibility();
 }
 
@@ -704,6 +790,7 @@ onMounted(async () => {
   }
 
   bindMapEvents();
+  window.addEventListener("pointerdown", handleWindowPointerDown);
   map.on("load", () => {
     ensureSourceAndLayers();
     refreshBasemapVisibility();
@@ -753,6 +840,7 @@ watch(
 
 onBeforeUnmount(() => {
   removeHoverPopup();
+  window.removeEventListener("pointerdown", handleWindowPointerDown);
   map?.remove();
   map = null;
 });

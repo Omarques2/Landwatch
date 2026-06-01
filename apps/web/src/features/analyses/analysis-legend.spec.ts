@@ -3,6 +3,7 @@ import {
   buildIndigenaLegendItems,
   buildLegendCodes,
   buildUcsLegendItems,
+  colorForUcsLegendItem,
   getUcsLegendCode,
 } from "@/features/analyses/analysis-legend";
 
@@ -142,5 +143,15 @@ describe("analysis-legend", () => {
     });
 
     expect(codes).toEqual(["PRODES_CERRADO_NB_2020"]);
+  });
+
+  it("keeps UCS colors in a cool hue range away from the red CAR outline", () => {
+    expect(Array.from({ length: 5 }, (_, index) => colorForUcsLegendItem(index, 5))).toEqual([
+      "hsl(92.00 70% 36%)",
+      "hsl(142.00 70% 36%)",
+      "hsl(192.00 70% 36%)",
+      "hsl(242.00 70% 36%)",
+      "hsl(292.00 70% 36%)",
+    ]);
   });
 });

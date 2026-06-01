@@ -659,7 +659,7 @@ describe("AnalysisDetailView", () => {
     expect(wrapper.findComponent(analysisMapStub).props("activeLegendCode")).toBeNull();
   });
 
-  it("opens a feature-only context menu and routes to attachments", async () => {
+  it("routes the selected feature instead of an unrelated context target", async () => {
     const getMock = http.get as unknown as ReturnType<typeof vi.fn>;
     getMock.mockImplementation((url: string) => {
       if (url === "/v1/analyses/analysis-deter-1/status") {
@@ -706,7 +706,7 @@ describe("AnalysisDetailView", () => {
         stubs: {
           AnalysisVectorMap: {
             template:
-              "<button data-test='emit-context' @click=\"$emit('feature-contextmenu', { datasetCode: 'PRODES_A', categoryCode: 'PRODES', featureId: '2', featureKey: 'A-1', displayName: 'Feat A', naturalId: 'A-1', isSicar: false, screen: { x: 120, y: 140 }, latlng: { lat: -1, lng: -1 } })\">ctx</button>",
+              "<button data-test='emit-context' @click=\"$emit('feature-contextmenu', { datasetCode: 'PRODES_A', categoryCode: 'PRODES', featureId: '2', featureKey: 'A-1', displayName: 'Feat A', naturalId: 'A-1', isSicar: false, screen: { x: 120, y: 140 }, latlng: { lat: -1, lng: -1 }, selectedFeatures: [{ datasetCode: 'UNIDADES_CONSERVACAO', featureId: '22857615', label: 'UC' }] })\">ctx</button>",
           },
         },
       },
@@ -727,8 +727,80 @@ describe("AnalysisDetailView", () => {
       query: {
         tab: "explore",
         fromAnalysisId: "analysis-deter-1",
-        datasetCode: "PRODES_A",
-        featureId: "2",
+        datasetCode: "UNIDADES_CONSERVACAO",
+        featureId: "22857615",
+        carKey: "MT-123",
+      },
+    });
+  });
+
+  it("routes the current map multi-selection to attachments from the context menu", async () => {
+    const getMock = http.get as unknown as ReturnType<typeof vi.fn>;
+    getMock.mockImplementation((url: string) => {
+      if (url === "/v1/analyses/analysis-deter-1/status") {
+        return Promise.resolve({ data: { data: completedStatus() } });
+      }
+      if (url === "/v1/analyses/analysis-deter-1") {
+        return Promise.resolve({
+          data: {
+            data: {
+              id: "analysis-deter-1",
+              carKey: "MT-123",
+              farmName: "Fazenda DETER",
+              analysisDate: "2026-02-12",
+              status: "completed",
+              analysisKind: "STANDARD",
+              biomas: ["Cerrado"],
+              intersectionCount: 2,
+              datasetGroups: [],
+              results: [],
+            },
+          },
+        });
+      }
+      if (url === "/v1/analyses/analysis-deter-1/vector-map") {
+        return Promise.resolve({
+          data: {
+            data: vectorMapPayload([
+              {
+                code: "PRODES_A",
+                kind: "dataset",
+                label: "PRODES A",
+                datasetCode: "PRODES_A",
+                featureIds: ["2"],
+              },
+            ]),
+          },
+        });
+      }
+      return Promise.reject(new Error("unexpected request"));
+    });
+
+    const wrapper = mount(AnalysisDetailView, {
+      global: {
+        stubs: {
+          AnalysisVectorMap: {
+            template:
+              "<button data-test='emit-context' @click=\"$emit('feature-contextmenu', { datasetCode: 'PRODES_A', categoryCode: 'PRODES', featureId: '2', featureKey: 'A-1', displayName: 'Feat A', naturalId: 'A-1', isSicar: false, screen: { x: 120, y: 140 }, latlng: { lat: -1, lng: -1 }, selectedFeatures: [{ datasetCode: 'PRODES_A', featureId: '2', label: 'Feat A' }, { datasetCode: 'UNIDADES_CONSERVACAO', featureId: '22857615', label: 'UC' }] })\">ctx</button>",
+          },
+        },
+      },
+    });
+    await flushPromises();
+
+    await wrapper.get("[data-test='emit-context']").trigger("click");
+    const menuButton = wrapper
+      .findAll("button")
+      .find((item) => item.text().includes("Ir para Anexos"));
+    await menuButton!.trigger("click");
+
+    expect(pushMock).toHaveBeenCalledWith({
+      path: "/attachments",
+      query: {
+        tab: "explore",
+        fromAnalysisId: "analysis-deter-1",
+        datasetCode: ["PRODES_A", "UNIDADES_CONSERVACAO"],
+        target: ["PRODES_A:2", "UNIDADES_CONSERVACAO:22857615"],
         carKey: "MT-123",
       },
     });

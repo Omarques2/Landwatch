@@ -23,7 +23,12 @@ function makeServiceMock() {
       canManageCategories: false,
       canManagePermissions: false,
       canViewAudit: false,
-      allowedScopes: ['ORG_FEATURE', 'ORG_CAR'],
+      allowedScopes: [
+        'ORG_FEATURE',
+        'ORG_CAR',
+        'PLATFORM_FEATURE',
+        'PLATFORM_CAR',
+      ],
     }),
     getDatasets: jest.fn().mockResolvedValue([]),
     getFeatureAttachments: jest.fn().mockResolvedValue({
@@ -103,7 +108,12 @@ describe('AttachmentsController', () => {
     );
     expect(result).toMatchObject({
       canUpload: true,
-      allowedScopes: ['ORG_FEATURE', 'ORG_CAR'],
+      allowedScopes: [
+        'ORG_FEATURE',
+        'ORG_CAR',
+        'PLATFORM_FEATURE',
+        'PLATFORM_CAR',
+      ],
     });
   });
 

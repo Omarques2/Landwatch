@@ -147,6 +147,6 @@ export function getUcsLegendCode(feature?: MapFeature | null): string | null {
 
 export function colorForUcsLegendItem(index: number, total: number): string {
   const size = total > 0 ? total : 1;
-  const hue = ((index * 360) / size + 23) % 360;
-  return `hsl(${hue.toFixed(2)} 72% 43%)`;
+  const hue = 92 + (index * 250) / size;
+  return `hsl(${hue.toFixed(2)} 70% 36%)`;
 }
