@@ -1,206 +1,183 @@
 <template>
   <div class="analysis-print-page">
     <section class="print-page print-page-1">
-      <AnalysisWatermark/>
-      <header class="print-header">
-        <div class="print-title-row">
-          <img :src="logoSrc" alt="SigFarm" class="print-logo" />
-          <div class="print-title">Sigfarm LandWatch - {{ reportTitle }}</div>
-        </div>
-        <div v-if="isPreventiveDeter" class="print-preventive-note">
-          Análise preventiva DETER. Este material é destinado à prevenção e não substitui a análise socioambiental completa.
-        </div>
-        <div class="print-subtitle">
-          <span>Estabelecimento {{ displayFarmName }}</span>
-          <template v-if="analysis?.sicarStatus">
-            <span class="print-divider">-</span>
-            <span
-              class="print-badge"
-              :class="sicarStatusOk ? 'print-badge-ok' : 'print-badge-warn'"
-            >
-              {{ sicarBadgeText }}
-              <span class="print-badge-icon">{{ sicarStatusOk ? "✓" : "!" }}</span>
-            </span>
-          </template>
-        </div>
-        <div v-if="docInfos.length" class="print-subtitle muted print-doc-list">
-          <div
-            v-for="info in docInfos"
-            :key="docKey(info)"
-            class="print-doc-item"
-          >
-            <span class="print-doc-prefix">{{ docPrefix(info) }}</span>
-            <span
-              class="print-badge"
-              :class="docBadgeOk(info) ? 'print-badge-ok' : 'print-badge-warn'"
-            >
-              {{ docBadgeText(info) }}
-              <span class="print-badge-icon">{{ docBadgeOk(info) ? "✓" : "!" }}</span>
-            </span>
-            <div v-if="docFlagBadges(info).length" class="print-doc-flags">
-              <span
-                v-for="flag in docFlagBadges(info)"
-                :key="flag"
-                class="print-badge print-badge-warn"
-              >
-                {{ flag }}
-                <span class="print-badge-icon">!</span>
+      <AnalysisWatermark :z-index="0" />
+      <div class="print-page-content print-page-1-content">
+        <header class="print-header">
+          <div class="print-title-row">
+            <img :src="logoSrc" alt="SigFarm" class="print-logo" />
+            <div class="print-title">Sigfarm LandWatch - {{ reportTitle }}</div>
+          </div>
+          <div v-if="isPreventiveDeter" class="print-preventive-note">
+            Análise preventiva DETER. Este material é destinado à prevenção e não substitui a análise socioambiental
+            completa.
+          </div>
+          <div class="print-subtitle">
+            <span>Estabelecimento {{ displayFarmName }}</span>
+            <template v-if="analysis?.sicarStatus">
+              <span class="print-divider">-</span>
+              <span class="print-badge" :class="sicarStatusOk ? 'print-badge-ok' : 'print-badge-warn'">
+                {{ sicarBadgeText }}
+                <span class="print-badge-icon">{{ sicarStatusOk ? "✓" : "!" }}</span>
               </span>
-            </div>
+            </template>
           </div>
-        </div>
-      </header>
-
-      <section class="print-card">
-        <div class="print-section-title">Mapa da análise</div>
-        <div class="print-meta-shell" :class="{ 'print-meta-shell-has-actions': printActionLinks.length > 0 }">
-          <div class="print-meta-grid">
-            <div><span class="label">Data:</span> {{ formatDate(analysis?.analysisDate) }}</div>
-            <div><span class="label">Município:</span> {{ formatMunicipio(analysis?.municipio, analysis?.uf) }}</div>
-            <div><span class="label">Bioma(s):</span> {{ formatBiomas(analysis?.biomas) }}</div>
-            <div class="print-intersections-meta">
-              <span class="label">Interseções:</span> {{ analysis?.intersectionCount ?? 0 }}
-              <template v-if="justifiedIntersectionsSummary">
-                <span class="print-meta-separator">•</span>
-                <span class="print-meta-subline"><span class="label">Justificadas:</span> {{ justifiedIntersectionsSummary }}</span>
-              </template>
-            </div>
-            <div class="span-2">
-              <span class="label">Coordenadas do CAR:</span>
-              {{ formatCoordinates(analysis?.sicarCoordinates ?? null) }}
-            </div>
-            <div class="span-2">
-              <span class="label">Área (ha):</span>
-              {{ formatAreaHa(sicarAreaHa) }}
-            </div>
-          </div>
-          <div v-if="printActionLinks.length" class="print-action-links print-action-links-floating">
-            <a
-              v-for="action in printActionLinks"
-              :key="action.href"
-              class="print-action-link"
-              :href="action.href"
-            >
-              <span class="print-action-icon" :class="action.iconClass" aria-hidden="true">
-                <svg
-                  v-if="action.kind === 'geojson'"
-                  viewBox="0 0 24 24"
-                  class="print-action-svg"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                >
-                  <path d="M8 6 4 8v10l4-2 4 2 4-2 4 2V8l-4-2-4 2-4-2Z" />
-                  <path d="M8 6v10" />
-                  <path d="M16 8v10" />
-                </svg>
-                <svg
-                  v-else
-                  viewBox="0 0 24 24"
-                  class="print-action-svg"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                >
-                  <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z" />
-                  <path d="M8 11h8" />
-                  <path d="M8 15h5" />
-                </svg>
+          <div v-if="docInfos.length" class="print-subtitle muted print-doc-list">
+            <div v-for="info in docInfos" :key="docKey(info)" class="print-doc-item">
+              <span class="print-doc-prefix">{{ docPrefix(info) }}</span>
+              <span class="print-badge" :class="docBadgeOk(info) ? 'print-badge-ok' : 'print-badge-warn'">
+                {{ docBadgeText(info) }}
+                <span class="print-badge-icon">{{ docBadgeOk(info) ? "✓" : "!" }}</span>
               </span>
-              <span>{{ action.label }}</span>
-            </a>
-          </div>
-        </div>
-
-        <div class="print-map-row">
-          <div
-            ref="mapFrameRef"
-            class="print-map-frame"
-            :style="{ height: `${mapHeightPx}px` }"
-          >
-          <div v-if="mapLoading" class="print-map-loading">Carregando mapa…</div>
-            <AnalysisVectorMap
-              v-else-if="vectorMap?.vectorSource"
-              ref="analysisMapRef"
-              :vector-source="vectorMap?.vectorSource ?? null"
-              :legend-items="vectorMap?.legendItems ?? []"
-              :print-mode="true"
-              :auth-mode="mapAuthMode"
-            />
-            <div v-else class="print-map-empty">Nenhuma geometria disponível.</div>
-          </div>
-        </div>
-        <div v-if="vectorMap?.vectorSource" class="print-legend-col">
-          <div class="print-section-title">Legenda</div>
-          <div class="print-legend-grid" :style="printLegendStyle">
-            <div v-for="item in printLegend" :key="item.code" class="print-legend-item">
-              <span
-                class="print-legend-swatch"
-                :style="{ backgroundColor: item.color, borderColor: item.color }"
-              ></span>
-              {{ item.label }}
+              <div v-if="docFlagBadges(info).length" class="print-doc-flags">
+                <span v-for="flag in docFlagBadges(info)" :key="flag" class="print-badge print-badge-warn">
+                  {{ flag }}
+                  <span class="print-badge-icon">!</span>
+                </span>
+              </div>
             </div>
           </div>
-        </div>
-      </section>
-      <div class="print-page-footer">
-        <div class="print-footer-meta">
-          <div class="print-footer-label">ID da análise</div>
-          <div class="print-footer-value">{{ analysis?.id ?? "-" }}</div>
-          <div v-if="isPreventiveDeter" class="print-footer-warning">
-            Uso preventivo DETER para alerta de possível desmatamento.
+        </header>
+
+        <section class="print-card">
+          <div class="print-section-title">Mapa da análise</div>
+          <div class="print-meta-shell" :class="{ 'print-meta-shell-has-actions': printActionLinks.length > 0 }">
+            <div class="print-meta-grid">
+              <div><span class="label">Data:</span> {{ formatDate(analysis?.analysisDate) }}</div>
+              <div><span class="label">Município:</span> {{ formatMunicipio(analysis?.municipio, analysis?.uf) }}</div>
+              <div><span class="label">Bioma(s):</span> {{ formatBiomas(analysis?.biomas) }}</div>
+              <div class="print-intersections-meta">
+                <span class="label">Interseções:</span> {{ analysis?.intersectionCount ?? 0 }}
+                <template v-if="justifiedIntersectionsSummary">
+                  <span class="print-meta-separator">•</span>
+                  <span class="print-meta-subline"
+                    ><span class="label">Justificadas:</span> {{ justifiedIntersectionsSummary }}</span
+                  >
+                </template>
+              </div>
+              <div class="span-2">
+                <span class="label">Coordenadas do CAR:</span>
+                {{ formatCoordinates(analysis?.sicarCoordinates ?? null) }}
+              </div>
+              <div class="span-2">
+                <span class="label">Área (ha):</span>
+                {{ formatAreaHa(sicarAreaHa) }}
+              </div>
+            </div>
+            <div v-if="printActionLinks.length" class="print-action-links print-action-links-floating">
+              <a v-for="action in printActionLinks" :key="action.href" class="print-action-link" :href="action.href">
+                <span class="print-action-icon" :class="action.iconClass" aria-hidden="true">
+                  <svg
+                    v-if="action.kind === 'geojson'"
+                    viewBox="0 0 24 24"
+                    class="print-action-svg"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <path d="M8 6 4 8v10l4-2 4 2 4-2 4 2V8l-4-2-4 2-4-2Z" />
+                    <path d="M8 6v10" />
+                    <path d="M16 8v10" />
+                  </svg>
+                  <svg
+                    v-else
+                    viewBox="0 0 24 24"
+                    class="print-action-svg"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z" />
+                    <path d="M8 11h8" />
+                    <path d="M8 15h5" />
+                  </svg>
+                </span>
+                <span>{{ action.label }}</span>
+              </a>
+            </div>
           </div>
-          <div v-if="analysisPublicUrl" class="print-footer-url">{{ analysisPublicUrl }}</div>
-        </div>
-        <div v-if="qrCodeDataUrl" class="print-footer-qr">
-          <img :src="qrCodeDataUrl" alt="QR code" />
+
+          <div class="print-map-row">
+            <div ref="mapFrameRef" class="print-map-frame" :style="{ height: `${mapHeightPx}px` }">
+              <div v-if="mapLoading" class="print-map-loading">Carregando mapa…</div>
+              <AnalysisVectorMap
+                v-else-if="vectorMap?.vectorSource"
+                ref="analysisMapRef"
+                :vector-source="vectorMap?.vectorSource ?? null"
+                :legend-items="vectorMap?.legendItems ?? []"
+                :print-mode="true"
+                :auth-mode="mapAuthMode"
+              />
+              <div v-else class="print-map-empty">Nenhuma geometria disponível.</div>
+            </div>
+          </div>
+          <div v-if="vectorMap?.vectorSource" class="print-legend-col">
+            <div class="print-section-title">Legenda</div>
+            <div class="print-legend-grid" :style="printLegendStyle">
+              <div v-for="item in printLegend" :key="item.code" class="print-legend-item">
+                <span
+                  class="print-legend-swatch"
+                  :style="{ backgroundColor: item.color, borderColor: item.color }"
+                ></span>
+                {{ item.label }}
+              </div>
+            </div>
+          </div>
+        </section>
+        <div class="print-page-footer">
+          <div class="print-footer-meta">
+            <div class="print-footer-label">ID da análise</div>
+            <div class="print-footer-value">{{ analysis?.id ?? "-" }}</div>
+            <div v-if="isPreventiveDeter" class="print-footer-warning">
+              Uso preventivo DETER para alerta de possível desmatamento.
+            </div>
+            <div v-if="analysisPublicUrl" class="print-footer-url">{{ analysisPublicUrl }}</div>
+          </div>
+          <div v-if="qrCodeDataUrl" class="print-footer-qr">
+            <img :src="qrCodeDataUrl" alt="QR code" />
+          </div>
         </div>
       </div>
     </section>
 
     <section class="print-page print-page-2">
-      <AnalysisWatermark />
-      <section class="print-card print-breakable">
-        <div class="flex items-start justify-between gap-3">
-          <div class="print-section-title">Interseções</div>
-          <AnalysisDatasetStatusLegend :groups="analysis?.datasetGroups ?? null" compact class="ml-auto" />
-        </div>
-        <div v-if="isLoading" class="print-loading">Carregando interseções…</div>
-        <div v-else-if="(analysis?.datasetGroups?.length ?? 0) === 0" class="print-empty">
-          Sem interseções relevantes.
-        </div>
-        <div v-else class="print-groups">
-          <div v-for="group in printDatasetGroups" :key="group.title" class="print-group">
-            <div class="print-group-title">{{ group.title }}</div>
-            <div class="print-group-rows">
-              <div
-                v-for="(row, rowIndex) in group.rows"
-                :key="`${group.title}:${rowIndex}`"
-                class="print-grid"
-                :style="printGridStyle(row.columns)"
-              >
+      <AnalysisWatermark :z-index="0" />
+      <div class="print-page-content">
+        <section class="print-card print-breakable">
+          <div class="flex items-start justify-between gap-3">
+            <div class="print-section-title">Interseções</div>
+            <AnalysisDatasetStatusLegend :groups="analysis?.datasetGroups ?? null" compact class="ml-auto" />
+          </div>
+          <div v-if="isLoading" class="print-loading">Carregando interseções…</div>
+          <div v-else-if="(analysis?.datasetGroups?.length ?? 0) === 0" class="print-empty">
+            Sem interseções relevantes.
+          </div>
+          <div v-else class="print-groups">
+            <div v-for="group in printDatasetGroups" :key="group.title" class="print-group">
+              <div class="print-group-title">{{ group.title }}</div>
+              <div class="print-group-rows">
                 <div
-                  v-for="item in row.items"
-                  :key="item.datasetCode"
-                  class="print-chip"
+                  v-for="(row, rowIndex) in group.rows"
+                  :key="`${group.title}:${rowIndex}`"
+                  class="print-grid"
+                  :style="printGridStyle(row.columns)"
                 >
-                  <AnalysisDatasetStatusIcon
-                    :kind="datasetStatusKind(item)"
-                    compact
-                  />
-                  <div class="print-chip-body">
-                    <span class="print-chip-text">{{ formatDatasetLabelPrint(item) }}</span>
+                  <div v-for="item in row.items" :key="item.datasetCode" class="print-chip">
+                    <AnalysisDatasetStatusIcon :kind="datasetStatusKind(item)" compact />
+                    <div class="print-chip-body">
+                      <span class="print-chip-text">{{ formatDatasetLabelPrint(item) }}</span>
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
           </div>
-        </div>
-      </section>
+        </section>
+      </div>
     </section>
   </div>
 </template>
@@ -296,17 +273,13 @@ const props = defineProps<{
   mapAuthMode?: "private" | "public";
 }>();
 
-const isPreventiveDeter = computed(
-  () => props.analysis?.analysisKind === "DETER",
-);
+const isPreventiveDeter = computed(() => props.analysis?.analysisKind === "DETER");
 
 const displayFarmName = computed(() => {
   return toTitleCase(props.analysis?.farmName) || "Fazenda sem cadastro";
 });
 
-const reportTitle = computed(() =>
-  isPreventiveDeter.value ? "Análise Preventiva DETER" : "Análise Socioambiental",
-);
+const reportTitle = computed(() => (isPreventiveDeter.value ? "Análise Preventiva DETER" : "Análise Socioambiental"));
 
 const analysisMapRef = ref<InstanceType<typeof AnalysisVectorMap> | null>(null);
 const mapFrameRef = ref<HTMLDivElement | null>(null);
@@ -377,9 +350,7 @@ function estimateLegendItemWidth(label: string) {
 }
 
 const printLegendColumnCount = computed(() => {
-  const labels = printLegend.value
-    .map((item) => (item.label ?? "").trim())
-    .filter(Boolean);
+  const labels = printLegend.value.map((item) => (item.label ?? "").trim()).filter(Boolean);
   const count = labels.length;
   if (count <= 1) return 1;
 
@@ -429,12 +400,14 @@ const justifiedIntersectionsSummary = computed(() =>
   getAnalysisJustificationCoverageSummary(props.analysis?.datasetGroups),
 );
 
-const printActionLinks = computed<Array<{
-  label: string;
-  href: string;
-  kind: "geojson" | "attachments";
-  iconClass: string;
-}>>(() => {
+const printActionLinks = computed<
+  Array<{
+    label: string;
+    href: string;
+    kind: "geojson" | "attachments";
+    iconClass: string;
+  }>
+>(() => {
   if (!props.analysis?.id) return [];
   const actions: Array<{ label: string; href: string; kind: "geojson" | "attachments"; iconClass: string }> = [
     {
@@ -622,7 +595,7 @@ onMounted(() => {
 });
 
 watch(
-  () => props.vectorMap?.vectorSource ? 1 : 0,
+  () => (props.vectorMap?.vectorSource ? 1 : 0),
   async () => {
     await nextTick();
     analysisMapRef.value?.prepareForPrint();
@@ -647,6 +620,19 @@ watch(
   display: block;
   position: relative;
   overflow: hidden;
+  isolation: isolate;
+}
+
+.print-page-content {
+  position: relative;
+  z-index: 1;
+}
+
+.print-page-1-content {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
 }
 
 .print-page-1 {
