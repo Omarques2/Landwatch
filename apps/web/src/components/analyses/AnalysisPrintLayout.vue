@@ -1,7 +1,7 @@
 <template>
   <div class="analysis-print-page">
     <section class="print-page print-page-1">
-      <AnalysisWatermark :z-index="0" />
+      <AnalysisWatermark :z-index="30" />
       <div class="print-page-content print-page-1-content">
         <header class="print-header">
           <div class="print-title-row">
@@ -102,7 +102,11 @@
           </div>
 
           <div class="print-map-row">
-            <div ref="mapFrameRef" class="print-map-frame" :style="{ height: `${mapHeightPx}px` }">
+            <div
+              ref="mapFrameRef"
+              class="print-map-frame print-map-frame-above-watermark"
+              :style="{ height: `${mapHeightPx}px` }"
+            >
               <div v-if="mapLoading" class="print-map-loading">Carregando mapa…</div>
               <AnalysisVectorMap
                 v-else-if="vectorMap?.vectorSource"
@@ -145,7 +149,7 @@
     </section>
 
     <section class="print-page print-page-2">
-      <AnalysisWatermark :z-index="0" />
+      <AnalysisWatermark :z-index="30" />
       <div class="print-page-content">
         <section class="print-card print-breakable">
           <div class="flex items-start justify-between gap-3">
@@ -625,7 +629,6 @@ watch(
 
 .print-page-content {
   position: relative;
-  z-index: 1;
 }
 
 .print-page-1-content {
@@ -856,11 +859,16 @@ watch(
 }
 
 .print-map-frame {
+  position: relative;
   height: 480px;
   border-radius: 12px;
   overflow: hidden;
   background: #e2e8f0;
   border: 1px solid #e2e8f0;
+}
+
+.print-map-frame-above-watermark {
+  z-index: 40;
 }
 
 .print-map-loading,
