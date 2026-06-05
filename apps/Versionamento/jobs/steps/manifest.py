@@ -44,10 +44,13 @@ def load_latest_manifest(storage: StorageClient, category: str) -> Optional[dict
 def get_prev_fingerprint(prev_manifest: Optional[dict], dataset_code: str) -> Optional[str]:
     if not prev_manifest:
         return None
-    if prev_manifest.get("status") == "failed":
-        return None
     for ds in prev_manifest.get("datasets", []):
         if ds.get("dataset_code") == dataset_code:
+            if (
+                prev_manifest.get("status") == "failed"
+                and ds.get("fingerprint_status") != "previous_retained_after_failure"
+            ):
+                return None
             return ds.get("fingerprint")
     return None
 

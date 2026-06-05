@@ -65,7 +65,11 @@ def _load_sicar_module():
             FailedToDownloadPolygonException,
             FailedToGetReleaseDateException,
         )
-        from SICAR.drivers import Paddle, Tesseract
+        from SICAR.drivers import Tesseract
+        try:
+            from SICAR.drivers import Paddle
+        except ImportError:
+            Paddle = None
     except Exception as exc:
         raise RuntimeError("SICAR module not available. Set LANDWATCH_SICAR_MODULE_PATH or include SICAR in image.") from exc
     return Sicar, State, Polygon, Paddle, Tesseract, (

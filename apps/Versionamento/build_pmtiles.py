@@ -5,6 +5,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 from urllib.parse import urlparse
@@ -33,6 +34,26 @@ def env_bool(name: str, default: bool) -> bool:
     if raw is None:
         return default
     return raw.strip().lower() in ("1", "true", "yes", "on")
+
+
+def env_int(name: str, default: int) -> int:
+    raw = os.environ.get(name)
+    if raw is None or raw.strip() == "":
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        return default
+
+
+def env_float(name: str, default: float) -> float:
+    raw = os.environ.get(name)
+    if raw is None or raw.strip() == "":
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        return default
 
 
 def assert_identifier(value: str, name: str) -> str:
@@ -336,8 +357,23 @@ def convert_pmtiles(pmtiles_exe: str, mbtiles_path: Path, pmtiles_path: Path) ->
 
 
 def upload_pmtiles(container, blob_path: str, local_path: Path) -> Tuple[str, int]:
-    with local_path.open("rb") as handle:
-        container.upload_blob(blob_path, handle, overwrite=True)
+    retries = max(1, env_int("LANDWATCH_PMTILES_UPLOAD_RETRIES", 3))
+    backoff_seconds = max(0.0, env_float("LANDWATCH_PMTILES_UPLOAD_RETRY_BACKOFF_SECONDS", 15.0))
+    for attempt in range(1, retries + 1):
+        try:
+            with local_path.open("rb") as handle:
+                container.upload_blob(blob_path, handle, overwrite=True)
+            break
+        except Exception as exc:
+            if attempt >= retries:
+                raise
+            delay = backoff_seconds * attempt
+            log_warn(
+                f"Upload PMTiles falhou ({blob_path}, tentativa {attempt}/{retries}): {exc}. "
+                f"Retry em {delay:.1f}s."
+            )
+            if delay > 0:
+                time.sleep(delay)
     blob = container.get_blob_client(blob_path)
     props = blob.get_blob_properties()
     size = int(getattr(props, "size", 0) or 0)
@@ -528,19 +564,34 @@ def main() -> int:
 
     container, blob_prefix = ensure_blob_client()
     conn = psycopg2.connect(**get_db_params())
+    failures: Dict[str, str] = {}
     try:
         for dataset_code in dataset_codes:
-            build_dataset_pmtiles(
-                conn,
-                schema,
-                dataset_code,
-                tippecanoe_exe,
-                pmtiles_exe,
-                container,
-                blob_prefix,
-            )
+            try:
+                build_dataset_pmtiles(
+                    conn,
+                    schema,
+                    dataset_code,
+                    tippecanoe_exe,
+                    pmtiles_exe,
+                    container,
+                    blob_prefix,
+                )
+            except Exception as exc:
+                failures[dataset_code] = str(exc)
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
+                log_error(f"PMTiles falhou para {dataset_code}: {exc}")
     finally:
         conn.close()
+    if failures:
+        log_warn(
+            "PMTiles finalizado com falhas: "
+            + ", ".join(f"{code}={error}" for code, error in sorted(failures.items()))
+        )
+        return 1
     return 0
 
 

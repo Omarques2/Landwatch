@@ -12,6 +12,8 @@ apps/Versionamento/__pycache__/
 apps/Versionamento/**/__pycache__/
 apps/Versionamento/.venv/
 apps/Versionamento/*.log
+apps/Versionamento/.env.prod
+apps/Versionamento/Runlog.txt
 apps/Versionamento/Logs_OGR2OGR/
 Versionamento/Dados*
 .env

@@ -105,6 +105,12 @@ DB_RETRY_MAX_SECONDS = float(os.environ.get("LANDWATCH_DB_RETRY_MAX_SECONDS", "6
 DB_RETRY_JITTER = float(os.environ.get("LANDWATCH_DB_RETRY_JITTER", "0.3").strip() or "0.3")
 MV_REFRESH_CONCURRENTLY = _env_bool("LANDWATCH_MV_REFRESH_CONCURRENTLY", False)
 MV_ANALYZE_AFTER_REFRESH = _env_bool("LANDWATCH_MV_ANALYZE_AFTER_REFRESH", True)
+CACHE_DELTA_MAX_RATIO = float(os.environ.get("LANDWATCH_CACHE_DELTA_MAX_RATIO", "0.35").strip() or "0.35")
+ATTR_HASH_EXCLUDE_KEYS = [
+    key.strip()
+    for key in os.environ.get("LANDWATCH_ATTR_HASH_EXCLUDE_KEYS", "row_id").split(",")
+    if key.strip()
+]
 _LEVELS = {"DEBUG": 10, "INFO": 20, "WARN": 30, "ERROR": 40}
 
 
@@ -160,6 +166,13 @@ def _is_transient_db_error(exc: Exception) -> bool:
         "timeout expired",
     ]
     return any(marker in msg for marker in transient_markers)
+
+
+def _is_missing_delta_function_error(exc: Exception) -> bool:
+    msg = str(exc).lower()
+    return "refresh_feature_caches_delta" in msg and (
+        "does not exist" in msg or "undefined function" in msg
+    )
 
 def _format_bytes(num: int) -> str:
     units = ["B", "KB", "MB", "GB", "TB"]
@@ -918,6 +931,64 @@ def _sql_literal(val: str) -> str:
     return "'" + val.replace("'", "''") + "'"
 
 
+def _sql_text_array(values: List[str]) -> str:
+    if not values:
+        return "ARRAY[]::text[]"
+    return "ARRAY[" + ", ".join(_sql_literal(value) for value in values) + "]::text[]"
+
+
+def build_attr_compare_json_sql(payload_expr: str = "s.payload") -> str:
+    keys = _sql_text_array(ATTR_HASH_EXCLUDE_KEYS)
+    if not ATTR_HASH_EXCLUDE_KEYS:
+        return payload_expr
+    return f"({payload_expr} - {keys})"
+
+
+def build_feature_key_fallback_sql(payload_expr: str = "s.payload") -> str:
+    return f"md5({build_attr_compare_json_sql(payload_expr)}::text)"
+
+
+def build_tooltip_json_sql(payload_expr: str = "s.payload") -> str:
+    display_fields = [
+        "nome_uc",
+        "nome",
+        "NOME",
+        "nm",
+        "NM",
+        "denominacao",
+        "descricao",
+        "terrai_nom",
+        "TERRAI_NOM",
+        "etnia_nome",
+        "ETNIA_NOME",
+        "undadm_nom",
+        "UNDADM_NOM",
+    ]
+    natural_id_fields = [
+        "cnuc_code",
+        "cd_cnuc",
+        "Cnuc",
+        "terrai_cod",
+        "TERRAI_COD",
+        "id",
+        "ID",
+        "objectid",
+        "OBJECTID",
+    ]
+    display_expr = "NULLIF(COALESCE(" + ", ".join(
+        f"{payload_expr}->>{_sql_literal(field)}" for field in display_fields
+    ) + "), '')"
+    natural_id_expr = "NULLIF(COALESCE(" + ", ".join(
+        f"{payload_expr}->>{_sql_literal(field)}" for field in natural_id_fields
+    ) + "), '')"
+    return (
+        "jsonb_build_object("
+        f"'display_name', {display_expr}, "
+        f"'natural_id', {natural_id_expr}"
+        ")"
+    )
+
+
 def build_doc_date_sql(doc_col: Optional[str], date_col: Optional[str]) -> str:
     stmts = []
     if doc_col:
@@ -980,6 +1051,9 @@ def run_ingest_sql(conn, dataset_id: int, version_id: int, snapshot_date: str, d
 
     replacements = {
         "{{STG_TABLE}}": "landwatch.stg_payload",
+        "{{ATTR_COMPARE_JSON_SQL}}": build_attr_compare_json_sql("s.payload"),
+        "{{FEATURE_KEY_FALLBACK_SQL}}": build_feature_key_fallback_sql("s.payload"),
+        "{{TOOLTIP_JSON_SQL}}": build_tooltip_json_sql("s.payload"),
         "{{DOC_DATE_SQL}}": build_doc_date_sql(doc_col, date_col),
         "{{GEOM_SQL}}": build_geom_sql(srid, is_spatial),
     }
@@ -1133,6 +1207,21 @@ def _parse_args():
         action="store_true",
         help="Apenas atualiza materialized views e sai",
     )
+    parser.add_argument(
+        "--tile-cache-dataset-codes",
+        help=(
+            "Dataset code(s) separados por vírgula para atualizar o cache "
+            "incremental de tiles. Se omitido e a relação for tabela, faz rebuild completo."
+        ),
+    )
+    parser.add_argument(
+        "--cache-version-ids",
+        help="Version id(s) separados por vírgula para aplicar delta fino nos caches.",
+    )
+    parser.add_argument(
+        "--result-json",
+        help="Caminho para gravar metadados de ingestao concluida em JSON.",
+    )
     return parser.parse_args()
 
 
@@ -1142,64 +1231,593 @@ def _split_csv(value: Optional[str]) -> List[str]:
     return [v.strip() for v in value.split(",") if v.strip()]
 
 
-def _refresh_mvs():
-    mv_views = [
-        "landwatch.mv_feature_geom_active",
-        "landwatch.mv_feature_active_attrs_light",
-        "landwatch.mv_feature_geom_tile_active",
-        "landwatch.mv_feature_tooltip_active",
-        "landwatch.mv_sicar_meta_active",
+def _normalize_codes(values: Optional[List[str]]) -> List[str]:
+    return sorted({str(value).strip() for value in (values or []) if str(value).strip()})
+
+
+def _normalize_ints(values: Optional[List[int]]) -> List[int]:
+    result = set()
+    for value in values or []:
+        try:
+            parsed = int(value)
+        except Exception:
+            continue
+        if parsed > 0:
+            result.add(parsed)
+    return sorted(result)
+
+
+def _split_int_csv(value: Optional[str]) -> List[int]:
+    result = []
+    for raw in _split_csv(value):
+        try:
+            result.append(int(raw))
+        except ValueError:
+            raise SystemExit(f"Valor invalido em --cache-version-ids: {raw!r}")
+    return result
+
+
+def _relation_kind(conn, relname: str) -> Optional[str]:
+    row = fetch_one(
+        conn,
+        """
+        SELECT c.relkind
+        FROM pg_class c
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = 'landwatch'
+          AND c.relname = %s
+        """,
+        (relname,),
+    )
+    return str(row[0]) if row and row[0] else None
+
+
+def _geom_active_relation_kind(conn) -> Optional[str]:
+    return _relation_kind(conn, "mv_feature_geom_active")
+
+
+def _active_attrs_relation_kind(conn) -> Optional[str]:
+    return _relation_kind(conn, "mv_feature_active_attrs_light")
+
+
+def _tooltip_relation_kind(conn) -> Optional[str]:
+    return _relation_kind(conn, "mv_feature_tooltip_active")
+
+
+def _sicar_meta_relation_kind(conn) -> Optional[str]:
+    return _relation_kind(conn, "mv_sicar_meta_active")
+
+
+def _tile_cache_relation_kind(conn) -> Optional[str]:
+    return _relation_kind(conn, "mv_feature_geom_tile_active")
+
+
+def _elapsed_seconds(start: float) -> int:
+    return int(time.monotonic() - start)
+
+
+def _dataset_log_suffix(dataset_codes: Optional[List[str]]) -> str:
+    dataset_codes = _normalize_codes(dataset_codes)
+    return f" datasets={','.join(dataset_codes)}" if dataset_codes else ""
+
+
+def _version_log_suffix(version_ids: Optional[List[int]]) -> str:
+    version_ids = _normalize_ints(version_ids)
+    return f" versions={','.join(str(version_id) for version_id in version_ids)}" if version_ids else ""
+
+
+def _refresh_materialized_view(view: str) -> None:
+    start = time.monotonic()
+    attempt = 0
+    while True:
+        try:
+            attempt += 1
+            with get_conn() as conn:
+                conn.autocommit = True
+                refresh_sql = (
+                    f"REFRESH MATERIALIZED VIEW CONCURRENTLY {view}"
+                    if MV_REFRESH_CONCURRENTLY
+                    else f"REFRESH MATERIALIZED VIEW {view}"
+                )
+                try:
+                    exec_sql(conn, refresh_sql)
+                except Exception as refresh_error:
+                    if MV_REFRESH_CONCURRENTLY:
+                        log_warn(
+                            f"Falha no refresh CONCURRENTLY ({view}): {refresh_error}. "
+                            "Executando fallback sem CONCURRENTLY."
+                        )
+                        exec_sql(conn, f"REFRESH MATERIALIZED VIEW {view}")
+                    else:
+                        raise
+                if MV_ANALYZE_AFTER_REFRESH:
+                    exec_sql(conn, f"ANALYZE {view}")
+                log_info(
+                    f"Refresh concluido: {view} kind=mv elapsed={_elapsed_seconds(start)}s"
+                )
+            return
+        except Exception as e:
+            if _is_transient_db_error(e) and attempt <= DB_MAX_RETRIES:
+                delay = _retry_delay(attempt)
+                log_warn(
+                    f"Falha ao atualizar MV (DB). Tentando novamente em {delay:.1f}s "
+                    f"(tentativa {attempt}/{DB_MAX_RETRIES})."
+                )
+                time.sleep(delay)
+                continue
+            raise
+
+
+def _refresh_geom_active_cache(dataset_codes: Optional[List[str]]) -> None:
+    dataset_codes = _normalize_codes(dataset_codes)
+    start = time.monotonic()
+    attempt = 0
+    while True:
+        try:
+            attempt += 1
+            with get_conn() as conn:
+                conn.autocommit = True
+                relkind = _geom_active_relation_kind(conn)
+                if relkind == "m":
+                    refresh_sql = (
+                        "REFRESH MATERIALIZED VIEW CONCURRENTLY landwatch.mv_feature_geom_active"
+                        if MV_REFRESH_CONCURRENTLY
+                        else "REFRESH MATERIALIZED VIEW landwatch.mv_feature_geom_active"
+                    )
+                    try:
+                        exec_sql(conn, refresh_sql)
+                    except Exception as refresh_error:
+                        if MV_REFRESH_CONCURRENTLY:
+                            log_warn(
+                                "Falha no refresh CONCURRENTLY "
+                                f"(landwatch.mv_feature_geom_active): {refresh_error}. "
+                                "Executando fallback sem CONCURRENTLY."
+                            )
+                            exec_sql(conn, "REFRESH MATERIALIZED VIEW landwatch.mv_feature_geom_active")
+                        else:
+                            raise
+                    if MV_ANALYZE_AFTER_REFRESH:
+                        exec_sql(conn, "ANALYZE landwatch.mv_feature_geom_active")
+                    log_info(
+                        "Refresh concluido: landwatch.mv_feature_geom_active "
+                        f"kind=mv elapsed={_elapsed_seconds(start)}s"
+                        f"{_dataset_log_suffix(dataset_codes)}"
+                    )
+                    return
+
+                if relkind not in ("r", "p"):
+                    raise RuntimeError(
+                        "landwatch.mv_feature_geom_active deve ser MV ou tabela, "
+                        f"mas relkind={relkind!r}."
+                    )
+
+                exec_sql(
+                    conn,
+                    "SELECT * FROM landwatch.refresh_feature_geom_active_cache(%s::text[])",
+                    (dataset_codes or None,),
+                )
+                log_info(
+                    "Refresh concluido: landwatch.mv_feature_geom_active "
+                    f"kind=cache elapsed={_elapsed_seconds(start)}s"
+                    f"{_dataset_log_suffix(dataset_codes)}"
+                )
+            return
+        except Exception as e:
+            if _is_transient_db_error(e) and attempt <= DB_MAX_RETRIES:
+                delay = _retry_delay(attempt)
+                log_warn(
+                    f"Falha ao atualizar cache geom active (DB). Tentando novamente em {delay:.1f}s "
+                    f"(tentativa {attempt}/{DB_MAX_RETRIES})."
+                )
+                time.sleep(delay)
+                continue
+            raise
+
+
+def _refresh_active_attrs_cache(dataset_codes: Optional[List[str]]) -> None:
+    dataset_codes = _normalize_codes(dataset_codes)
+    start = time.monotonic()
+    attempt = 0
+    while True:
+        try:
+            attempt += 1
+            with get_conn() as conn:
+                conn.autocommit = True
+                relkind = _active_attrs_relation_kind(conn)
+                if relkind == "m":
+                    refresh_sql = (
+                        "REFRESH MATERIALIZED VIEW CONCURRENTLY landwatch.mv_feature_active_attrs_light"
+                        if MV_REFRESH_CONCURRENTLY
+                        else "REFRESH MATERIALIZED VIEW landwatch.mv_feature_active_attrs_light"
+                    )
+                    try:
+                        exec_sql(conn, refresh_sql)
+                    except Exception as refresh_error:
+                        if MV_REFRESH_CONCURRENTLY:
+                            log_warn(
+                                "Falha no refresh CONCURRENTLY "
+                                f"(landwatch.mv_feature_active_attrs_light): {refresh_error}. "
+                                "Executando fallback sem CONCURRENTLY."
+                            )
+                            exec_sql(conn, "REFRESH MATERIALIZED VIEW landwatch.mv_feature_active_attrs_light")
+                        else:
+                            raise
+                    if MV_ANALYZE_AFTER_REFRESH:
+                        exec_sql(conn, "ANALYZE landwatch.mv_feature_active_attrs_light")
+                    log_info(
+                        "Refresh concluido: landwatch.mv_feature_active_attrs_light "
+                        f"kind=mv elapsed={_elapsed_seconds(start)}s"
+                        f"{_dataset_log_suffix(dataset_codes)}"
+                    )
+                    return
+
+                if relkind not in ("r", "p"):
+                    raise RuntimeError(
+                        "landwatch.mv_feature_active_attrs_light deve ser MV ou tabela, "
+                        f"mas relkind={relkind!r}."
+                    )
+
+                exec_sql(
+                    conn,
+                    "SELECT * FROM landwatch.refresh_feature_active_attrs_light_cache(%s::text[])",
+                    (dataset_codes or None,),
+                )
+                log_info(
+                    "Refresh concluido: landwatch.mv_feature_active_attrs_light "
+                    f"kind=cache elapsed={_elapsed_seconds(start)}s"
+                    f"{_dataset_log_suffix(dataset_codes)}"
+                )
+            return
+        except Exception as e:
+            if _is_transient_db_error(e) and attempt <= DB_MAX_RETRIES:
+                delay = _retry_delay(attempt)
+                log_warn(
+                    f"Falha ao atualizar cache active attrs (DB). Tentando novamente em {delay:.1f}s "
+                    f"(tentativa {attempt}/{DB_MAX_RETRIES})."
+                )
+                time.sleep(delay)
+                continue
+            raise
+
+
+def _refresh_tooltip_cache(dataset_codes: Optional[List[str]]) -> None:
+    dataset_codes = _normalize_codes(dataset_codes)
+    start = time.monotonic()
+    attempt = 0
+    while True:
+        try:
+            attempt += 1
+            with get_conn() as conn:
+                conn.autocommit = True
+                relkind = _tooltip_relation_kind(conn)
+                if relkind == "m":
+                    refresh_sql = (
+                        "REFRESH MATERIALIZED VIEW CONCURRENTLY landwatch.mv_feature_tooltip_active"
+                        if MV_REFRESH_CONCURRENTLY
+                        else "REFRESH MATERIALIZED VIEW landwatch.mv_feature_tooltip_active"
+                    )
+                    try:
+                        exec_sql(conn, refresh_sql)
+                    except Exception as refresh_error:
+                        if MV_REFRESH_CONCURRENTLY:
+                            log_warn(
+                                "Falha no refresh CONCURRENTLY "
+                                f"(landwatch.mv_feature_tooltip_active): {refresh_error}. "
+                                "Executando fallback sem CONCURRENTLY."
+                            )
+                            exec_sql(conn, "REFRESH MATERIALIZED VIEW landwatch.mv_feature_tooltip_active")
+                        else:
+                            raise
+                    if MV_ANALYZE_AFTER_REFRESH:
+                        exec_sql(conn, "ANALYZE landwatch.mv_feature_tooltip_active")
+                    log_info(
+                        "Refresh concluido: landwatch.mv_feature_tooltip_active "
+                        f"kind=mv elapsed={_elapsed_seconds(start)}s"
+                        f"{_dataset_log_suffix(dataset_codes)}"
+                    )
+                    return
+
+                if relkind not in ("r", "p"):
+                    raise RuntimeError(
+                        "landwatch.mv_feature_tooltip_active deve ser MV ou tabela, "
+                        f"mas relkind={relkind!r}."
+                    )
+
+                exec_sql(
+                    conn,
+                    "SELECT * FROM landwatch.refresh_feature_tooltip_active_cache(%s::text[])",
+                    (dataset_codes or None,),
+                )
+                log_info(
+                    "Refresh concluido: landwatch.mv_feature_tooltip_active "
+                    f"kind=cache elapsed={_elapsed_seconds(start)}s"
+                    f"{_dataset_log_suffix(dataset_codes)}"
+                )
+            return
+        except Exception as e:
+            if _is_transient_db_error(e) and attempt <= DB_MAX_RETRIES:
+                delay = _retry_delay(attempt)
+                log_warn(
+                    f"Falha ao atualizar cache tooltip (DB). Tentando novamente em {delay:.1f}s "
+                    f"(tentativa {attempt}/{DB_MAX_RETRIES})."
+                )
+                time.sleep(delay)
+                continue
+            raise
+
+
+def _refresh_sicar_meta_cache(dataset_codes: Optional[List[str]]) -> None:
+    dataset_codes = _normalize_codes(dataset_codes)
+    start = time.monotonic()
+    attempt = 0
+    while True:
+        try:
+            attempt += 1
+            with get_conn() as conn:
+                conn.autocommit = True
+                relkind = _sicar_meta_relation_kind(conn)
+                if relkind == "m":
+                    refresh_sql = (
+                        "REFRESH MATERIALIZED VIEW CONCURRENTLY landwatch.mv_sicar_meta_active"
+                        if MV_REFRESH_CONCURRENTLY
+                        else "REFRESH MATERIALIZED VIEW landwatch.mv_sicar_meta_active"
+                    )
+                    try:
+                        exec_sql(conn, refresh_sql)
+                    except Exception as refresh_error:
+                        if MV_REFRESH_CONCURRENTLY:
+                            log_warn(
+                                "Falha no refresh CONCURRENTLY "
+                                f"(landwatch.mv_sicar_meta_active): {refresh_error}. "
+                                "Executando fallback sem CONCURRENTLY."
+                            )
+                            exec_sql(conn, "REFRESH MATERIALIZED VIEW landwatch.mv_sicar_meta_active")
+                        else:
+                            raise
+                    if MV_ANALYZE_AFTER_REFRESH:
+                        exec_sql(conn, "ANALYZE landwatch.mv_sicar_meta_active")
+                    log_info(
+                        "Refresh concluido: landwatch.mv_sicar_meta_active "
+                        f"kind=mv elapsed={_elapsed_seconds(start)}s"
+                        f"{_dataset_log_suffix(dataset_codes)}"
+                    )
+                    return
+
+                if relkind not in ("r", "p"):
+                    raise RuntimeError(
+                        "landwatch.mv_sicar_meta_active deve ser MV ou tabela, "
+                        f"mas relkind={relkind!r}."
+                    )
+
+                exec_sql(
+                    conn,
+                    "SELECT * FROM landwatch.refresh_sicar_meta_cache(%s::text[])",
+                    (dataset_codes or None,),
+                )
+                log_info(
+                    "Refresh concluido: landwatch.mv_sicar_meta_active "
+                    f"kind=cache elapsed={_elapsed_seconds(start)}s"
+                    f"{_dataset_log_suffix(dataset_codes)}"
+                )
+            return
+        except Exception as e:
+            if _is_transient_db_error(e) and attempt <= DB_MAX_RETRIES:
+                delay = _retry_delay(attempt)
+                log_warn(
+                    f"Falha ao atualizar cache sicar meta (DB). Tentando novamente em {delay:.1f}s "
+                    f"(tentativa {attempt}/{DB_MAX_RETRIES})."
+                )
+                time.sleep(delay)
+                continue
+            raise
+
+
+def _refresh_tile_cache(dataset_codes: Optional[List[str]]) -> None:
+    dataset_codes = _normalize_codes(dataset_codes)
+    start = time.monotonic()
+    attempt = 0
+    while True:
+        try:
+            attempt += 1
+            with get_conn() as conn:
+                conn.autocommit = True
+                relkind = _tile_cache_relation_kind(conn)
+                if relkind == "m":
+                    refresh_sql = (
+                        "REFRESH MATERIALIZED VIEW CONCURRENTLY landwatch.mv_feature_geom_tile_active"
+                        if MV_REFRESH_CONCURRENTLY
+                        else "REFRESH MATERIALIZED VIEW landwatch.mv_feature_geom_tile_active"
+                    )
+                    try:
+                        exec_sql(conn, refresh_sql)
+                    except Exception as refresh_error:
+                        if MV_REFRESH_CONCURRENTLY:
+                            log_warn(
+                                "Falha no refresh CONCURRENTLY "
+                                f"(landwatch.mv_feature_geom_tile_active): {refresh_error}. "
+                                "Executando fallback sem CONCURRENTLY."
+                            )
+                            exec_sql(conn, "REFRESH MATERIALIZED VIEW landwatch.mv_feature_geom_tile_active")
+                        else:
+                            raise
+                    if MV_ANALYZE_AFTER_REFRESH:
+                        exec_sql(conn, "ANALYZE landwatch.mv_feature_geom_tile_active")
+                    log_info(
+                        "Refresh concluido: landwatch.mv_feature_geom_tile_active "
+                        f"kind=mv elapsed={_elapsed_seconds(start)}s"
+                        f"{_dataset_log_suffix(dataset_codes)}"
+                    )
+                    return
+
+                if relkind not in ("r", "p"):
+                    raise RuntimeError(
+                        "landwatch.mv_feature_geom_tile_active deve ser MV ou tabela, "
+                        f"mas relkind={relkind!r}."
+                    )
+
+                params = (dataset_codes or None,)
+                exec_sql(
+                    conn,
+                    "SELECT * FROM landwatch.refresh_feature_geom_tile_cache(%s::text[])",
+                    params,
+                )
+                log_info(
+                    "Refresh concluido: landwatch.mv_feature_geom_tile_active "
+                    f"kind=cache elapsed={_elapsed_seconds(start)}s"
+                    f"{_dataset_log_suffix(dataset_codes)}"
+                )
+            return
+        except Exception as e:
+            if _is_transient_db_error(e) and attempt <= DB_MAX_RETRIES:
+                delay = _retry_delay(attempt)
+                log_warn(
+                    f"Falha ao atualizar cache de tiles (DB). Tentando novamente em {delay:.1f}s "
+                    f"(tentativa {attempt}/{DB_MAX_RETRIES})."
+                )
+                time.sleep(delay)
+                continue
+            raise
+
+
+def _cache_relations_support_delta(conn) -> bool:
+    relation_kinds = [
+        _geom_active_relation_kind(conn),
+        _active_attrs_relation_kind(conn),
+        _tooltip_relation_kind(conn),
+        _sicar_meta_relation_kind(conn),
+        _tile_cache_relation_kind(conn),
+    ]
+    return all(kind in ("r", "p") for kind in relation_kinds)
+
+
+def _refresh_feature_caches_delta(dataset_codes: Optional[List[str]], version_ids: Optional[List[int]]) -> bool:
+    dataset_codes = _normalize_codes(dataset_codes)
+    version_ids = _normalize_ints(version_ids)
+    if not version_ids:
+        return False
+
+    start = time.monotonic()
+    attempt = 0
+    while True:
+        try:
+            attempt += 1
+            with get_conn() as conn:
+                conn.autocommit = True
+                if not _cache_relations_support_delta(conn):
+                    return False
+                rows = fetch_all(
+                    conn,
+                    """
+                    SELECT cache_name, mode, deleted_count, inserted_count, elapsed_ms
+                    FROM landwatch.refresh_feature_caches_delta(
+                        %s::bigint[],
+                        %s::text[],
+                        %s::numeric
+                    )
+                    """,
+                    (version_ids, dataset_codes or None, CACHE_DELTA_MAX_RATIO),
+                )
+                for cache_name, mode, deleted_count, inserted_count, elapsed_ms in rows:
+                    log_info(
+                        f"Refresh concluido: {cache_name} kind={mode} "
+                        f"elapsed={int((elapsed_ms or 0) / 1000)}s "
+                        f"deleted={deleted_count or 0} inserted={inserted_count or 0}"
+                        f"{_dataset_log_suffix(dataset_codes)}"
+                        f"{_version_log_suffix(version_ids)}"
+                    )
+                if not rows:
+                    log_info(
+                        "Refresh concluido: landwatch.refresh_feature_caches_delta "
+                        f"kind=delta elapsed={_elapsed_seconds(start)}s "
+                        "deleted=0 inserted=0"
+                        f"{_dataset_log_suffix(dataset_codes)}"
+                        f"{_version_log_suffix(version_ids)}"
+                    )
+            return True
+        except Exception as e:
+            if _is_transient_db_error(e) and attempt <= DB_MAX_RETRIES:
+                delay = _retry_delay(attempt)
+                log_warn(
+                    f"Falha ao atualizar caches por delta (DB). Tentando novamente em {delay:.1f}s "
+                    f"(tentativa {attempt}/{DB_MAX_RETRIES})."
+                )
+                time.sleep(delay)
+                continue
+            raise
+
+
+def _refresh_mvs(
+    tile_cache_dataset_codes: Optional[List[str]] = None,
+    cache_version_ids: Optional[List[int]] = None,
+) -> bool:
+    base_mv_views = [
         "landwatch.mv_indigena_phase_active",
         "landwatch.mv_ucs_sigla_active",
     ]
-    for view in mv_views:
+    ok = True
+    if _normalize_ints(cache_version_ids):
         try:
-            attempt = 0
-            while True:
-                try:
-                    attempt += 1
-                    with get_conn() as conn:
-                        conn.autocommit = True
-                        refresh_sql = (
-                            f"REFRESH MATERIALIZED VIEW CONCURRENTLY {view}"
-                            if MV_REFRESH_CONCURRENTLY
-                            else f"REFRESH MATERIALIZED VIEW {view}"
-                        )
-                        try:
-                            exec_sql(conn, refresh_sql)
-                        except Exception as refresh_error:
-                            if MV_REFRESH_CONCURRENTLY:
-                                log_warn(
-                                    f"Falha no refresh CONCURRENTLY ({view}): {refresh_error}. "
-                                    "Executando fallback sem CONCURRENTLY."
-                                )
-                                exec_sql(conn, f"REFRESH MATERIALIZED VIEW {view}")
-                            else:
-                                raise
-                        if MV_ANALYZE_AFTER_REFRESH:
-                            exec_sql(conn, f"ANALYZE {view}")
-                        log_info(f"MV atualizada: {view}")
-                    break
-                except Exception as e:
-                    if _is_transient_db_error(e) and attempt <= DB_MAX_RETRIES:
-                        delay = _retry_delay(attempt)
-                        log_warn(
-                            f"Falha ao atualizar MV (DB). Tentando novamente em {delay:.1f}s "
-                            f"(tentativa {attempt}/{DB_MAX_RETRIES})."
-                        )
-                        time.sleep(delay)
-                        continue
-                    raise
+            if _refresh_feature_caches_delta(tile_cache_dataset_codes, cache_version_ids):
+                for view in base_mv_views:
+                    try:
+                        _refresh_materialized_view(view)
+                    except Exception as e:
+                        ok = False
+                        log_warn(f"Falha ao atualizar MV {view}: {e}")
+                return ok
         except Exception as e:
+            if _is_missing_delta_function_error(e):
+                log_warn(
+                    "Função landwatch.refresh_feature_caches_delta não encontrada; "
+                    "usando fallback de rebuild por dataset."
+                )
+            else:
+                ok = False
+                log_warn(f"Falha ao atualizar caches por delta fino: {e}")
+                return ok
+
+    try:
+        _refresh_geom_active_cache(tile_cache_dataset_codes)
+    except Exception as e:
+        ok = False
+        log_warn(f"Falha ao atualizar cache landwatch.mv_feature_geom_active: {e}")
+    try:
+        _refresh_active_attrs_cache(tile_cache_dataset_codes)
+    except Exception as e:
+        ok = False
+        log_warn(f"Falha ao atualizar cache landwatch.mv_feature_active_attrs_light: {e}")
+    try:
+        _refresh_tooltip_cache(tile_cache_dataset_codes)
+    except Exception as e:
+        ok = False
+        log_warn(f"Falha ao atualizar cache landwatch.mv_feature_tooltip_active: {e}")
+    try:
+        _refresh_sicar_meta_cache(tile_cache_dataset_codes)
+    except Exception as e:
+        ok = False
+        log_warn(f"Falha ao atualizar cache landwatch.mv_sicar_meta_active: {e}")
+    for view in base_mv_views:
+        try:
+            _refresh_materialized_view(view)
+        except Exception as e:
+            ok = False
             log_warn(f"Falha ao atualizar MV {view}: {e}")
+    try:
+        _refresh_tile_cache(tile_cache_dataset_codes)
+    except Exception as e:
+        ok = False
+        log_warn(f"Falha ao atualizar cache landwatch.mv_feature_geom_tile_active: {e}")
+    return ok
 
 
 def main():
     args = _parse_args()
     job_start = time.time()
     if args.refresh_mvs_only:
-        _refresh_mvs()
+        ok = _refresh_mvs(_split_csv(args.tile_cache_dataset_codes), _split_int_csv(args.cache_version_ids))
         log_info("bulk_ingest finalizado (refresh MVs only).")
+        if not ok:
+            raise SystemExit(1)
         return
     snapshot_date_override = args.snapshot_date or None
     root = Path(args.root or ROOT_DIR)
@@ -1229,6 +1847,8 @@ def main():
     log_info(f"ROOT_DIR={root}")
     log_info(f"FILES={len(file_paths)}")
 
+    successful_dataset_codes: List[str] = []
+    result_datasets: List[dict] = []
     for file_path in file_paths:
         dataset_start = time.time()
         if args.category:
@@ -1298,6 +1918,14 @@ def main():
 
                         finish_dataset_version(conn, version_id, "COMPLETED", None)
                         conn.commit()
+                        successful_dataset_codes.append(dataset_code)
+                        result_datasets.append(
+                            {
+                                "dataset_code": dataset_code,
+                                "dataset_id": int(dataset_id),
+                                "version_id": int(version_id),
+                            }
+                        )
                         log_info("OK: Ingestão concluída.")
                         log_info(f"Tempo total do dataset: {int(time.time() - dataset_start)}s.")
                     break
@@ -1325,9 +1953,21 @@ def main():
     if args.skip_mv_refresh:
         log_info("MV refresh ignorado (flag --skip-mv-refresh).")
     else:
-        _refresh_mvs()
+        ok = _refresh_mvs(
+            successful_dataset_codes or _split_csv(args.tile_cache_dataset_codes),
+            [int(item["version_id"]) for item in result_datasets],
+        )
+        if not ok:
+            raise SystemExit(1)
 
     log_info(f"bulk_ingest finalizado em {int(time.time() - job_start)}s.")
+    if args.result_json:
+        result_path = Path(args.result_json)
+        result_path.parent.mkdir(parents=True, exist_ok=True)
+        result_path.write_text(
+            json.dumps({"datasets": result_datasets}, ensure_ascii=False, sort_keys=True),
+            encoding="utf-8",
+        )
 
 
 if __name__ == "__main__":

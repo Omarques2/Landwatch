@@ -25,7 +25,7 @@ from steps.download_deter import run as download_deter
 from steps.download_sicar import run as download_sicar
 from steps.download_url import run as download_url
 from steps.manifest import build_manifest, get_prev_fingerprint, load_latest_manifest, save_manifest
-from steps.ingest import run_ingest
+from steps.ingest import refresh_mvs_once, run_ingest, run_ingest_only, run_pmtiles_build
 from steps.cleanup import cleanup_category
 from steps.prepare_ucs import run as prepare_ucs_run, OUTPUT_DATASET_CODE as UCS_OUTPUT_DATASET_CODE
 
@@ -220,6 +220,147 @@ def process_category(storage: StorageClient, run_id: str, category: str, artifac
     return {"status": status, "changed": str(len(changed))}
 
 
+def _prepare_category_state(
+    storage: StorageClient,
+    run_id: str,
+    category: str,
+    artifacts,
+    config: JobConfig,
+) -> dict:
+    artifacts = list(artifacts or [])
+    state = {
+        "category": category,
+        "artifacts": artifacts,
+        "manifest_artifacts": [],
+        "prev_manifest": None,
+        "changed": [],
+        "changed_for_ingest": [],
+        "collect_error": None,
+        "skip_reason": None,
+    }
+    if not artifacts:
+        state["skip_reason"] = "no_artifacts"
+        return state
+
+    manifest_artifacts = _filter_manifest_artifacts(artifacts)
+    state["manifest_artifacts"] = manifest_artifacts
+    if not manifest_artifacts:
+        state["skip_reason"] = "no_manifest_artifacts"
+        return state
+
+    prev_manifest = load_latest_manifest(storage, category)
+    state["prev_manifest"] = prev_manifest
+    changed = []
+    for art in manifest_artifacts:
+        current_fp = compute_fingerprint(art.files)
+        prev_fp = get_prev_fingerprint(prev_manifest, art.dataset_code)
+        if not prev_fp or current_fp != prev_fp:
+            changed.append(art)
+
+    if config.save_raw:
+        upload_artifacts(storage, run_id, artifacts, config.work_dir)
+
+    state["changed"] = changed
+    state["changed_for_ingest"] = _filter_ingest_artifacts(changed)
+    return state
+
+
+def _build_manifest_with_failed_fingerprints(
+    run_id: str,
+    category: str,
+    manifest_artifacts,
+    prev_manifest: dict,
+    failed_codes,
+) -> dict:
+    manifest = build_manifest(run_id, category, manifest_artifacts)
+    failed_codes = set(failed_codes or [])
+    if not failed_codes:
+        return manifest
+
+    for dataset in manifest.get("datasets", []):
+        code = dataset.get("dataset_code")
+        if code not in failed_codes:
+            continue
+        prev_fp = get_prev_fingerprint(prev_manifest, code)
+        if prev_fp:
+            dataset["fingerprint"] = prev_fp
+            dataset["fingerprint_status"] = "previous_retained_after_failure"
+        else:
+            dataset.pop("fingerprint", None)
+            dataset["fingerprint_status"] = "missing_after_failure"
+    return manifest
+
+
+def _finalize_category_state(
+    storage: StorageClient,
+    run_id: str,
+    state: dict,
+    config: JobConfig,
+    ingest_result,
+    allow_cleanup: bool,
+) -> Dict[str, str]:
+    category = state["category"]
+    if state.get("collect_error"):
+        return {"status": "failed", "reason": state["collect_error"]}
+
+    artifacts = state["artifacts"]
+    manifest_artifacts = state["manifest_artifacts"]
+    if not artifacts or state.get("skip_reason") == "no_artifacts":
+        return {"status": "skipped", "reason": "no_artifacts"}
+    if not manifest_artifacts or state.get("skip_reason") == "no_manifest_artifacts":
+        return {"status": "skipped", "reason": "no_manifest_artifacts"}
+
+    changed = state["changed"]
+    changed_for_ingest = state["changed_for_ingest"]
+    changed_codes = {art.dataset_code for art in changed_for_ingest}
+    success_codes = [code for code in ingest_result.successes if code in changed_codes]
+    failed = {
+        code: reason
+        for code, reason in ingest_result.failures.items()
+        if code in changed_codes
+    }
+
+    if not changed_for_ingest:
+        status = "skipped"
+    elif success_codes and failed:
+        status = "ingested_partial"
+    elif success_codes:
+        status = "ingested"
+    elif failed:
+        status = "failed"
+    else:
+        status = "skipped"
+
+    manifest = _build_manifest_with_failed_fingerprints(
+        run_id,
+        category,
+        manifest_artifacts,
+        state.get("prev_manifest"),
+        failed.keys(),
+    )
+    manifest["status"] = status
+    manifest["changed_count"] = len(changed)
+    if failed:
+        manifest["failed_datasets"] = [
+            {"dataset_code": code, "error": failed[code]}
+            for code in sorted(failed)
+        ]
+    save_manifest(storage, category, run_id, manifest)
+
+    if status == "ingested" and allow_cleanup:
+        cleanup_category(storage, category, retention_runs=config.retention_runs)
+
+    if status in ("ingested", "skipped") and allow_cleanup:
+        cleanup_files(artifacts)
+
+    return {
+        "status": status,
+        "changed": str(len(changed)),
+        "ingested": str(len(success_codes)),
+        "failed": str(len(failed)),
+    }
+
+
 def load_existing_artifacts(work_dir: Path, category: str, snapshot_date: str):
     category_dir = work_dir / category
     if not category_dir.exists():
@@ -290,6 +431,7 @@ def run_all(config: JobConfig, snapshot_date: str, categories=None, prodes_works
     run_id = now_run_id()
 
     results = {}
+    states = {}
     def should_run(category: str) -> bool:
         return not categories or category in categories
     if should_run("PRODES"):
@@ -310,11 +452,11 @@ def run_all(config: JobConfig, snapshot_date: str, categories=None, prodes_works
                     workspaces=prodes_workspaces,
                     years=prodes_years,
                 )
-            results["PRODES"] = process_category(storage, run_id, "PRODES", artifacts, config)
+            states["PRODES"] = _prepare_category_state(storage, run_id, "PRODES", artifacts, config)
         except Exception as exc:
             log_warn(f"PRODES falhou ({type(exc).__name__}): {exc}")
             log_warn(traceback.format_exc())
-            results["PRODES"] = {"status": "failed"}
+            states["PRODES"] = {"category": "PRODES", "artifacts": [], "manifest_artifacts": [], "changed": [], "changed_for_ingest": [], "collect_error": str(exc)}
 
     if should_run("DETER"):
         try:
@@ -328,11 +470,11 @@ def run_all(config: JobConfig, snapshot_date: str, categories=None, prodes_works
                     log_info("DETER: reutilizando arquivos baixados (manifest failed).")
             if not artifacts:
                 artifacts = download_deter(config.work_dir, snapshot_date)
-            results["DETER"] = process_category(storage, run_id, "DETER", artifacts, config)
+            states["DETER"] = _prepare_category_state(storage, run_id, "DETER", artifacts, config)
         except Exception as exc:
             log_warn(f"DETER falhou ({type(exc).__name__}): {exc}")
             log_warn(traceback.format_exc())
-            results["DETER"] = {"status": "failed"}
+            states["DETER"] = {"category": "DETER", "artifacts": [], "manifest_artifacts": [], "changed": [], "changed_for_ingest": [], "collect_error": str(exc)}
 
     if should_run("SICAR"):
         try:
@@ -346,11 +488,11 @@ def run_all(config: JobConfig, snapshot_date: str, categories=None, prodes_works
                     log_info("SICAR: reutilizando arquivos baixados (manifest failed).")
             if not artifacts:
                 artifacts = download_sicar(config.work_dir, snapshot_date)
-            results["SICAR"] = process_category(storage, run_id, "SICAR", artifacts, config)
+            states["SICAR"] = _prepare_category_state(storage, run_id, "SICAR", artifacts, config)
         except Exception as exc:
             log_warn(f"SICAR falhou ({type(exc).__name__}): {exc}")
             log_warn(traceback.format_exc())
-            results["SICAR"] = {"status": "failed"}
+            states["SICAR"] = {"category": "SICAR", "artifacts": [], "manifest_artifacts": [], "changed": [], "changed_for_ingest": [], "collect_error": str(exc)}
 
     if should_run("URL"):
         try:
@@ -365,13 +507,49 @@ def run_all(config: JobConfig, snapshot_date: str, categories=None, prodes_works
             if not artifacts:
                 artifacts = download_url(config.work_dir, snapshot_date)
             artifacts = _transform_url_ucs_artifacts(artifacts, config, snapshot_date)
-            results["URL"] = process_category(storage, run_id, "URL", artifacts, config)
+            states["URL"] = _prepare_category_state(storage, run_id, "URL", artifacts, config)
         except Exception as exc:
             log_warn(f"URL falhou ({type(exc).__name__}): {exc}")
             log_warn(traceback.format_exc())
-            results["URL"] = {"status": "failed"}
+            states["URL"] = {"category": "URL", "artifacts": [], "manifest_artifacts": [], "changed": [], "changed_for_ingest": [], "collect_error": str(exc)}
+
+    ingest_artifacts = []
+    for category in ("PRODES", "DETER", "SICAR", "URL"):
+        state = states.get(category)
+        if state:
+            ingest_artifacts.extend(state.get("changed_for_ingest", []))
+
+    ingest_result = run_ingest_only(ingest_artifacts, snapshot_date)
+    mv_ok = True
+    pmtiles_ok = True
+    if ingest_result.successes:
+        mv_ok = refresh_mvs_once(ingest_result.successes, ingest_result.success_versions)
+        if mv_ok:
+            pmtiles_ok = run_pmtiles_build(ingest_result.successes)
+        else:
+            log_warn("PMTiles ignorado porque refresh de MVs falhou.")
+
+    for category in ("PRODES", "DETER", "SICAR", "URL"):
+        state = states.get(category)
+        if not state:
+            continue
+        results[category] = _finalize_category_state(
+            storage,
+            run_id,
+            state,
+            config,
+            ingest_result,
+            allow_cleanup=mv_ok,
+        )
+
+    if ingest_result.successes:
+        results["_postprocess"] = {
+            "mv_status": "ok" if mv_ok else "failed",
+            "pmtiles_status": "ok" if pmtiles_ok else "failed",
+        }
 
     log_info(f"Resumo: {results}")
+    return results
 
 
 if __name__ == "__main__":

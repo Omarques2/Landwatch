@@ -27,7 +27,10 @@ vi.mock("@/components/maps/AnalysisVectorMap.vue", () => ({
 vi.mock("@/components/analyses/AnalysisWatermark.vue", () => ({
   default: defineComponent({
     name: "AnalysisWatermark",
-    template: "<div data-test='analysis-watermark'></div>",
+    props: {
+      zIndex: Number,
+    },
+    template: "<div data-test='analysis-watermark' :data-z-index='zIndex'></div>",
   }),
 }));
 
@@ -98,9 +101,7 @@ describe("AnalysisPrintLayout", () => {
     const links = wrapper.findAll("a.print-action-link");
     expect(links).toHaveLength(1);
     expect(links[0]!.text()).toContain("GeoJSON");
-    expect(links[0]!.attributes("href")).toBe(
-      "https://api.example.com/v1/public/analyses/analysis-1/geojson/download",
-    );
+    expect(links[0]!.attributes("href")).toBe("https://api.example.com/v1/public/analyses/analysis-1/geojson/download");
     expect(wrapper.text()).not.toContain("Anexos");
   });
 
@@ -128,12 +129,35 @@ describe("AnalysisPrintLayout", () => {
 
     const links = wrapper.findAll("a.print-action-link");
     expect(links).toHaveLength(2);
-    expect(links[0]!.attributes("href")).toBe(
-      "https://api.example.com/v1/public/analyses/analysis-1/geojson/download",
-    );
-    expect(links[1]!.attributes("href")).toBe(
-      "https://api.example.com/v1/public/analyses/analysis-1/attachments/zip",
-    );
+    expect(links[0]!.attributes("href")).toBe("https://api.example.com/v1/public/analyses/analysis-1/geojson/download");
+    expect(links[1]!.attributes("href")).toBe("https://api.example.com/v1/public/analyses/analysis-1/attachments/zip");
+  });
+
+  it("keeps the watermark visible while shielding the map frame from it", () => {
+    const wrapper = mount(AnalysisPrintLayout, {
+      props: {
+        analysis: {
+          id: "analysis-1",
+          carKey: "MT-123",
+          farmName: "fazenda de teste",
+          analysisDate: "2026-02-12",
+          status: "completed",
+          analysisKind: "STANDARD",
+          datasetGroups: [],
+          results: [],
+        },
+        vectorMap: null,
+        mapLoading: false,
+        isLoading: false,
+        analysisPublicUrl: "",
+        logoSrc: "/logo.png",
+      },
+    });
+
+    const firstPage = wrapper.find(".print-page-1");
+    expect(firstPage.find("[data-test='analysis-watermark']").attributes("data-z-index")).toBe("30");
+    expect(firstPage.find(".print-page-content").exists()).toBe(true);
+    expect(firstPage.find(".print-map-frame").classes()).toContain("print-map-frame-above-watermark");
   });
 
   it("does not prepare the map twice before freezing it for print", async () => {

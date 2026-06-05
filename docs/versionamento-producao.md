@@ -47,6 +47,7 @@ cd ~/Desktop/Projetos/Sigfarm/LandWatch
 
 sudo docker build -f apps/Versionamento/Dockerfile -t landwatch-versionamento:prod .
 
+sudo rm -rf /tmp/landwatch-versionamento-work
 mkdir -p /tmp/landwatch-versionamento-work
 
 sudo docker run --rm \

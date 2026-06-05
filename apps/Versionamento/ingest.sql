@@ -34,9 +34,11 @@ SELECT
     -- hash da linha inteira como feature_key
     COALESCE(
         s.feature_key_override,
-        md5(s.payload::text)
+        {{FEATURE_KEY_FALLBACK_SQL}}
     ) AS feature_key,
     md5(s.payload::text) AS attr_hash,
+    md5({{ATTR_COMPARE_JSON_SQL}}::text) AS attr_compare_hash,
+    md5({{TOOLTIP_JSON_SQL}}::text) AS tooltip_hash,
     s.payload AS attr_json,
     s.geom_wkt
 FROM {{STG_TABLE}} s;
@@ -49,6 +51,8 @@ SELECT
     r.row_id,
     r.feature_key,
     r.attr_hash,
+    r.attr_compare_hash,
+    r.tooltip_hash,
     r.attr_json,
     r.geom_wkt
 FROM (
@@ -87,6 +91,8 @@ SELECT
     f.feature_id,
     n.feature_key,
     n.attr_hash,
+    n.attr_compare_hash,
+    n.tooltip_hash,
     n.attr_json,
     n.geom_hash,
     n.geom,
@@ -104,7 +110,13 @@ CREATE UNIQUE INDEX ON __stg_map(feature_id);
 -- =========================================================
 DROP TABLE IF EXISTS __prev_state;
 CREATE TEMP TABLE __prev_state AS
-SELECT feature_id, is_present, geom_hash, attr_hash
+SELECT
+  feature_id,
+  is_present,
+  geom_hash,
+  attr_hash,
+  COALESCE(attr_compare_hash, attr_hash) AS attr_compare_hash,
+  tooltip_hash
 FROM landwatch.lw_feature_state
 WHERE dataset_id = :dataset_id;
 
@@ -113,7 +125,12 @@ CREATE UNIQUE INDEX ON __prev_state(feature_id);
 -- novos
 DROP TABLE IF EXISTS __new_features;
 CREATE TEMP TABLE __new_features AS
-SELECT m.feature_id, m.geom_hash, m.attr_hash
+SELECT
+  m.feature_id,
+  m.geom_hash,
+  m.attr_hash,
+  m.attr_compare_hash,
+  m.tooltip_hash
 FROM __stg_map m
 LEFT JOIN __prev_state p ON p.feature_id = m.feature_id
 WHERE p.feature_id IS NULL;
@@ -121,12 +138,40 @@ WHERE p.feature_id IS NULL;
 -- alterados
 DROP TABLE IF EXISTS __changed_features;
 CREATE TEMP TABLE __changed_features AS
-SELECT m.feature_id, m.geom_hash, m.attr_hash
+SELECT
+  m.feature_id,
+  m.geom_hash,
+  m.attr_hash,
+  m.attr_compare_hash,
+  m.tooltip_hash,
+  p.geom_hash IS DISTINCT FROM m.geom_hash AS geom_changed,
+  p.attr_compare_hash IS DISTINCT FROM m.attr_compare_hash AS attr_changed,
+  p.tooltip_hash IS DISTINCT FROM m.tooltip_hash AS tooltip_changed,
+  p.is_present IS DISTINCT FROM TRUE AS became_present
 FROM __stg_map m
 JOIN __prev_state p ON p.feature_id = m.feature_id
 WHERE p.geom_hash IS DISTINCT FROM m.geom_hash
-   OR p.attr_hash IS DISTINCT FROM m.attr_hash
+   OR p.attr_compare_hash IS DISTINCT FROM m.attr_compare_hash
+   OR p.tooltip_hash IS DISTINCT FROM m.tooltip_hash
    OR p.is_present IS DISTINCT FROM TRUE;
+
+DROP TABLE IF EXISTS __geom_changed_features;
+CREATE TEMP TABLE __geom_changed_features AS
+SELECT feature_id
+FROM __changed_features
+WHERE geom_changed OR became_present;
+
+DROP TABLE IF EXISTS __attr_changed_features;
+CREATE TEMP TABLE __attr_changed_features AS
+SELECT feature_id
+FROM __changed_features
+WHERE attr_changed OR became_present;
+
+DROP TABLE IF EXISTS __tooltip_changed_features;
+CREATE TEMP TABLE __tooltip_changed_features AS
+SELECT feature_id
+FROM __changed_features
+WHERE tooltip_changed OR became_present;
 
 -- desaparecidos (estavam presentes e não vieram no snapshot)
 DROP TABLE IF EXISTS __disappeared;
@@ -136,6 +181,95 @@ FROM __prev_state p
 LEFT JOIN __stg_map m ON m.feature_id = p.feature_id
 WHERE p.is_present = TRUE AND m.feature_id IS NULL;
 
+-- Persistir delta fino por versão para atualização incremental das caches.
+-- Mantém o delta na mesma transação da ingestão: se a ingestão falhar, o delta também some.
+DELETE FROM landwatch.lw_feature_delta
+WHERE version_id = :version_id;
+
+DELETE FROM landwatch.lw_feature_delta_run
+WHERE version_id = :version_id;
+
+INSERT INTO landwatch.lw_feature_delta
+  (dataset_id, version_id, feature_id, action, geom_changed, attr_changed, tooltip_changed, became_present, became_absent, snapshot_date)
+SELECT
+  :dataset_id,
+  :version_id,
+  n.feature_id,
+  'NEW',
+  n.geom_hash IS NOT NULL,
+  TRUE,
+  TRUE,
+  TRUE,
+  FALSE,
+  :snapshot_date
+FROM __new_features n;
+
+INSERT INTO landwatch.lw_feature_delta
+  (dataset_id, version_id, feature_id, action, geom_changed, attr_changed, tooltip_changed, became_present, became_absent, snapshot_date)
+SELECT
+  :dataset_id,
+  :version_id,
+  c.feature_id,
+  'CHANGED',
+  c.geom_changed,
+  c.attr_changed,
+  c.tooltip_changed,
+  c.became_present,
+  FALSE,
+  :snapshot_date
+FROM __changed_features c;
+
+INSERT INTO landwatch.lw_feature_delta
+  (dataset_id, version_id, feature_id, action, geom_changed, attr_changed, tooltip_changed, became_present, became_absent, snapshot_date)
+SELECT
+  :dataset_id,
+  :version_id,
+  d.feature_id,
+  'DISAPPEARED',
+  FALSE,
+  FALSE,
+  FALSE,
+  FALSE,
+  TRUE,
+  :snapshot_date
+FROM __disappeared d;
+
+INSERT INTO landwatch.lw_feature_delta_run (
+  dataset_id,
+  version_id,
+  snapshot_date,
+  delta_count,
+  geom_delta_count,
+  attr_delta_count,
+  tooltip_delta_count
+)
+SELECT
+  :dataset_id,
+  :version_id,
+  :snapshot_date,
+  count(*)::bigint,
+  count(*) FILTER (
+    WHERE action IN ('NEW', 'DISAPPEARED')
+       OR geom_changed
+       OR became_present
+       OR became_absent
+  )::bigint,
+  count(*) FILTER (
+    WHERE action IN ('NEW', 'DISAPPEARED')
+       OR attr_changed
+       OR became_present
+       OR became_absent
+  )::bigint,
+  count(*) FILTER (
+    WHERE action IN ('NEW', 'DISAPPEARED')
+       OR tooltip_changed
+       OR became_present
+       OR became_absent
+  )::bigint
+FROM landwatch.lw_feature_delta
+WHERE version_id = :version_id
+  AND dataset_id = :dataset_id;
+
 -- =========================================================
 -- 5) Atributos - packs deduplicados
 -- =========================================================
@@ -144,12 +278,16 @@ INSERT INTO landwatch.lw_attr_pack(pack_hash, pack_json)
 SELECT DISTINCT m.attr_hash, m.attr_json
 FROM __stg_map m
 LEFT JOIN landwatch.lw_attr_pack p ON p.pack_hash = m.attr_hash
-WHERE p.pack_id IS NULL;
+WHERE p.pack_id IS NULL
+  AND (
+    EXISTS (SELECT 1 FROM __new_features n WHERE n.feature_id = m.feature_id)
+    OR EXISTS (SELECT 1 FROM __attr_changed_features c WHERE c.feature_id = m.feature_id)
+  );
 
 -- fechar packs antigos se mudou ou sumiu
 UPDATE landwatch.lw_feature_attr_pack_hist h
 SET valid_to = :snapshot_date
-FROM __changed_features c
+FROM __attr_changed_features c
 WHERE h.dataset_id = :dataset_id
   AND h.feature_id = c.feature_id
   AND h.valid_to IS NULL;
@@ -178,7 +316,11 @@ LEFT JOIN landwatch.lw_feature_attr_pack_hist h
  AND h.feature_id = m.feature_id
  AND h.valid_to IS NULL
 WHERE h.feature_id IS NULL
-   OR h.pack_id IS DISTINCT FROM p.pack_id;
+   OR EXISTS (
+     SELECT 1
+     FROM __attr_changed_features c
+     WHERE c.feature_id = m.feature_id
+   );
 
 -- =========================================================
 -- 6) Geometria - dedupe + histórico
@@ -189,12 +331,16 @@ SELECT DISTINCT m.geom_hash, m.geom, 4326
 FROM __stg_map m
 LEFT JOIN landwatch.lw_geom_store g ON g.geom_hash = m.geom_hash
 WHERE m.geom IS NOT NULL
-  AND g.geom_id IS NULL;
+  AND g.geom_id IS NULL
+  AND (
+    EXISTS (SELECT 1 FROM __new_features n WHERE n.feature_id = m.feature_id)
+    OR EXISTS (SELECT 1 FROM __geom_changed_features c WHERE c.feature_id = m.feature_id)
+  );
 
 -- fechar geoms antigos se mudou ou sumiu
 UPDATE landwatch.lw_feature_geom_hist h
 SET valid_to = :snapshot_date
-FROM __changed_features c
+FROM __geom_changed_features c
 WHERE h.dataset_id = :dataset_id
   AND h.feature_id = c.feature_id
   AND h.valid_to IS NULL;
@@ -223,7 +369,14 @@ LEFT JOIN landwatch.lw_feature_geom_hist h
  AND h.feature_id = m.feature_id
  AND h.valid_to IS NULL
 WHERE m.geom_hash IS NOT NULL
-  AND (h.feature_id IS NULL OR h.geom_id IS DISTINCT FROM g.geom_id);
+  AND (
+    h.feature_id IS NULL
+    OR EXISTS (
+      SELECT 1
+      FROM __geom_changed_features c
+      WHERE c.feature_id = m.feature_id
+    )
+  );
 
 -- =========================================================
 -- 7) Doc index (CPF/CNPJ ativo)
@@ -276,9 +429,18 @@ WHERE m.doc_normalized IS NOT NULL
 -- =========================================================
 -- novos
 INSERT INTO landwatch.lw_feature_state
-  (dataset_id, feature_id, is_present, geom_hash, attr_hash, snapshot_date, current_version_id, updated_at)
+  (dataset_id, feature_id, is_present, geom_hash, attr_hash, attr_compare_hash, tooltip_hash, snapshot_date, current_version_id, updated_at)
 SELECT
-  :dataset_id, m.feature_id, TRUE, m.geom_hash, m.attr_hash, :snapshot_date, :version_id, now()
+  :dataset_id,
+  m.feature_id,
+  TRUE,
+  m.geom_hash,
+  m.attr_hash,
+  m.attr_compare_hash,
+  m.tooltip_hash,
+  :snapshot_date,
+  :version_id,
+  now()
 FROM __stg_map m
 LEFT JOIN landwatch.lw_feature_state s
   ON s.dataset_id = :dataset_id AND s.feature_id = m.feature_id
@@ -290,6 +452,8 @@ SET
   is_present = TRUE,
   geom_hash = m.geom_hash,
   attr_hash = m.attr_hash,
+  attr_compare_hash = m.attr_compare_hash,
+  tooltip_hash = m.tooltip_hash,
   snapshot_date = :snapshot_date,
   current_version_id = :version_id,
   updated_at = now()
@@ -299,7 +463,8 @@ WHERE s.dataset_id = :dataset_id
   AND (
     s.is_present IS DISTINCT FROM TRUE
     OR s.geom_hash IS DISTINCT FROM m.geom_hash
-    OR s.attr_hash IS DISTINCT FROM m.attr_hash
+    OR COALESCE(s.attr_compare_hash, s.attr_hash) IS DISTINCT FROM m.attr_compare_hash
+    OR s.tooltip_hash IS DISTINCT FROM m.tooltip_hash
   );
 
 -- marca ausentes

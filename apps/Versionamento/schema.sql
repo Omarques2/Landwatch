@@ -108,11 +108,54 @@ CREATE TABLE IF NOT EXISTS landwatch.lw_feature_state (
     is_present BOOLEAN NOT NULL,
     geom_hash TEXT,
     attr_hash TEXT,
+    attr_compare_hash TEXT,
+    tooltip_hash TEXT,
     snapshot_date DATE NOT NULL,
     current_version_id BIGINT NOT NULL REFERENCES landwatch.lw_dataset_version(version_id),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (dataset_id, feature_id)
 );
+
+CREATE TABLE IF NOT EXISTS landwatch.lw_feature_delta (
+    dataset_id BIGINT NOT NULL REFERENCES landwatch.lw_dataset(dataset_id),
+    version_id BIGINT NOT NULL REFERENCES landwatch.lw_dataset_version(version_id),
+    feature_id BIGINT NOT NULL REFERENCES landwatch.lw_feature(feature_id),
+    action TEXT NOT NULL CHECK (action IN ('NEW', 'CHANGED', 'DISAPPEARED')),
+    geom_changed BOOLEAN NOT NULL DEFAULT FALSE,
+    attr_changed BOOLEAN NOT NULL DEFAULT FALSE,
+    tooltip_changed BOOLEAN NOT NULL DEFAULT FALSE,
+    became_present BOOLEAN NOT NULL DEFAULT FALSE,
+    became_absent BOOLEAN NOT NULL DEFAULT FALSE,
+    snapshot_date DATE NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (version_id, feature_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_lw_feature_delta_dataset_version
+    ON landwatch.lw_feature_delta(dataset_id, version_id);
+
+CREATE INDEX IF NOT EXISTS idx_lw_feature_delta_dataset_feature
+    ON landwatch.lw_feature_delta(dataset_id, feature_id);
+
+CREATE INDEX IF NOT EXISTS idx_lw_feature_delta_version_action
+    ON landwatch.lw_feature_delta(version_id, action);
+
+CREATE TABLE IF NOT EXISTS landwatch.lw_feature_delta_run (
+    dataset_id BIGINT NOT NULL REFERENCES landwatch.lw_dataset(dataset_id),
+    version_id BIGINT PRIMARY KEY REFERENCES landwatch.lw_dataset_version(version_id),
+    snapshot_date DATE NOT NULL,
+    delta_count BIGINT NOT NULL DEFAULT 0,
+    geom_delta_count BIGINT NOT NULL DEFAULT 0,
+    attr_delta_count BIGINT NOT NULL DEFAULT 0,
+    tooltip_delta_count BIGINT NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_lw_feature_delta_run_dataset_version
+    ON landwatch.lw_feature_delta_run(dataset_id, version_id);
+
+-- Funções de delta fino dos caches ficam em sql/feature_cache_delta_apply.sql.
+-- Elas são separadas porque também servem como migration idempotente em bancos existentes.
 
 -- =========================================================
 -- 3) Geometria deduplicada
@@ -147,16 +190,80 @@ CREATE INDEX IF NOT EXISTS idx_lw_feature_geom_hist_geom_id_asof
 -- =========================================================
 -- 3.1) MV de feicoes ativas (acelera consultas correntes)
 -- =========================================================
-CREATE MATERIALIZED VIEW IF NOT EXISTS landwatch.mv_feature_geom_active AS
-SELECT
-    h.dataset_id,
-    h.feature_id,
-    h.geom_id,
-    h.version_id,
-    g.geom
-FROM landwatch.lw_feature_geom_hist h
-JOIN landwatch.lw_geom_store g ON g.geom_id = h.geom_id
-WHERE h.valid_to IS NULL;
+CREATE TABLE IF NOT EXISTS landwatch.mv_feature_geom_active (
+    dataset_id BIGINT NOT NULL,
+    feature_id BIGINT NOT NULL,
+    geom_id BIGINT NOT NULL,
+    version_id BIGINT NOT NULL,
+    geom geometry
+);
+
+CREATE OR REPLACE FUNCTION landwatch.refresh_feature_geom_active_cache(
+    p_dataset_codes text[] DEFAULT NULL
+)
+RETURNS TABLE(deleted_count bigint, inserted_count bigint)
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    v_dataset_codes text[];
+    v_dataset_ids bigint[];
+    v_full_rebuild boolean;
+BEGIN
+    PERFORM pg_advisory_xact_lock(hashtext('landwatch.mv_feature_geom_active'));
+
+    SELECT array_agg(code ORDER BY code)
+    INTO v_dataset_codes
+    FROM (
+        SELECT DISTINCT NULLIF(btrim(code), '') AS code
+        FROM unnest(p_dataset_codes) AS raw(code)
+    ) cleaned
+    WHERE code IS NOT NULL;
+
+    v_full_rebuild := COALESCE(array_length(v_dataset_codes, 1), 0) = 0;
+
+    IF NOT v_full_rebuild THEN
+        SELECT array_agg(d.dataset_id ORDER BY d.dataset_id)
+        INTO v_dataset_ids
+        FROM landwatch.lw_dataset d
+        WHERE d.code = ANY(v_dataset_codes);
+
+        IF COALESCE(array_length(v_dataset_ids, 1), 0) = 0 THEN
+            deleted_count := 0;
+            inserted_count := 0;
+            RETURN NEXT;
+            RETURN;
+        END IF;
+
+        DELETE FROM landwatch.mv_feature_geom_active
+        WHERE dataset_id = ANY(v_dataset_ids);
+    ELSE
+        DELETE FROM landwatch.mv_feature_geom_active;
+    END IF;
+    GET DIAGNOSTICS deleted_count = ROW_COUNT;
+
+    INSERT INTO landwatch.mv_feature_geom_active (
+        dataset_id,
+        feature_id,
+        geom_id,
+        version_id,
+        geom
+    )
+    SELECT
+        h.dataset_id,
+        h.feature_id,
+        h.geom_id,
+        h.version_id,
+        g.geom
+    FROM landwatch.lw_feature_geom_hist h
+    JOIN landwatch.lw_geom_store g ON g.geom_id = h.geom_id
+    WHERE h.valid_to IS NULL
+      AND (v_full_rebuild OR h.dataset_id = ANY(v_dataset_ids));
+    GET DIAGNOSTICS inserted_count = ROW_COUNT;
+
+    ANALYZE landwatch.mv_feature_geom_active;
+    RETURN NEXT;
+END;
+$$;
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_mv_feature_geom_active_pk
     ON landwatch.mv_feature_geom_active(dataset_id, feature_id);
@@ -248,28 +355,103 @@ BEGIN
 END;
 $$;
 
-CREATE MATERIALIZED VIEW IF NOT EXISTS landwatch.mv_feature_geom_tile_active AS
-WITH normalized AS (
-    SELECT
-        a.dataset_id,
-        a.feature_id,
-        a.geom_id,
-        a.version_id,
-        landwatch.safe_transform_to_3857(a.geom) AS geom_3857_raw
-    FROM landwatch.mv_feature_geom_active a
+CREATE TABLE IF NOT EXISTS landwatch.mv_feature_geom_tile_active (
+    dataset_id BIGINT NOT NULL,
+    feature_id BIGINT NOT NULL,
+    geom_id BIGINT NOT NULL,
+    version_id BIGINT NOT NULL,
+    geom_3857_raw geometry,
+    geom_3857_s600 geometry,
+    geom_3857_s300 geometry,
+    geom_3857_s140 geometry,
+    geom_3857_s70 geometry,
+    geom_3857_s35 geometry
+);
+
+CREATE OR REPLACE FUNCTION landwatch.refresh_feature_geom_tile_cache(
+    p_dataset_codes text[] DEFAULT NULL
 )
-SELECT
-    n.dataset_id,
-    n.feature_id,
-    n.geom_id,
-    n.version_id,
-    n.geom_3857_raw,
-    ST_SimplifyPreserveTopology(n.geom_3857_raw, 600) AS geom_3857_s600,
-    ST_SimplifyPreserveTopology(n.geom_3857_raw, 300) AS geom_3857_s300,
-    ST_SimplifyPreserveTopology(n.geom_3857_raw, 140) AS geom_3857_s140,
-    ST_SimplifyPreserveTopology(n.geom_3857_raw, 70) AS geom_3857_s70,
-    ST_SimplifyPreserveTopology(n.geom_3857_raw, 35) AS geom_3857_s35
-FROM normalized n;
+RETURNS TABLE(deleted_count bigint, inserted_count bigint)
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    v_dataset_codes text[];
+    v_dataset_ids bigint[];
+    v_full_rebuild boolean;
+BEGIN
+    PERFORM pg_advisory_xact_lock(hashtext('landwatch.mv_feature_geom_tile_active'));
+
+    SELECT array_agg(code ORDER BY code)
+    INTO v_dataset_codes
+    FROM (
+        SELECT DISTINCT NULLIF(btrim(code), '') AS code
+        FROM unnest(p_dataset_codes) AS raw(code)
+    ) cleaned
+    WHERE code IS NOT NULL;
+
+    v_full_rebuild := COALESCE(array_length(v_dataset_codes, 1), 0) = 0;
+
+    IF NOT v_full_rebuild THEN
+        SELECT array_agg(d.dataset_id ORDER BY d.dataset_id)
+        INTO v_dataset_ids
+        FROM landwatch.lw_dataset d
+        WHERE d.code = ANY(v_dataset_codes);
+
+        IF COALESCE(array_length(v_dataset_ids, 1), 0) = 0 THEN
+            deleted_count := 0;
+            inserted_count := 0;
+            RETURN NEXT;
+            RETURN;
+        END IF;
+
+        DELETE FROM landwatch.mv_feature_geom_tile_active
+        WHERE dataset_id = ANY(v_dataset_ids);
+    ELSE
+        DELETE FROM landwatch.mv_feature_geom_tile_active;
+    END IF;
+    GET DIAGNOSTICS deleted_count = ROW_COUNT;
+
+    WITH normalized AS (
+        SELECT
+            a.dataset_id,
+            a.feature_id,
+            a.geom_id,
+            a.version_id,
+            landwatch.safe_transform_to_3857(a.geom) AS geom_3857_raw
+        FROM landwatch.mv_feature_geom_active a
+        WHERE v_full_rebuild OR a.dataset_id = ANY(v_dataset_ids)
+    )
+    INSERT INTO landwatch.mv_feature_geom_tile_active (
+        dataset_id,
+        feature_id,
+        geom_id,
+        version_id,
+        geom_3857_raw,
+        geom_3857_s600,
+        geom_3857_s300,
+        geom_3857_s140,
+        geom_3857_s70,
+        geom_3857_s35
+    )
+    SELECT
+        n.dataset_id,
+        n.feature_id,
+        n.geom_id,
+        n.version_id,
+        n.geom_3857_raw,
+        public.ST_SimplifyPreserveTopology(n.geom_3857_raw, 600),
+        public.ST_SimplifyPreserveTopology(n.geom_3857_raw, 300),
+        public.ST_SimplifyPreserveTopology(n.geom_3857_raw, 140),
+        public.ST_SimplifyPreserveTopology(n.geom_3857_raw, 70),
+        public.ST_SimplifyPreserveTopology(n.geom_3857_raw, 35)
+    FROM normalized n
+    WHERE n.geom_3857_raw IS NOT NULL;
+    GET DIAGNOSTICS inserted_count = ROW_COUNT;
+
+    ANALYZE landwatch.mv_feature_geom_tile_active;
+    RETURN NEXT;
+END;
+$$;
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_mv_feature_geom_tile_active_pk
     ON landwatch.mv_feature_geom_tile_active(dataset_id, feature_id);
@@ -295,12 +477,155 @@ CREATE INDEX IF NOT EXISTS idx_mv_feature_geom_tile_active_geom_s70
 CREATE INDEX IF NOT EXISTS idx_mv_feature_geom_tile_active_geom_s35
     ON landwatch.mv_feature_geom_tile_active USING GIST (dataset_id, geom_3857_s35);
 
-CREATE MATERIALIZED VIEW IF NOT EXISTS landwatch.mv_feature_tooltip_active AS
-SELECT
-    l.dataset_id,
-    l.feature_id,
-    NULLIF(
-        COALESCE(
+CREATE TABLE IF NOT EXISTS landwatch.mv_feature_active_attrs_light (
+    dataset_id BIGINT NOT NULL,
+    dataset_code TEXT,
+    feature_id BIGINT NOT NULL,
+    feature_key TEXT,
+    geom_id BIGINT
+);
+
+CREATE OR REPLACE FUNCTION landwatch.refresh_feature_active_attrs_light_cache(
+    p_dataset_codes text[] DEFAULT NULL
+)
+RETURNS TABLE(deleted_count bigint, inserted_count bigint)
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    v_dataset_codes text[];
+    v_dataset_ids bigint[];
+    v_full_rebuild boolean;
+BEGIN
+    PERFORM pg_advisory_xact_lock(hashtext('landwatch.mv_feature_active_attrs_light'));
+
+    SELECT array_agg(code ORDER BY code)
+    INTO v_dataset_codes
+    FROM (
+        SELECT DISTINCT NULLIF(btrim(code), '') AS code
+        FROM unnest(p_dataset_codes) AS raw(code)
+    ) cleaned
+    WHERE code IS NOT NULL;
+
+    v_full_rebuild := COALESCE(array_length(v_dataset_codes, 1), 0) = 0;
+
+    IF NOT v_full_rebuild THEN
+        SELECT array_agg(d.dataset_id ORDER BY d.dataset_id)
+        INTO v_dataset_ids
+        FROM landwatch.lw_dataset d
+        WHERE d.code = ANY(v_dataset_codes);
+
+        IF COALESCE(array_length(v_dataset_ids, 1), 0) = 0 THEN
+            deleted_count := 0;
+            inserted_count := 0;
+            RETURN NEXT;
+            RETURN;
+        END IF;
+
+        DELETE FROM landwatch.mv_feature_active_attrs_light
+        WHERE dataset_id = ANY(v_dataset_ids);
+    ELSE
+        DELETE FROM landwatch.mv_feature_active_attrs_light;
+    END IF;
+    GET DIAGNOSTICS deleted_count = ROW_COUNT;
+
+    INSERT INTO landwatch.mv_feature_active_attrs_light (
+        dataset_id,
+        dataset_code,
+        feature_id,
+        feature_key,
+        geom_id
+    )
+    SELECT
+        f.dataset_id,
+        d.code AS dataset_code,
+        f.feature_id,
+        f.feature_key,
+        a.geom_id
+    FROM landwatch.lw_feature f
+    JOIN landwatch.lw_dataset d ON d.dataset_id = f.dataset_id
+    JOIN landwatch.mv_feature_geom_active a
+        ON a.dataset_id = f.dataset_id
+       AND a.feature_id = f.feature_id
+    WHERE v_full_rebuild OR f.dataset_id = ANY(v_dataset_ids);
+    GET DIAGNOSTICS inserted_count = ROW_COUNT;
+
+    ANALYZE landwatch.mv_feature_active_attrs_light;
+    RETURN NEXT;
+END;
+$$;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_mv_feature_active_attrs_light_pk
+    ON landwatch.mv_feature_active_attrs_light(dataset_id, feature_id);
+
+CREATE INDEX IF NOT EXISTS idx_mv_feature_active_attrs_light_dataset
+    ON landwatch.mv_feature_active_attrs_light(dataset_code);
+
+CREATE INDEX IF NOT EXISTS idx_mv_feature_active_attrs_light_geom_id
+    ON landwatch.mv_feature_active_attrs_light(geom_id);
+
+CREATE INDEX IF NOT EXISTS idx_mv_feature_active_attrs_light_feature_key
+    ON landwatch.mv_feature_active_attrs_light(feature_key);
+
+CREATE TABLE IF NOT EXISTS landwatch.mv_feature_tooltip_active (
+    dataset_id BIGINT NOT NULL,
+    feature_id BIGINT NOT NULL,
+    display_name TEXT,
+    natural_id TEXT
+);
+
+CREATE OR REPLACE FUNCTION landwatch.refresh_feature_tooltip_active_cache(
+    p_dataset_codes text[] DEFAULT NULL
+)
+RETURNS TABLE(deleted_count bigint, inserted_count bigint)
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    v_dataset_codes text[];
+    v_dataset_ids bigint[];
+    v_full_rebuild boolean;
+BEGIN
+    PERFORM pg_advisory_xact_lock(hashtext('landwatch.mv_feature_tooltip_active'));
+
+    SELECT array_agg(code ORDER BY code)
+    INTO v_dataset_codes
+    FROM (
+        SELECT DISTINCT NULLIF(btrim(code), '') AS code
+        FROM unnest(p_dataset_codes) AS raw(code)
+    ) cleaned
+    WHERE code IS NOT NULL;
+
+    v_full_rebuild := COALESCE(array_length(v_dataset_codes, 1), 0) = 0;
+
+    IF NOT v_full_rebuild THEN
+        SELECT array_agg(d.dataset_id ORDER BY d.dataset_id)
+        INTO v_dataset_ids
+        FROM landwatch.lw_dataset d
+        WHERE d.code = ANY(v_dataset_codes);
+
+        IF COALESCE(array_length(v_dataset_ids, 1), 0) = 0 THEN
+            deleted_count := 0;
+            inserted_count := 0;
+            RETURN NEXT;
+            RETURN;
+        END IF;
+
+        DELETE FROM landwatch.mv_feature_tooltip_active
+        WHERE dataset_id = ANY(v_dataset_ids);
+    ELSE
+        DELETE FROM landwatch.mv_feature_tooltip_active;
+    END IF;
+    GET DIAGNOSTICS deleted_count = ROW_COUNT;
+
+    INSERT INTO landwatch.mv_feature_tooltip_active (
+        dataset_id,
+        feature_id,
+        display_name,
+        natural_id
+    )
+    SELECT
+        l.dataset_id,
+        l.feature_id,
+        NULLIF(COALESCE(
             p.pack_json->>'nome_uc',
             p.pack_json->>'nome',
             p.pack_json->>'NOME',
@@ -314,11 +639,8 @@ SELECT
             p.pack_json->>'ETNIA_NOME',
             p.pack_json->>'undadm_nom',
             p.pack_json->>'UNDADM_NOM'
-        ),
-        ''
-    ) AS display_name,
-    NULLIF(
-        COALESCE(
+        ), '') AS display_name,
+        NULLIF(COALESCE(
             p.pack_json->>'cnuc_code',
             p.pack_json->>'cd_cnuc',
             p.pack_json->>'Cnuc',
@@ -328,16 +650,21 @@ SELECT
             p.pack_json->>'ID',
             p.pack_json->>'objectid',
             p.pack_json->>'OBJECTID'
-        ),
-        ''
-    ) AS natural_id
-FROM landwatch.mv_feature_active_attrs_light l
-LEFT JOIN landwatch.lw_feature_attr_pack_hist h_attr
-    ON h_attr.dataset_id = l.dataset_id
-   AND h_attr.feature_id = l.feature_id
-   AND h_attr.valid_to IS NULL
-LEFT JOIN landwatch.lw_attr_pack p
-    ON p.pack_id = h_attr.pack_id;
+        ), '') AS natural_id
+    FROM landwatch.mv_feature_active_attrs_light l
+    LEFT JOIN landwatch.lw_feature_attr_pack_hist h_attr
+        ON h_attr.dataset_id = l.dataset_id
+       AND h_attr.feature_id = l.feature_id
+       AND h_attr.valid_to IS NULL
+    LEFT JOIN landwatch.lw_attr_pack p
+        ON p.pack_id = h_attr.pack_id
+    WHERE v_full_rebuild OR l.dataset_id = ANY(v_dataset_ids);
+    GET DIAGNOSTICS inserted_count = ROW_COUNT;
+
+    ANALYZE landwatch.mv_feature_tooltip_active;
+    RETURN NEXT;
+END;
+$$;
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_mv_feature_tooltip_active_pk
     ON landwatch.mv_feature_tooltip_active(dataset_id, feature_id);
@@ -364,6 +691,84 @@ CREATE TABLE IF NOT EXISTS landwatch.lw_feature_attr_pack_hist (
 CREATE INDEX IF NOT EXISTS idx_lw_feature_attr_pack_hist_active
     ON landwatch.lw_feature_attr_pack_hist(dataset_id, feature_id)
     WHERE valid_to IS NULL;
+
+CREATE TABLE IF NOT EXISTS landwatch.mv_sicar_meta_active (
+    dataset_id BIGINT NOT NULL,
+    dataset_code TEXT,
+    feature_id BIGINT NOT NULL,
+    pack_json JSONB
+);
+
+CREATE OR REPLACE FUNCTION landwatch.refresh_sicar_meta_cache(
+    p_dataset_codes text[] DEFAULT NULL
+)
+RETURNS TABLE(deleted_count bigint, inserted_count bigint)
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    v_dataset_codes text[];
+    v_dataset_ids bigint[];
+    v_full_rebuild boolean;
+BEGIN
+    PERFORM pg_advisory_xact_lock(hashtext('landwatch.mv_sicar_meta_active'));
+
+    SELECT array_agg(code ORDER BY code)
+    INTO v_dataset_codes
+    FROM (
+        SELECT DISTINCT NULLIF(btrim(code), '') AS code
+        FROM unnest(p_dataset_codes) AS raw(code)
+    ) cleaned
+    WHERE code IS NOT NULL;
+
+    v_full_rebuild := COALESCE(array_length(v_dataset_codes, 1), 0) = 0;
+
+    IF NOT v_full_rebuild THEN
+        SELECT array_agg(d.dataset_id ORDER BY d.dataset_id)
+        INTO v_dataset_ids
+        FROM landwatch.lw_dataset d
+        WHERE d.code = ANY(v_dataset_codes);
+
+        IF COALESCE(array_length(v_dataset_ids, 1), 0) = 0 THEN
+            deleted_count := 0;
+            inserted_count := 0;
+            RETURN NEXT;
+            RETURN;
+        END IF;
+
+        DELETE FROM landwatch.mv_sicar_meta_active
+        WHERE dataset_id = ANY(v_dataset_ids);
+    ELSE
+        DELETE FROM landwatch.mv_sicar_meta_active;
+    END IF;
+    GET DIAGNOSTICS deleted_count = ROW_COUNT;
+
+    INSERT INTO landwatch.mv_sicar_meta_active (
+        dataset_id,
+        dataset_code,
+        feature_id,
+        pack_json
+    )
+    SELECT
+        d.dataset_id,
+        d.code AS dataset_code,
+        h.feature_id,
+        p.pack_json
+    FROM landwatch.lw_feature_attr_pack_hist h
+    JOIN landwatch.lw_attr_pack p ON p.pack_id = h.pack_id
+    JOIN landwatch.lw_dataset d ON d.dataset_id = h.dataset_id
+    JOIN landwatch.lw_category c ON c.category_id = d.category_id
+    WHERE h.valid_to IS NULL
+      AND (c.code = 'SICAR' OR d.code = 'SICAR')
+      AND (v_full_rebuild OR h.dataset_id = ANY(v_dataset_ids));
+    GET DIAGNOSTICS inserted_count = ROW_COUNT;
+
+    ANALYZE landwatch.mv_sicar_meta_active;
+    RETURN NEXT;
+END;
+$$;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_mv_sicar_meta_active_pk
+    ON landwatch.mv_sicar_meta_active(dataset_id, feature_id);
 
 -- =========================================================
 -- 5) Índice específico de CPF/CNPJ (consulta principal CSV)
