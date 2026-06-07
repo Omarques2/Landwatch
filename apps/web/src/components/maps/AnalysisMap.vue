@@ -49,7 +49,6 @@ type MapFeature = {
 
 const props = defineProps<{
   features: MapFeature[];
-  printMode?: boolean;
   showLegend?: boolean;
   autoFitMode?: "always" | "once" | "never";
   fitSessionKey?: string | number | null;
@@ -85,7 +84,6 @@ let sicarRenderer: L.SVG | null = null;
 let sicarOutlineRenderer: L.SVG | null = null;
 let featureRenderer: L.SVG | null = null;
 let selectedKey: string | null = null;
-let printModeState = false;
 let hasAutoFitApplied = false;
 let userInteractedWithMap = false;
 let suppressInteractionTracking = false;
@@ -443,21 +441,15 @@ function updateLayers() {
   const mapInstance = map;
   if (targetBounds && mapInstance && shouldAutoFitToBounds()) {
     withSuppressedInteractionTracking(() => {
-      if (printModeState) {
-        mapInstance.fitBounds(targetBounds, { padding: [2, 2] });
-      } else {
-        const padding = L.point(1, 1);
-        const zoom = mapInstance.getBoundsZoom(targetBounds, false, padding);
-        mapInstance.setView(targetBounds.getCenter(), zoom);
-      }
-      if (!printModeState) {
-        const legendRect = legendEl.value?.getBoundingClientRect();
-        const mapRect = mapEl.value?.getBoundingClientRect();
-        if (legendRect && mapRect) {
-          const shiftX = Math.min(legendRect.width / 2 + 10, mapRect.width * 0.2);
-          const shiftY = Math.min(legendRect.height / 2 + 10, mapRect.height * 0.2);
-          mapInstance.panBy([shiftX, -shiftY], { animate: false });
-        }
+      const padding = L.point(1, 1);
+      const zoom = mapInstance.getBoundsZoom(targetBounds, false, padding);
+      mapInstance.setView(targetBounds.getCenter(), zoom);
+      const legendRect = legendEl.value?.getBoundingClientRect();
+      const mapRect = mapEl.value?.getBoundingClientRect();
+      if (legendRect && mapRect) {
+        const shiftX = Math.min(legendRect.width / 2 + 10, mapRect.width * 0.2);
+        const shiftY = Math.min(legendRect.height / 2 + 10, mapRect.height * 0.2);
+        mapInstance.panBy([shiftX, -shiftY], { animate: false });
       }
     });
     hasAutoFitApplied = true;
@@ -476,7 +468,6 @@ function withSuppressedInteractionTracking(fn: () => void) {
 }
 
 function shouldAutoFitToBounds() {
-  if (printModeState) return true;
   const mode = props.autoFitMode ?? "always";
   if (mode === "never") return false;
   if (mode === "once") {
@@ -534,7 +525,6 @@ function applyStyles() {
 
 onMounted(async () => {
   if (!mapEl.value) return;
-  printModeState = props.printMode ?? false;
   map = L.map(mapEl.value, {
     zoomControl: true,
     zoomSnap: 0.25,
@@ -568,14 +558,6 @@ onMounted(async () => {
 });
 
 watch(
-  () => props.printMode,
-  (value) => {
-    printModeState = value ?? false;
-    updateLayers();
-  },
-);
-
-watch(
   () => props.features,
   () => updateLayers(),
 );
@@ -601,37 +583,13 @@ onBeforeUnmount(() => {
   sicarOutlineRenderer = null;
 });
 
-function prepareForPrint() {
-  if (!map) return;
-  printModeState = true;
-  map.invalidateSize();
-  const apply = () => {
-    map?.invalidateSize();
-    updateLayers();
-  };
-  window.setTimeout(apply, 150);
-  window.setTimeout(apply, 400);
-}
-
-function resetAfterPrint() {
-  if (!map) return;
-  printModeState = false;
-  map.invalidateSize();
-  const apply = () => {
-    map?.invalidateSize();
-    updateLayers();
-  };
-  window.setTimeout(apply, 150);
-  window.setTimeout(apply, 400);
-}
-
 function refresh() {
   if (!map) return;
   map.invalidateSize();
   updateLayers();
 }
 
-defineExpose({ prepareForPrint, resetAfterPrint, refresh });
+defineExpose({ refresh });
 </script>
 
 <style scoped>

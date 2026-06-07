@@ -170,4 +170,101 @@ describe("AnalysesView", () => {
     expect(badges.classes()).toContain("md:grid");
     expect(badges.classes()).toContain("md:grid-cols-[12rem_8.5rem_11rem]");
   });
+
+  it("downloads PDF from the backend from list rows", async () => {
+    const mockGet = http.get as unknown as ReturnType<typeof vi.fn>;
+    mockGet.mockImplementation((url: string, config?: Record<string, unknown>) => {
+      if (url === "/v1/farms") {
+        return Promise.resolve({
+          data: { data: [], meta: { page: 1, pageSize: 100, total: 0 } },
+        });
+      }
+      if (url === "/v1/analyses") {
+        return Promise.resolve({
+          data: {
+            data: [
+              {
+                id: "analysis-standard-1",
+                carKey: "MT-001",
+                analysisDate: "2026-02-12",
+                status: "completed",
+                farmName: "Fazenda A",
+                hasIntersections: false,
+                analysisKind: "STANDARD",
+              },
+            ],
+            meta: { page: 1, pageSize: 20, total: 1 },
+          },
+        });
+      }
+      if (url === "/v1/analyses/analysis-standard-1/pdf") {
+        expect(config).toMatchObject({ responseType: "blob" });
+        return Promise.resolve({
+          data: new Blob(["pdf"], { type: "application/pdf" }),
+          headers: {
+            "content-disposition":
+              'attachment; filename="Sigfarm-LandWatch-Fazenda-A.pdf"',
+          },
+        });
+      }
+      return Promise.reject(new Error(`unexpected request: ${url}`));
+    });
+    const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
+    const appendedDownloads: string[] = [];
+    if (!("createObjectURL" in URL)) {
+      Object.defineProperty(URL, "createObjectURL", {
+        configurable: true,
+        writable: true,
+        value: vi.fn(),
+      });
+    }
+    if (!("revokeObjectURL" in URL)) {
+      Object.defineProperty(URL, "revokeObjectURL", {
+        configurable: true,
+        writable: true,
+        value: vi.fn(),
+      });
+    }
+    const appendSpy = vi
+      .spyOn(document.body, "appendChild")
+      .mockImplementation((node: Node) => {
+        if (node instanceof HTMLAnchorElement) {
+          appendedDownloads.push(node.download);
+        }
+        return node;
+      });
+    const createObjectUrlSpy = vi
+      .spyOn(URL, "createObjectURL")
+      .mockImplementation(() => "blob:list-pdf");
+    const revokeObjectUrlSpy = vi
+      .spyOn(URL, "revokeObjectURL")
+      .mockImplementation(() => {});
+    const clickSpy = vi
+      .spyOn(HTMLAnchorElement.prototype, "click")
+      .mockImplementation(() => {});
+
+    const wrapper = mount(AnalysesView);
+    await flushPromises();
+
+    const pdfButton = wrapper
+      .findAll("button")
+      .find((item) => item.text() === "Baixar PDF");
+    await pdfButton!.trigger("click");
+    await flushPromises();
+
+    expect(mockGet).toHaveBeenCalledWith(
+      "/v1/analyses/analysis-standard-1/pdf",
+      { responseType: "blob" },
+    );
+    expect(openSpy).not.toHaveBeenCalled();
+    expect(appendedDownloads).toContain("Sigfarm-LandWatch-Fazenda-A.pdf");
+    expect(clickSpy).toHaveBeenCalled();
+    expect(revokeObjectUrlSpy).toHaveBeenCalledWith("blob:list-pdf");
+
+    appendSpy.mockRestore();
+    createObjectUrlSpy.mockRestore();
+    revokeObjectUrlSpy.mockRestore();
+    clickSpy.mockRestore();
+    openSpy.mockRestore();
+  });
 });

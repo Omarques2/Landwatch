@@ -23,6 +23,7 @@ import {
 import { PDF, PX } from './analysis-pdf-layout';
 import type {
   AnalysisPdfAutomationContext,
+  AnalysisPdfPublicContext,
   AnalysisPdfRequestContext,
   AnalysisPdfResult,
   AnalysisPdfUserContext,
@@ -150,6 +151,13 @@ export class AnalysisPdfService {
     return this.generate(id, { mode: 'automation', ...context });
   }
 
+  async generateForPublic(
+    id: string,
+    context: Omit<AnalysisPdfPublicContext, 'mode'>,
+  ) {
+    return this.generate(id, { mode: 'public', ...context });
+  }
+
   async generate(
     id: string,
     context: AnalysisPdfRequestContext,
@@ -260,11 +268,20 @@ export class AnalysisPdfService {
         orgHeader?: string | string[] | null,
       ) => Promise<unknown>;
       resolveActorFromApiKey?: (apiKey: unknown) => Promise<unknown>;
+      listPublicAnalysisAttachments?: (
+        analysisId: string,
+        ip: string | null,
+      ) => Promise<unknown[]>;
       listAnalysisAttachments: (
         actor: unknown,
         analysisId: string,
       ) => Promise<unknown[]>;
     };
+    if (context.mode === 'public') {
+      return attachmentsAny.listPublicAnalysisAttachments
+        ? await attachmentsAny.listPublicAnalysisAttachments(analysisId, null)
+        : [];
+    }
     const actor =
       context.mode === 'user'
         ? attachmentsAny.resolveActorFromRequest

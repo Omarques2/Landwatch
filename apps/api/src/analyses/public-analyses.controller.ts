@@ -11,20 +11,7 @@ import type { Response } from 'express';
 import type { AuthedRequest } from '../auth/authed-request.type';
 import { Public } from '../auth/public.decorator';
 import { AnalysesService } from './analyses.service';
-
-function resolveApiOrigin(req: AuthedRequest) {
-  const forwardedProto =
-    typeof req.headers['x-forwarded-proto'] === 'string'
-      ? req.headers['x-forwarded-proto'].split(',')[0]?.trim()
-      : null;
-  const fallbackProto = req.secure ? 'https' : 'http';
-  const protocol = forwardedProto || fallbackProto;
-  const host =
-    typeof req.headers['x-forwarded-host'] === 'string'
-      ? req.headers['x-forwarded-host'].split(',')[0]?.trim()
-      : req.headers.host;
-  return host ? `${protocol}://${host}` : null;
-}
+import { resolveApiOrigin, resolveWebOrigin } from './request-origin';
 
 @Controller('v1/public/analyses')
 @Public()
@@ -69,6 +56,29 @@ export class PublicAnalysesController {
     return new StreamableFile(buffer, {
       type: 'application/geo+json; charset=utf-8',
       disposition: `attachment; filename="${filename}"`,
+    });
+  }
+
+  @Get(':id/pdf')
+  async getPdf(
+    @Param('id') id: string,
+    @Req() req: AuthedRequest,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const pdf = await this.analyses.getPdfById(id, {
+      mode: 'public',
+      apiBaseUrl: resolveApiOrigin(req),
+      webBaseUrl: resolveWebOrigin(req),
+    });
+    res.setHeader('Content-Type', pdf.contentType);
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${pdf.filename}"`,
+    );
+    return new StreamableFile(pdf.buffer, {
+      type: pdf.contentType,
+      disposition: `attachment; filename="${pdf.filename}"`,
+      length: pdf.buffer.length,
     });
   }
 

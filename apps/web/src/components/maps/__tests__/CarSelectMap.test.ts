@@ -502,27 +502,6 @@ describe("CarSelectMap", () => {
     );
   });
 
-  it("does not auto-fit during print preparation when autoZoomOnExport is disabled", async () => {
-    const wrapper = mount(CarSelectMap, {
-      props: {
-        center: { lat: -10, lng: -50 },
-        selectedCarKey: "CAR-ALVO",
-        hideUnselectedCars: true,
-        autoZoomOnExport: false,
-        activeSearch: buildActiveSearch(),
-      },
-    });
-
-    await flushPromises();
-
-    const mapInstance = createdMaps[0]!;
-    const fitBoundsCallsBeforePrint = mapInstance.fitBounds.mock.calls.length;
-
-    await (wrapper.vm as unknown as { prepareForPrint: () => Promise<void> }).prepareForPrint();
-
-    expect(mapInstance.fitBounds.mock.calls.length).toBe(fitBoundsCallsBeforePrint);
-  });
-
   it("shows the disabled banner when MV is refreshing", () => {
     const wrapper = mount(CarSelectMap, {
       props: {

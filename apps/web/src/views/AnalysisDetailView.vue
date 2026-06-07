@@ -1,20 +1,5 @@
 <template>
-  <div class="analysis-print-root relative mx-auto flex max-w-6xl flex-col gap-6 px-6 py-6 overflow-hidden">
-    <Teleport to="body">
-      <div class="analysis-print-teleport analysis-print-teleport--standby">
-        <AnalysisPrintLayout
-          ref="printLayoutRef"
-          :analysis="analysis"
-          :vector-map="vectorMap"
-          :map-loading="mapLoading"
-          :is-loading="isLoading"
-          :analysis-public-url="analysisPublicUrl"
-          :logo-src="printLogo"
-          :has-attachments="hasAnalysisAttachments"
-          map-auth-mode="private"
-        />
-      </div>
-    </Teleport>
+  <div class="analysis-report-root relative mx-auto flex max-w-6xl flex-col gap-6 px-6 py-6 overflow-hidden">
     <div class="relative z-10">
     <header class="screen-only flex flex-wrap items-center justify-between gap-4">
       <div>
@@ -101,17 +86,13 @@
         >
           Baixar GeoJSON
         </UiButton>
-        <UiButton size="sm" :disabled="!canDownloadPdf" :class="!canDownloadPdf ? 'opacity-50' : ''" @click="printPdf">
-          Baixar PDF
-        </UiButton>
         <UiButton
-          variant="outline"
           size="sm"
-          :disabled="!canDownloadPdf || backendPdfDownloading"
-          :class="!canDownloadPdf || backendPdfDownloading ? 'opacity-50' : ''"
-          @click="downloadBackendPdf"
+          :disabled="!canDownloadPdf || pdfDownloading"
+          :class="!canDownloadPdf || pdfDownloading ? 'opacity-50' : ''"
+          @click="downloadPdf"
         >
-          {{ backendPdfDownloading ? "Gerando PDF API..." : "Baixar PDF API" }}
+          {{ pdfDownloading ? "Gerando PDF..." : "Baixar PDF" }}
         </UiButton>
         <UiButton
           v-if="hasAnalysisAttachments"
@@ -124,7 +105,7 @@
       </div>
     </header>
 
-    <section class="print-card print-page-1 rounded-2xl border border-border bg-card p-6 shadow-sm">
+    <section class="report-card rounded-2xl border border-border bg-card p-6 shadow-sm">
       <div class="text-lg font-semibold">{{ mapSectionTitle }}</div>
       <div
         v-if="displayStatus && displayStatus !== 'completed'"
@@ -172,11 +153,8 @@
       >
         A feição do imóvel no SICAR não está ativa (status: {{ formatStatus(analysis?.sicarStatus) }}).
       </div>
-      <div class="print-map-row mt-4">
-        <div
-          class="analysis-map-frame print-map-col relative h-[560px]"
-          :style="printMapStyle"
-        >
+      <div class="report-map-row mt-4">
+        <div class="analysis-map-frame report-map-col relative h-[560px]">
           <div
             v-if="mapLoading"
             class="grid h-full place-items-center rounded-xl border border-dashed border-border bg-muted/20"
@@ -189,7 +167,6 @@
           </div>
           <AnalysisVectorMap
             v-else-if="vectorMap?.vectorSource"
-            ref="analysisMapRef"
             :vector-source="vectorMap?.vectorSource ?? null"
             :legend-items="vectorMap?.legendItems ?? []"
             :active-legend-code="activeLegendCode"
@@ -219,28 +196,12 @@
             </div>
           </div>
         </div>
-        <div v-if="vectorMap?.vectorSource" class="print-only print-legend-col">
-          <div class="text-sm font-semibold">Legenda</div>
-          <div class="mt-2 grid gap-2 text-xs">
-            <div
-              v-for="item in printLegend"
-              :key="item.code"
-              class="flex items-center gap-2"
-            >
-              <span
-                class="print-legend-swatch h-3 w-3 rounded-sm border"
-                :style="{ backgroundColor: item.color, borderColor: item.color }"
-              ></span>
-              {{ item.label }}
-            </div>
-          </div>
-        </div>
       </div>
       <div v-if="vectorMap?.vectorSource" class="screen-only mt-4">
         <div class="text-sm font-semibold">Legenda</div>
         <div class="analysis-screen-legend mt-2 flex flex-wrap gap-2 text-xs">
           <button
-            v-for="item in printLegend"
+            v-for="item in legendEntries"
             :key="item.code"
             type="button"
             class="inline-flex max-w-full items-center gap-2 rounded-md border px-2 py-1 text-left transition-colors"
@@ -266,7 +227,7 @@
       </div>
     </section>
 
-    <section class="print-card print-page-2 rounded-2xl border border-border bg-card p-6 shadow-sm">
+    <section class="report-card rounded-2xl border border-border bg-card p-6 shadow-sm">
       <div class="flex flex-wrap items-start justify-between gap-3">
         <div class="text-lg font-semibold">{{ intersectionsSectionTitle }}</div>
         <AnalysisDatasetStatusLegend :groups="analysis?.datasetGroups ?? null" class="ml-auto" />
@@ -282,14 +243,14 @@
       <div v-else-if="(analysis?.datasetGroups?.length ?? 0) === 0" class="mt-3 text-sm text-muted-foreground">
         Sem interseções relevantes.
       </div>
-      <div v-else class="print-breakable mt-4 grid gap-6">
+      <div v-else class="mt-4 grid gap-6">
         <div v-for="group in analysis?.datasetGroups ?? []" :key="group.title">
           <div class="text-sm font-semibold text-muted-foreground">{{ group.title }}</div>
           <div class="intersections-grid mt-3 grid gap-1.5 sm:grid-cols-3 xl:grid-cols-4">
             <div
               v-for="item in group.items"
               :key="item.datasetCode"
-              class="print-intersection-item flex items-start gap-2 rounded-lg border border-border px-2.5 py-1.5 text-[11px]"
+              class="analysis-intersection-item flex items-start gap-2 rounded-lg border border-border px-2.5 py-1.5 text-[11px]"
             >
               <AnalysisDatasetStatusIcon
                 :kind="datasetStatusKind(item)"
@@ -382,7 +343,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { Button as UiButton, Dialog as UiDialog } from "@/components/ui";
 import { http } from "@/api/http";
@@ -403,9 +364,8 @@ import {
   type AnalysisVectorMap as AnalysisVectorMapPayload,
 } from "@/features/analyses/analysis-vector-map";
 import { toTitleCase } from "@/lib/formatters";
+import { filenameFromContentDisposition, saveBlobAsFile } from "@/lib/downloads";
 import AnalysisVectorMap from "@/components/maps/AnalysisVectorMap.vue";
-import AnalysisPrintLayout from "@/components/analyses/AnalysisPrintLayout.vue";
-import printLogo from "@/assets/logo.png";
 
 type AnalysisResult = {
   id: string;
@@ -514,17 +474,13 @@ const isLoading = ref(false);
 const loadError = ref<string | null>(null);
 let pollTimer: number | null = null;
 let pollBackoffMs = 1000;
-const printRequested = ref(route.query.print === "1");
-const analysisMapRef = ref<InstanceType<typeof AnalysisVectorMap> | null>(null);
-const printLayoutRef = ref<InstanceType<typeof AnalysisPrintLayout> | null>(null);
 const featureContextMenuEl = ref<HTMLDivElement | null>(null);
 const attachmentsOpen = ref(false);
 const attachmentsLoading = ref(false);
 const analysisAttachments = ref<AnalysisAttachment[]>([]);
 const attachmentsResolved = ref(false);
-const backendPdfDownloading = ref(false);
+const pdfDownloading = ref(false);
 const activeLegendCode = ref<string | null>(null);
-const originalTitle = ref<string | null>(null);
 const featureContextMenu = ref<{
   open: boolean;
   x: number;
@@ -652,11 +608,6 @@ const sicarBadgeText = computed(() => {
   return ["SICAR", carKey, status].filter(Boolean).join(" ");
 });
 
-const analysisPublicUrl = computed(() => {
-  if (typeof window === "undefined") return "";
-  return new URL(`/analyses/${String(route.params.id ?? "")}/public`, window.location.origin).toString();
-});
-
 const hasAnalysisAttachments = computed(() => analysisAttachments.value.length > 0);
 const canDownloadGeoJson = computed(() => analysis.value?.status === "completed");
 const canDownloadPdf = computed(() => {
@@ -665,58 +616,7 @@ const canDownloadPdf = computed(() => {
   return analysis.value?.status === "completed";
 });
 
-async function preparePrintLayoutSafely() {
-  const layout = printLayoutRef.value as
-    | { prepareForPrint?: (() => void | Promise<void>) | undefined; refresh?: (() => void) | undefined }
-    | null;
-  if (typeof layout?.refresh === "function") {
-    layout.refresh();
-  }
-  if (typeof layout?.prepareForPrint === "function") {
-    await layout.prepareForPrint();
-  }
-}
-
-const onBeforePrint = () => {
-  setBodyPrintMode(true);
-  setPrintTitle();
-  void preparePrintLayoutSafely();
-};
-const onAfterPrint = () => {
-  setBodyPrintMode(false);
-  const layout = printLayoutRef.value as
-    | { resetAfterPrint?: (() => void) | undefined }
-    | null;
-  if (typeof layout?.resetAfterPrint === "function") {
-    layout.resetAfterPrint();
-  }
-  window.requestAnimationFrame(() => {
-    window.requestAnimationFrame(() => {
-      const mapRef = analysisMapRef.value as
-        | { resetAfterPrint?: (() => void) | undefined }
-        | null;
-      if (typeof mapRef?.resetAfterPrint === "function") {
-        mapRef.resetAfterPrint();
-      }
-    });
-  });
-  restoreTitle();
-};
-
-const printLegend = computed(() => buildAnalysisLegendEntries(vectorMap.value));
-
-const mapHeightPx = computed(() => {
-  const legendCount = printLegend.value.length || 1;
-  const rows = Math.ceil(legendCount / 3);
-  const maxHeight = 560;
-  const minHeight = 360;
-  const height = maxHeight - rows * 16;
-  return Math.max(minHeight, Math.min(maxHeight, height));
-});
-
-const printMapStyle = computed(() => ({
-  "--print-map-height": `${mapHeightPx.value}px`,
-}) as Record<string, string>);
+const legendEntries = computed(() => buildAnalysisLegendEntries(vectorMap.value));
 const featureContextMenuStyle = computed(() => {
   const width = 196;
   const height = 56;
@@ -982,19 +882,6 @@ function buildExportFileBase() {
   return suffix ? `Sigfarm-LandWatch-${suffix}` : "Sigfarm-LandWatch";
 }
 
-function setPrintTitle() {
-  if (typeof document === "undefined") return;
-  if (!originalTitle.value) originalTitle.value = document.title;
-  document.title = buildExportFileBase();
-}
-
-function restoreTitle() {
-  if (typeof document === "undefined") return;
-  if (!originalTitle.value) return;
-  document.title = originalTitle.value;
-  originalTitle.value = null;
-}
-
 async function downloadGeoJson() {
   if (!analysis.value) {
     await loadAnalysis();
@@ -1011,25 +898,7 @@ async function downloadGeoJson() {
   const blob = new Blob([JSON.stringify(payload)], {
     type: "application/geo+json;charset=utf-8",
   });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = `${buildExportFileBase()}.geojson`;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(url);
-}
-
-function saveBlobAsFile(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = filename;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(url);
+  saveBlobAsFile(blob, `${buildExportFileBase()}.geojson`);
 }
 
 async function loadAnalysisAttachments(id = analysis.value?.id) {
@@ -1085,27 +954,11 @@ async function goToAttachmentsFromAnalysisModal() {
   });
 }
 
-async function printPdf() {
-  if (!canDownloadPdf.value) return;
-  setBodyPrintMode(true);
-  setPrintTitle();
-  await preparePrintLayoutSafely();
-  window.print();
-}
-
-function filenameFromContentDisposition(value: unknown) {
-  if (typeof value !== "string") return "";
-  const utf8Match = value.match(/filename\*=UTF-8''([^;]+)/i);
-  if (utf8Match?.[1]) return decodeURIComponent(utf8Match[1].replace(/"/g, ""));
-  const asciiMatch = value.match(/filename="?([^";]+)"?/i);
-  return asciiMatch?.[1]?.trim() ?? "";
-}
-
-async function downloadBackendPdf() {
-  if (!canDownloadPdf.value || backendPdfDownloading.value) return;
+async function downloadPdf() {
+  if (!canDownloadPdf.value || pdfDownloading.value) return;
   const id = analysis.value?.id;
   if (!id) return;
-  backendPdfDownloading.value = true;
+  pdfDownloading.value = true;
   try {
     const res = await http.get(`/v1/analyses/${id}/pdf`, {
       responseType: "blob",
@@ -1113,12 +966,12 @@ async function downloadBackendPdf() {
     const headers = (res as { headers?: Record<string, unknown> }).headers ?? {};
     const filename =
       filenameFromContentDisposition(headers["content-disposition"]) ||
-      `${buildExportFileBase()}-api.pdf`;
+      `${buildExportFileBase()}.pdf`;
     saveBlobAsFile(res.data as Blob, filename);
   } catch {
-    loadError.value = "PDF da API indisponível.";
+    loadError.value = "PDF indisponível.";
   } finally {
-    backendPdfDownloading.value = false;
+    pdfDownloading.value = false;
   }
 }
 
@@ -1270,46 +1123,19 @@ function startPolling() {
   schedulePolling(1000);
 }
 
-async function tryAutoPrint() {
-  if (!printRequested.value) return;
-  if (!analysis.value || analysis.value.status !== "completed") return;
-  if (mapLoading.value) return;
-  if (!attachmentsResolved.value) return;
-  if (!vectorMap.value?.vectorSource) return;
-  printRequested.value = false;
-  await printPdf();
-}
-
 onMounted(async () => {
   await loadAnalysis();
   startPolling();
-  tryAutoPrint();
-  window.addEventListener("beforeprint", onBeforePrint);
-  window.addEventListener("afterprint", onAfterPrint);
   window.addEventListener("mousedown", handleGlobalPointerDown);
   window.addEventListener("keydown", handleGlobalKeydown);
   document.addEventListener("visibilitychange", handleVisibilityChange);
 });
 
-watch(
-  () => [analysis.value?.status, mapLoading.value, vectorMap.value?.vectorSource ? 1 : 0],
-  () => tryAutoPrint(),
-);
-
 onBeforeUnmount(() => {
   clearPolling();
-  window.removeEventListener("beforeprint", onBeforePrint);
-  window.removeEventListener("afterprint", onAfterPrint);
   window.removeEventListener("mousedown", handleGlobalPointerDown);
   window.removeEventListener("keydown", handleGlobalKeydown);
   document.removeEventListener("visibilitychange", handleVisibilityChange);
-  setBodyPrintMode(false);
-  restoreTitle();
 });
-
-function setBodyPrintMode(active: boolean) {
-  if (typeof document === "undefined") return;
-  document.body.classList.toggle("print-preview", active);
-}
 
 </script>

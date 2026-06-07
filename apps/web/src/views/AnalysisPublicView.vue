@@ -1,26 +1,10 @@
 <template>
   <div class="analysis-public-root relative mx-auto flex max-w-6xl flex-col gap-6 px-6 py-6 overflow-hidden">
-    <Teleport to="body">
-      <div v-if="isPrintMode" class="analysis-print-teleport">
-        <AnalysisPrintLayout
-          ref="printLayoutRef"
-          :analysis="analysis"
-          :vector-map="vectorMap"
-          :map-loading="mapLoading"
-          :is-loading="isLoading"
-          :analysis-public-url="analysisPublicUrl"
-          :logo-src="printLogo"
-          :has-attachments="hasPublicAttachments"
-          map-auth-mode="public"
-        />
-      </div>
-    </Teleport>
-    <AnalysisWatermark v-if="!isPrintMode"/>
+    <AnalysisWatermark />
     <div class="relative z-10">
-      <template v-if="!isPrintMode">
     <header class="public-header">
       <div class="public-title-row">
-        <img :src="printLogo" alt="SigFarm" class="public-logo" />
+        <img :src="logoSrc" alt="SigFarm" class="public-logo" />
         <div class="public-title">Sigfarm LandWatch - {{ reportTitle }}</div>
       </div>
       <div v-if="isPreventiveDeter" class="public-preventive-note">
@@ -74,6 +58,13 @@
             @click="downloadPublicGeoJson"
           >
             Baixar GeoJSON
+          </button>
+          <button
+            :class="publicActionButtonClass"
+            :disabled="pdfDownloading"
+            @click="downloadPublicPdf"
+          >
+            {{ pdfDownloading ? "Gerando PDF..." : "Baixar PDF" }}
           </button>
           <button
             v-if="hasPublicAttachments"
@@ -130,7 +121,6 @@
           </div>
           <AnalysisVectorMap
             v-else-if="vectorMap?.vectorSource"
-            ref="analysisMapRef"
             :vector-source="vectorMap?.vectorSource ?? null"
             :legend-items="vectorMap?.legendItems ?? []"
             :active-legend-code="activeLegendCode"
@@ -147,7 +137,7 @@
           <div class="text-sm font-semibold">Legenda</div>
           <div class="analysis-screen-legend mt-2 flex flex-wrap gap-2 text-xs">
             <button
-              v-for="item in printLegend"
+              v-for="item in legendEntries"
               :key="item.code"
               type="button"
               class="inline-flex max-w-full items-center gap-2 rounded-md border px-2 py-1 text-left transition-colors"
@@ -197,7 +187,7 @@
             <div
               v-for="item in group.items"
               :key="item.datasetCode"
-              class="print-intersection-item flex items-start gap-3 rounded-lg border border-border px-3 py-2 text-sm"
+              class="analysis-intersection-item flex items-start gap-3 rounded-lg border border-border px-3 py-2 text-sm"
             >
               <AnalysisDatasetStatusIcon
                 :kind="datasetStatusKind(item)"
@@ -268,13 +258,12 @@
         </div>
       </div>
     </div>
-      </template>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { useRoute } from "vue-router";
 import { http } from "@/api/http";
 import { unwrapData, type ApiEnvelope } from "@/api/envelope";
@@ -291,10 +280,10 @@ import {
   type AnalysisVectorMap as AnalysisVectorMapPayload,
 } from "@/features/analyses/analysis-vector-map";
 import AnalysisVectorMap from "@/components/maps/AnalysisVectorMap.vue";
-import AnalysisPrintLayout from "@/components/analyses/AnalysisPrintLayout.vue";
 import AnalysisWatermark from "@/components/analyses/AnalysisWatermark.vue";
-import printLogo from "@/assets/logo.png";
+import logoSrc from "@/assets/logo.png";
 import { toTitleCase } from "@/lib/formatters";
+import { filenameFromContentDisposition, saveBlobAsFile } from "@/lib/downloads";
 
 type AnalysisResult = {
   id: string;
@@ -360,15 +349,12 @@ const analysis = ref<AnalysisDetail | null>(null);
 const vectorMap = ref<AnalysisVectorMapPayload | null>(null);
 const mapLoading = ref(false);
 const isLoading = ref(false);
-const analysisMapRef = ref<InstanceType<typeof AnalysisVectorMap> | null>(null);
-const printLayoutRef = ref<InstanceType<typeof AnalysisPrintLayout> | null>(null);
-const isPrintMode = ref(false);
-const originalTitle = ref<string | null>(null);
 const attachmentsOpen = ref(false);
 const attachmentsLoading = ref(false);
 const publicAttachments = ref<PublicAttachment[]>([]);
 const publicAttachmentsResolved = ref(false);
 const activeLegendCode = ref<string | null>(null);
+const pdfDownloading = ref(false);
 const analysisId = computed(() => String(route.params.id ?? "").trim());
 const hasPublicAttachments = computed(() => publicAttachments.value.length > 0);
 
@@ -387,11 +373,6 @@ const mapSectionTitle = computed(() =>
 const intersectionsSectionTitle = computed(() =>
   isPreventiveDeter.value ? "Alertas DETER (preventivo)" : "Interseções",
 );
-
-const analysisPublicUrl = computed(() => {
-  if (typeof window === "undefined") return "";
-  return new URL(`/analyses/${analysisId.value}/public`, window.location.origin).toString();
-});
 
 const sicarStatusOk = computed(() => {
   const status = analysis.value?.sicarStatus;
@@ -444,7 +425,7 @@ const docBadgeOk = (info: DocInfo) => {
   return true;
 };
 
-const printLegend = computed(() => buildAnalysisLegendEntries(vectorMap.value));
+const legendEntries = computed(() => buildAnalysisLegendEntries(vectorMap.value));
 
 const publicActionButtonClass =
   "rounded-md border border-border bg-white px-3 py-1 text-xs font-semibold transition-colors duration-150 hover:bg-muted hover:text-foreground active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-white";
@@ -549,17 +530,6 @@ function toggleLegendFilter(code: string) {
   activeLegendCode.value = activeLegendCode.value === code ? null : code;
 }
 
-function saveBlobAsFile(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = filename;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(url);
-}
-
 async function downloadPublicGeoJson() {
   const res = await http.get<ApiEnvelope<Record<string, unknown>>>(
     `/v1/public/analyses/${route.params.id}/geojson`,
@@ -572,6 +542,24 @@ async function downloadPublicGeoJson() {
     type: "application/geo+json;charset=utf-8",
   });
   saveBlobAsFile(blob, `analysis-${route.params.id}-public.geojson`);
+}
+
+async function downloadPublicPdf() {
+  if (pdfDownloading.value) return;
+  pdfDownloading.value = true;
+  try {
+    const res = await http.get(`/v1/public/analyses/${route.params.id}/pdf`, {
+      headers: { "X-Skip-Auth": "1", "X-Skip-Org": "1" },
+      responseType: "blob",
+    });
+    const headers = (res as { headers?: Record<string, unknown> }).headers ?? {};
+    const filename =
+      filenameFromContentDisposition(headers["content-disposition"]) ||
+      `Sigfarm-LandWatch-${route.params.id}.pdf`;
+    saveBlobAsFile(res.data as Blob, filename);
+  } finally {
+    pdfDownloading.value = false;
+  }
 }
 
 async function loadPublicAttachments() {
@@ -633,28 +621,6 @@ function fixMojibake(value: string) {
   }
 }
 
-const onBeforePrint = () => {
-  if (isPrintMode.value) {
-    void printLayoutRef.value?.prepareForPrint();
-    return;
-  }
-  isPrintMode.value = true;
-  setBodyPrintMode(true);
-  setPrintTitle();
-  void nextTick().then(() => printLayoutRef.value?.prepareForPrint());
-};
-
-const onAfterPrint = () => {
-  if (isPrintMode.value) {
-    printLayoutRef.value?.resetAfterPrint();
-    isPrintMode.value = false;
-    setBodyPrintMode(false);
-  } else {
-    analysisMapRef.value?.resetAfterPrint();
-  }
-  restoreTitle();
-};
-
 async function loadAnalysis() {
   const id = analysisId.value;
   isLoading.value = true;
@@ -683,41 +649,7 @@ async function loadAnalysis() {
 
 onMounted(async () => {
   await loadAnalysis();
-  window.addEventListener("beforeprint", onBeforePrint);
-  window.addEventListener("afterprint", onAfterPrint);
 });
-
-onBeforeUnmount(() => {
-  window.removeEventListener("beforeprint", onBeforePrint);
-  window.removeEventListener("afterprint", onAfterPrint);
-  restoreTitle();
-  setBodyPrintMode(false);
-});
-
-function setBodyPrintMode(active: boolean) {
-  if (typeof document === "undefined") return;
-  document.body.classList.toggle("print-preview", active);
-}
-
-function setPrintTitle() {
-  if (typeof document === "undefined") return;
-  if (!originalTitle.value) originalTitle.value = document.title;
-  const farm = (analysis.value?.farmName || "Analise")
-    .replace(/[^\w\s-]/g, "")
-    .trim()
-    .replace(/\s+/g, "-");
-  const date = analysis.value?.analysisDate?.slice(0, 10) ?? "";
-  const id = analysis.value?.id ?? "";
-  const suffix = [farm, date, id].filter(Boolean).join("-");
-  document.title = suffix ? `Sigfarm-LandWatch-${suffix}` : "Sigfarm-LandWatch";
-}
-
-function restoreTitle() {
-  if (typeof document === "undefined") return;
-  if (!originalTitle.value) return;
-  document.title = originalTitle.value;
-  originalTitle.value = null;
-}
 </script>
 
 <style scoped>

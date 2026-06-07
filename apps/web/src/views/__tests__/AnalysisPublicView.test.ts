@@ -17,13 +17,6 @@ vi.mock("@/components/maps/AnalysisVectorMap.vue", () => ({
   }),
 }));
 
-vi.mock("@/components/analyses/AnalysisPrintLayout.vue", () => ({
-  default: defineComponent({
-    name: "AnalysisPrintLayout",
-    template: "<div data-test='analysis-print-layout'></div>",
-  }),
-}));
-
 vi.mock("@/components/analyses/AnalysisWatermark.vue", () => ({
   default: defineComponent({
     name: "AnalysisWatermark",
@@ -115,7 +108,6 @@ describe("AnalysisPublicView", () => {
       global: {
         stubs: {
           AnalysisVectorMap: { template: "<div data-test='analysis-map'></div>" },
-          AnalysisPrintLayout: { template: "<div />" },
           AnalysisWatermark: { template: "<div />" },
         },
       },
@@ -187,7 +179,6 @@ describe("AnalysisPublicView", () => {
       global: {
         stubs: {
           AnalysisVectorMap: { template: "<div data-test='analysis-map'></div>" },
-          AnalysisPrintLayout: { template: "<div />" },
           AnalysisWatermark: { template: "<div />" },
         },
       },
@@ -233,7 +224,6 @@ describe("AnalysisPublicView", () => {
       global: {
         stubs: {
           AnalysisVectorMap: { template: "<div data-test='analysis-map'></div>" },
-          AnalysisPrintLayout: { template: "<div />" },
           AnalysisWatermark: { template: "<div />" },
         },
       },
@@ -308,6 +298,15 @@ describe("AnalysisPublicView", () => {
       if (url === "/v1/public/analyses/analysis-public-1/attachments/zip") {
         return Promise.resolve({ data: new Blob(["zip"], { type: "application/zip" }) });
       }
+      if (url === "/v1/public/analyses/analysis-public-1/pdf") {
+        return Promise.resolve({
+          data: new Blob(["pdf"], { type: "application/pdf" }),
+          headers: {
+            "content-disposition":
+              'attachment; filename="Sigfarm-LandWatch-Publica.pdf"',
+          },
+        });
+      }
       return Promise.reject(new Error(`unexpected request: ${url}`));
     });
 
@@ -343,7 +342,6 @@ describe("AnalysisPublicView", () => {
       global: {
         stubs: {
           AnalysisVectorMap: { template: "<div data-test='analysis-map'></div>" },
-          AnalysisPrintLayout: { template: "<div />" },
           AnalysisWatermark: { template: "<div />" },
         },
       },
@@ -378,6 +376,22 @@ describe("AnalysisPublicView", () => {
         headers: { "X-Skip-Auth": "1", "X-Skip-Org": "1" },
       }),
     );
+
+    const pdfButton = wrapper
+      .findAll("button")
+      .find((item) => item.text().includes("Baixar PDF"));
+    expect(pdfButton).toBeTruthy();
+    await pdfButton!.trigger("click");
+    await flushPromises();
+
+    expect(getMock).toHaveBeenCalledWith(
+      "/v1/public/analyses/analysis-public-1/pdf",
+      expect.objectContaining({
+        headers: { "X-Skip-Auth": "1", "X-Skip-Org": "1" },
+        responseType: "blob",
+      }),
+    );
+    expect(exportedBlob).not.toBeNull();
     expect(wrapper.text()).toContain("arquivo-publico.pdf");
 
     const attachmentDownloadButton = wrapper
@@ -470,7 +484,6 @@ describe("AnalysisPublicView", () => {
       global: {
         stubs: {
           AnalysisVectorMap: analysisMapStub,
-          AnalysisPrintLayout: { template: "<div />" },
           AnalysisWatermark: { template: "<div />" },
         },
       },
@@ -558,7 +571,6 @@ describe("AnalysisPublicView", () => {
       global: {
         stubs: {
           AnalysisVectorMap: { template: "<div data-test='analysis-map'></div>" },
-          AnalysisPrintLayout: { template: "<div />" },
           AnalysisWatermark: { template: "<div />" },
         },
       },
@@ -579,4 +591,3 @@ describe("AnalysisPublicView", () => {
     expect(wrapper.text()).toContain("arquivo-publico.pdf");
   });
 });
-

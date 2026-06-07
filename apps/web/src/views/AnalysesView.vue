@@ -158,7 +158,7 @@
             <UiButton size="sm" variant="outline" @click="openDetail(analysis.id)">
               Ver detalhes
             </UiButton>
-            <UiButton size="sm" @click="printFromList(analysis.id)">Baixar PDF</UiButton>
+            <UiButton size="sm" @click="downloadPdfFromList(analysis)">Baixar PDF</UiButton>
           </div>
         </div>
       </div>
@@ -253,6 +253,7 @@ import {
 } from "@/components/ui";
 import { http } from "@/api/http";
 import { unwrapPaged, type ApiEnvelope } from "@/api/envelope";
+import { filenameFromContentDisposition, saveBlobAsFile } from "@/lib/downloads";
 
 type AnalysisRow = {
   id: string;
@@ -405,8 +406,25 @@ async function openDetail(id: string) {
   await router.push(`/analyses/${id}`);
 }
 
-async function printFromList(id: string) {
-  window.open(`/analyses/${id}/print`, "_blank", "noopener,noreferrer");
+function buildPdfFallbackName(analysis: AnalysisRow) {
+  const farm = (analysis.farmName || "Analise")
+    .replace(/[^\w\s-]/g, "")
+    .trim()
+    .replace(/\s+/g, "-");
+  const date = analysis.analysisDate?.slice(0, 10) ?? "";
+  const suffix = [farm, date, analysis.id].filter(Boolean).join("-");
+  return `${suffix ? `Sigfarm-LandWatch-${suffix}` : "Sigfarm-LandWatch"}.pdf`;
+}
+
+async function downloadPdfFromList(analysis: AnalysisRow) {
+  const res = await http.get(`/v1/analyses/${analysis.id}/pdf`, {
+    responseType: "blob",
+  });
+  const headers = (res as { headers?: Record<string, unknown> }).headers ?? {};
+  const filename =
+    filenameFromContentDisposition(headers["content-disposition"]) ||
+    buildPdfFallbackName(analysis);
+  saveBlobAsFile(res.data as Blob, filename);
 }
 
 function startPolling() {

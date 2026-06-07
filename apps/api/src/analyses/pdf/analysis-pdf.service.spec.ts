@@ -226,6 +226,47 @@ describe('AnalysisPdfService', () => {
     );
   });
 
+  it('uses public attachments when generating a public PDF', async () => {
+    const analyses = {
+      getById: jest.fn().mockResolvedValue(completedDetail),
+      getGeoJsonById: jest.fn().mockResolvedValue(geojson),
+    };
+    const cache = {
+      get: jest.fn().mockResolvedValue(null),
+    };
+    const attachments = {
+      listPublicAnalysisAttachments: jest
+        .fn()
+        .mockResolvedValue([{ id: 'public-attachment-1' }]),
+      listAnalysisAttachments: jest.fn(),
+    };
+    const map = {
+      renderMap: jest.fn().mockResolvedValue({
+        buffer: mapJpeg,
+        debugSvg: '<svg />',
+      }),
+    };
+    const service = new AnalysisPdfService(
+      analyses as any,
+      cache as any,
+      attachments as any,
+      map as any,
+    );
+
+    const result = await service.generate('analysis-1', {
+      mode: 'public',
+      apiBaseUrl: 'https://api.landwatch.example.test',
+      webBaseUrl: 'https://landwatch.example.test',
+    } as any);
+
+    expect(result.hasAttachments).toBe(true);
+    expect(attachments.listPublicAnalysisAttachments).toHaveBeenCalledWith(
+      'analysis-1',
+      null,
+    );
+    expect(attachments.listAnalysisAttachments).not.toHaveBeenCalled();
+  });
+
   it('uses request web base URL for public QR/footer links instead of production fallback', async () => {
     process.env.LANDWATCH_WEB_BASE_URL =
       'https://landwatch.sigfarmintelligence.com';

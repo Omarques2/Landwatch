@@ -18,14 +18,14 @@
       </div>
 
       <div
-        v-if="hasRenderableSearch && !printMode"
+        v-if="hasRenderableSearch"
         class="absolute right-3 top-3 z-30 rounded-full border border-border bg-background/92 px-3 py-1 text-xs font-semibold shadow-sm"
       >
         {{ featureCountLabel }}
       </div>
 
       <div
-        v-if="showLoading && !printMode"
+        v-if="showLoading"
         class="absolute bottom-3 left-3 z-30 flex h-9 w-9 items-center justify-center rounded-full border border-border bg-background/92 shadow-sm"
         aria-label="Carregando mapa"
       >
@@ -33,7 +33,7 @@
       </div>
 
       <div
-        v-if="hasRenderableSearch && selectedCarKey && !printMode"
+        v-if="hasRenderableSearch && selectedCarKey"
         class="absolute left-3 top-3 z-30 max-w-[min(320px,calc(100%-96px))] rounded-xl border border-border bg-background/92 px-3 py-2 text-xs shadow-sm"
       >
         <div class="font-semibold">CAR selecionado</div>
@@ -41,7 +41,7 @@
       </div>
 
       <div
-        v-if="hasRenderableSearch && contextMenu.open && !printMode"
+        v-if="hasRenderableSearch && contextMenu.open"
         class="absolute z-40 min-w-[180px] rounded-lg border border-border bg-card p-2 text-xs shadow-lg"
         :style="{ left: `${contextMenu.x}px`, top: `${contextMenu.y}px` }"
       >
@@ -55,7 +55,7 @@
       </div>
 
       <div
-        v-if="hasRenderableSearch && overlapSelector.open && !printMode"
+        v-if="hasRenderableSearch && overlapSelector.open"
         ref="overlapSelectorEl"
         data-testid="overlap-car-selector"
         class="absolute z-40 min-w-[240px] max-w-[320px] rounded-xl border border-border bg-card p-2 shadow-lg"
@@ -166,7 +166,6 @@ const props = withDefaults(defineProps<{
   hideUnselectedCars?: boolean;
   loading?: boolean;
   autoZoomOnExport?: boolean;
-  printMode?: boolean;
   showSatellite?: boolean;
 }>(), {
   activeSearch: null,
@@ -175,7 +174,6 @@ const props = withDefaults(defineProps<{
   hideUnselectedCars: false,
   loading: false,
   autoZoomOnExport: true,
-  printMode: false,
   showSatellite: true,
 });
 
@@ -236,15 +234,6 @@ let hoverFeatureKey: string | null = null;
 let searchMarker: maplibregl.Marker | null = null;
 const internalLoading = ref(false);
 let activeRenderRequest = 0;
-let printResizeObserver: ResizeObserver | null = null;
-let prePrintCamera:
-  | {
-      center: maplibregl.LngLat;
-      zoom: number;
-      bearing: number;
-      pitch: number;
-    }
-  | null = null;
 
 const showLoading = computed(() => props.loading || internalLoading.value);
 
@@ -518,9 +507,7 @@ async function initMap() {
     },
   });
 
-  if (!props.printMode) {
-    map.addControl(new maplibregl.NavigationControl({ visualizePitch: false }), "top-left");
-  }
+  map.addControl(new maplibregl.NavigationControl({ visualizePitch: false }), "top-left");
 
   bindMapEvents();
   map.on("load", async () => {
@@ -634,9 +621,9 @@ function fitToBounds(
       [bounds[2], bounds[3]],
     ] as LngLatBoundsLike,
     {
-      padding: options?.padding ?? (props.printMode ? 24 : 40),
+      padding: options?.padding ?? 40,
       duration: 0,
-      maxZoom: options?.maxZoom ?? (props.printMode ? 15.5 : 16.5),
+      maxZoom: options?.maxZoom ?? 16.5,
     },
   );
   if (!options?.force) return;
@@ -647,8 +634,8 @@ function fitToVisibleBounds(force = false) {
   const selectedBounds = shouldHideUnselectedCars() ? selectedFeatureBounds() : null;
   fitToBounds(selectedBounds ?? searchBounds(), {
     force,
-    padding: props.printMode ? 24 : 40,
-    maxZoom: props.printMode ? 15.5 : 16.5,
+    padding: 40,
+    maxZoom: 16.5,
   });
 }
 
@@ -945,7 +932,6 @@ function bindMapEvents() {
 
   map.on("click", (event) => {
     contextMenu.value.open = false;
-    if (props.printMode) return;
     const features = map?.queryRenderedFeatures(event.point, { layers: interactiveLayerIds() }) ?? [];
     const candidates = normalizeOverlapCandidates(features as maplibregl.MapGeoJSONFeature[]);
     if (!candidates.length) {
@@ -980,7 +966,7 @@ function bindMapEvents() {
 
   map.on("contextmenu", (event) => {
     event.originalEvent.preventDefault();
-    if (props.disabled || props.printMode) return;
+    if (props.disabled) return;
     const rect = mapEl.value?.getBoundingClientRect();
     contextMenu.value = {
       open: true,
@@ -1010,54 +996,20 @@ function handleWindowPointerDown(event: PointerEvent) {
   closeOverlapSelector();
 }
 
-function shouldShiftPrintMap(targetMap: maplibregl.Map) {
+function shouldShiftExportMap(targetMap: maplibregl.Map) {
   if (typeof window === "undefined") return false;
   const canvas = targetMap.getCanvas();
   return window.innerWidth >= 1400 && canvas.clientWidth >= 900;
 }
 
-function applyPrintCenterShift(targetMap: maplibregl.Map) {
-  if (!shouldShiftPrintMap(targetMap)) return;
+function applyExportCenterShift(targetMap: maplibregl.Map) {
+  if (!shouldShiftExportMap(targetMap)) return;
   const currentCenter = targetMap.project(targetMap.getCenter());
   const shiftedCenter = targetMap.unproject([
     currentCenter.x + targetMap.getCanvas().clientWidth * 0.10,
     currentCenter.y,
   ]);
   targetMap.jumpTo({ center: shiftedCenter });
-}
-
-async function waitForPrintFrame() {
-  await nextTick();
-  await new Promise<void>((resolve) => {
-    window.requestAnimationFrame(() => {
-      window.requestAnimationFrame(() => resolve());
-    });
-  });
-}
-
-async function prepareForPrint() {
-  await initMap();
-  await syncMapSources({ fitToBounds: props.autoZoomOnExport });
-  await waitForPrintFrame();
-  refresh();
-  if (map && !prePrintCamera) {
-    prePrintCamera = {
-      center: map.getCenter(),
-      zoom: map.getZoom(),
-      bearing: map.getBearing(),
-      pitch: map.getPitch(),
-    };
-    applyPrintCenterShift(map);
-  }
-  if (map) await waitForMapIdle(map, 2500);
-}
-
-function resetAfterPrint() {
-  if (map && prePrintCamera) {
-    map.jumpTo(prePrintCamera);
-    prePrintCamera = null;
-  }
-  refresh();
 }
 
 function quantizeCanvasForPng(sourceCanvas: HTMLCanvasElement) {
@@ -1280,7 +1232,7 @@ async function buildExportMapBlob(
         pitch: map.getPitch(),
       });
     }
-    applyPrintCenterShift(exportMap);
+    applyExportCenterShift(exportMap);
 
     await waitForMapIdle(exportMap);
     const canvas = exportMap.getCanvas();
@@ -1323,11 +1275,6 @@ async function captureCurrentPng(options?: { scale?: number }) {
   return blobFromCanvas(targetCanvas);
 }
 
-async function createPrintSnapshot() {
-  const blob = await captureCurrentPng({ scale: 4 });
-  return URL.createObjectURL(blob);
-}
-
 async function exportPng(filename: string) {
   if (!map) {
     throw new Error("Mapa ainda não foi carregado.");
@@ -1352,10 +1299,7 @@ async function exportPng(filename: string) {
 
 defineExpose({
   refresh,
-  prepareForPrint,
-  resetAfterPrint,
   captureCurrentPng,
-  createPrintSnapshot,
   exportPng,
   legacyOffscreenExportMapBlob: buildExportMapBlob,
 });
@@ -1363,15 +1307,6 @@ defineExpose({
 onMounted(async () => {
   if (!hasRenderableSearch.value) return;
   await initMap();
-});
-
-onMounted(() => {
-  if (!mapEl.value || typeof ResizeObserver === "undefined") return;
-  printResizeObserver = new ResizeObserver(() => {
-    if (!props.printMode) return;
-    refresh();
-  });
-  printResizeObserver.observe(mapEl.value);
 });
 
 onMounted(() => {
@@ -1446,19 +1381,8 @@ watch(
   },
 );
 
-watch(
-  () => props.printMode,
-  (isPrintMode) => {
-    if (isPrintMode) {
-      closeOverlapSelector();
-    }
-  },
-);
-
 onBeforeUnmount(() => {
   window.removeEventListener("pointerdown", handleWindowPointerDown, true);
-  printResizeObserver?.disconnect();
-  printResizeObserver = null;
   closeOverlapSelector();
   removeHoverPopup();
   searchMarker?.remove();

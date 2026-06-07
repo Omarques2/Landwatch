@@ -19,13 +19,6 @@ vi.mock("@/components/maps/AnalysisVectorMap.vue", () => ({
   }),
 }));
 
-vi.mock("@/components/analyses/AnalysisPrintLayout.vue", () => ({
-  default: defineComponent({
-    name: "AnalysisPrintLayout",
-    template: "<div data-test='analysis-print-layout'></div>",
-  }),
-}));
-
 vi.mock("@/api/http", () => ({
   http: {
     get: vi.fn(),
@@ -440,9 +433,9 @@ describe("AnalysisDetailView", () => {
     clickSpy.mockRestore();
   });
 
-  it("calls window.print and sets the PDF title when clicking Baixar PDF on a completed analysis", async () => {
+  it("downloads PDF from the backend when clicking Baixar PDF on a completed analysis", async () => {
     const getMock = http.get as unknown as ReturnType<typeof vi.fn>;
-    getMock.mockImplementation((url: string) => {
+    getMock.mockImplementation((url: string, config?: Record<string, unknown>) => {
       if (url === "/v1/analyses/analysis-deter-1/status") {
         return Promise.resolve({
           data: {
@@ -475,30 +468,78 @@ describe("AnalysisDetailView", () => {
           },
         });
       }
+      if (url === "/v1/analyses/analysis-deter-1/pdf") {
+        expect(config).toMatchObject({ responseType: "blob" });
+        return Promise.resolve({
+          data: new Blob(["pdf"], { type: "application/pdf" }),
+          headers: {
+            "content-disposition":
+              'attachment; filename="Sigfarm-LandWatch-Fazenda.pdf"',
+          },
+        });
+      }
       return Promise.reject(new Error("unexpected request"));
     });
 
-    const printSpy = vi.spyOn(window, "print").mockImplementation(() => {});
+    const appendedDownloads: string[] = [];
+    if (!("createObjectURL" in URL)) {
+      Object.defineProperty(URL, "createObjectURL", {
+        configurable: true,
+        writable: true,
+        value: vi.fn(),
+      });
+    }
+    if (!("revokeObjectURL" in URL)) {
+      Object.defineProperty(URL, "revokeObjectURL", {
+        configurable: true,
+        writable: true,
+        value: vi.fn(),
+      });
+    }
+    const appendSpy = vi
+      .spyOn(document.body, "appendChild")
+      .mockImplementation((node: Node) => {
+        if (node instanceof HTMLAnchorElement) {
+          appendedDownloads.push(node.download);
+        }
+        return node;
+      });
+    const createObjectUrlSpy = vi
+      .spyOn(URL, "createObjectURL")
+      .mockImplementation(() => "blob:pdf");
+    const revokeObjectUrlSpy = vi
+      .spyOn(URL, "revokeObjectURL")
+      .mockImplementation(() => {});
+    const clickSpy = vi
+      .spyOn(HTMLAnchorElement.prototype, "click")
+      .mockImplementation(() => {});
 
     const wrapper = mount(AnalysisDetailView);
     await flushPromises();
 
-    const pdfButton = wrapper
-      .findAll("button")
-      .find((item) => item.text().includes("Baixar PDF"));
+    const buttons = wrapper.findAll("button").map((item) => item.text());
+    expect(buttons).toContain("Baixar PDF");
+    expect(buttons.some((text) => text.includes("API"))).toBe(false);
+    const pdfButton = wrapper.findAll("button").find((item) => item.text() === "Baixar PDF");
     expect(pdfButton).toBeTruthy();
 
     await pdfButton!.trigger("click");
     await flushPromises();
 
-    expect(printSpy).toHaveBeenCalledTimes(1);
-    expect(document.title).toBe("Sigfarm-LandWatch-Fazenda-DETER-2026-02-12-analysis-deter-1");
+    expect(getMock).toHaveBeenCalledWith("/v1/analyses/analysis-deter-1/pdf", {
+      responseType: "blob",
+    });
+    expect(appendedDownloads).toContain("Sigfarm-LandWatch-Fazenda.pdf");
+    expect(clickSpy).toHaveBeenCalled();
+    expect(revokeObjectUrlSpy).toHaveBeenCalledWith("blob:pdf");
 
-    window.dispatchEvent(new Event("afterprint"));
-    expect(document.title).toBe("LandWatch");
+    appendSpy.mockRestore();
+    createObjectUrlSpy.mockRestore();
+    revokeObjectUrlSpy.mockRestore();
+    clickSpy.mockRestore();
   });
 
-  it("downloads backend PDF without replacing the client print button", async () => {
+  it("uses PDF filename fallback without api suffix when content-disposition is missing", async () => {
     const getMock = http.get as unknown as ReturnType<typeof vi.fn>;
     getMock.mockImplementation((url: string, config?: Record<string, unknown>) => {
       if (url === "/v1/analyses/analysis-deter-1/status") {
@@ -529,10 +570,7 @@ describe("AnalysisDetailView", () => {
         expect(config).toMatchObject({ responseType: "blob" });
         return Promise.resolve({
           data: new Blob(["pdf"], { type: "application/pdf" }),
-          headers: {
-            "content-disposition":
-              'attachment; filename="Sigfarm-LandWatch-api.pdf"',
-          },
+          headers: {},
         });
       }
       return Promise.reject(new Error(`unexpected request: ${url}`));
@@ -578,21 +616,19 @@ describe("AnalysisDetailView", () => {
     const wrapper = mount(AnalysisDetailView);
     await flushPromises();
 
-    const buttons = wrapper.findAll("button").map((item) => item.text());
-    expect(buttons).toContain("Baixar PDF");
-    expect(buttons).toContain("Baixar PDF API");
-
-    const backendButton = wrapper
+    const pdfButton = wrapper
       .findAll("button")
-      .find((item) => item.text().includes("Baixar PDF API"));
-    await backendButton!.trigger("click");
+      .find((item) => item.text() === "Baixar PDF");
+    await pdfButton!.trigger("click");
     await flushPromises();
 
     expect(getMock).toHaveBeenCalledWith("/v1/analyses/analysis-deter-1/pdf", {
       responseType: "blob",
     });
     expect(exportedBlob).not.toBeNull();
-    expect(appendedDownloads).toContain("Sigfarm-LandWatch-api.pdf");
+    expect(appendedDownloads).toContain(
+      "Sigfarm-LandWatch-Fazenda-DETER-2026-02-12-analysis-deter-1.pdf",
+    );
     expect(clickSpy).toHaveBeenCalled();
     expect(revokeObjectUrlSpy).toHaveBeenCalledWith("blob:pdf");
 

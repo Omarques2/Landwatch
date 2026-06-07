@@ -22,9 +22,16 @@ export type AnalysisPdfAutomationContext = {
   webBaseUrl?: string | null;
 };
 
+export type AnalysisPdfPublicContext = {
+  mode: 'public';
+  apiBaseUrl?: string | null;
+  webBaseUrl?: string | null;
+};
+
 export type AnalysisPdfRequestContext =
   | AnalysisPdfUserContext
-  | AnalysisPdfAutomationContext;
+  | AnalysisPdfAutomationContext
+  | AnalysisPdfPublicContext;
 
 export type AnalysisPdfMapImage = {
   buffer: Buffer;

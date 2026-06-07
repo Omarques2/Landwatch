@@ -123,18 +123,6 @@
       v-else
       class="search-card rounded-2xl border border-border bg-card p-6 shadow-sm"
     >
-      <div class="search-print-header">
-        <div class="search-print-brand">
-          <img :src="printLogo" alt="Sigfarm LandWatch" class="search-print-logo" />
-          <div class="search-print-title">Sigfarm LandWatch - Busca de CAR</div>
-        </div>
-        <div class="search-print-meta">
-          <div><span class="font-semibold">Coordenadas:</span> {{ searchCoordinatesLabel }}</div>
-          <div><span class="font-semibold">Raio:</span> {{ searchRadiusKm }} km</div>
-          <div><span class="font-semibold">CARs:</span> {{ activeSearchCount }}</div>
-        </div>
-      </div>
-
       <div
         v-if="mvBusy"
         class="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700 search-controls"
@@ -213,14 +201,6 @@
           <Loader2 v-if="pngBusy" class="mr-2 h-3.5 w-3.5 animate-spin" />
           {{ pngBusy ? "Gerando PNG" : "Baixar PNG" }}
         </UiButton>
-        <UiButton
-          size="sm"
-          variant="outline"
-          :disabled="!canExportSearch || searchBusy"
-          @click="printSearchPdf"
-        >
-          Baixar PDF
-        </UiButton>
         <label
           class="ml-auto inline-flex items-center gap-2 rounded-full border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground"
           data-testid="hide-unselected-toggle"
@@ -260,7 +240,6 @@
           :hide-unselected-cars="hideUnselectedCars"
           :loading="searchBusy"
           :auto-zoom-on-export="searchAutoZoom"
-          :print-mode="searchPrintMode"
           @center-change="updateCenter"
           @search-here="searchCarsFromMap"
           @loading-change="onMapLoadingChange"
@@ -288,7 +267,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
+import { computed, onMounted, reactive, ref, watch } from "vue";
 import type { Geometry } from "geojson";
 import { useRoute, useRouter } from "vue-router";
 import { LocateFixed, Loader2 } from "lucide-vue-next";
@@ -305,7 +284,6 @@ import {
 import { http } from "@/api/http";
 import { unwrapData, unwrapPaged, type ApiEnvelope } from "@/api/envelope";
 import CarSelectMap from "@/components/maps/CarSelectMap.vue";
-import logoSrc from "@/assets/logo.png";
 import { isValidCpfCnpj, sanitizeDoc } from "@/lib/doc-utils";
 import { mvBusy } from "@/state/landwatch-status";
 
@@ -367,25 +345,13 @@ const hideUnselectedCars = ref(false);
 const searchAutoZoom = ref(true);
 const activeSearch = ref<CarSearchVectorMapResponse | null>(null);
 const fallbackCars = ref<CarFallbackFeature[]>([]);
-const searchPrintMode = ref(false);
 const searchMapRef = ref<InstanceType<typeof CarSelectMap> | null>(null);
-let searchPrintResetTimer: number | null = null;
 const canSearch = computed(() => {
   return parseCoordinate(center.lat, "lat") !== null && parseCoordinate(center.lng, "lng") !== null;
 });
-const activeSearchCount = computed(
-  () => activeSearch.value?.stats.totalFeatures ?? fallbackCars.value.length,
-);
 const canExportSearch = computed(
   () => Boolean(activeSearch.value?.vectorSource) || fallbackCars.value.length > 0,
 );
-const searchCoordinatesLabel = computed(() => {
-  const lat = parseCoordinate(center.lat, "lat");
-  const lng = parseCoordinate(center.lng, "lng");
-  if (lat === null || lng === null) return "-";
-  return `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
-});
-const printLogo = logoSrc;
 const analysisForm = reactive({
   farmId: "",
   farmName: "",
@@ -982,13 +948,6 @@ function onMapLoadingChange(value: boolean) {
   mapLoading.value = value;
 }
 
-function setSearchBodyPrintMode(enabled: boolean) {
-  if (typeof document === "undefined") return;
-  document.body.classList.toggle("car-search-print-mode", enabled);
-}
-
-const originalSearchTitle = ref<string | null>(null);
-
 function buildSearchExportBaseName() {
   const lat = parseCoordinate(center.lat, "lat");
   const lng = parseCoordinate(center.lng, "lng");
@@ -996,65 +955,6 @@ function buildSearchExportBaseName() {
   const latLabel = lat === null ? "lat" : `lat-${lat.toFixed(6)}`;
   const lngLabel = lng === null ? "lng" : `lng-${lng.toFixed(6)}`;
   return `Sigfarm-LandWatch-Busca-CAR-${latLabel}-${lngLabel}-${today}`;
-}
-
-function setSearchPrintTitle() {
-  if (typeof document === "undefined") return;
-  if (originalSearchTitle.value === null) {
-    originalSearchTitle.value = document.title;
-  }
-  document.title = buildSearchExportBaseName();
-}
-
-function restoreSearchTitle() {
-  if (typeof document === "undefined") return;
-  if (originalSearchTitle.value !== null) {
-    document.title = originalSearchTitle.value;
-    originalSearchTitle.value = null;
-  }
-}
-
-async function waitForSearchPrintFrame() {
-  await nextTick();
-  await new Promise<void>((resolve) => {
-    window.requestAnimationFrame(() => {
-      window.requestAnimationFrame(() => resolve());
-    });
-  });
-}
-
-function clearSearchPrintResetTimer() {
-  if (searchPrintResetTimer == null) return;
-  window.clearTimeout(searchPrintResetTimer);
-  searchPrintResetTimer = null;
-}
-
-async function prepareSearchPrintLayout() {
-  if (viewMode.value !== "search" || !canExportSearch.value) return;
-  clearSearchPrintResetTimer();
-  searchPrintMode.value = true;
-  setSearchBodyPrintMode(true);
-  setSearchPrintTitle();
-  await waitForSearchPrintFrame();
-  searchMapRef.value?.refresh();
-  await waitForSearchPrintFrame();
-  await searchMapRef.value?.prepareForPrint();
-  await waitForSearchPrintFrame();
-}
-
-function resetSearchPrintLayout() {
-  clearSearchPrintResetTimer();
-  searchMapRef.value?.resetAfterPrint();
-  searchPrintMode.value = false;
-  setSearchBodyPrintMode(false);
-  restoreSearchTitle();
-}
-
-async function printSearchPdf() {
-  if (!canExportSearch.value || searchBusy.value) return;
-  await prepareSearchPrintLayout();
-  window.print();
-  searchPrintResetTimer = window.setTimeout(resetSearchPrintLayout, 60_000);
 }
 
 async function downloadSearchPng() {
@@ -1069,10 +969,6 @@ async function downloadSearchPng() {
   }
 }
 
-function handleAfterPrint() {
-  resetSearchPrintLayout();
-}
-
 onMounted(() => {
   const farmId = route.query.farmId as string | undefined;
   if (farmId) {
@@ -1082,16 +978,6 @@ onMounted(() => {
   if (carKey) {
     analysisForm.carKey = maskCarKey(carKey);
   }
-  if (typeof window !== "undefined") {
-    window.addEventListener("afterprint", handleAfterPrint);
-  }
-});
-
-onBeforeUnmount(() => {
-  if (typeof window !== "undefined") {
-    window.removeEventListener("afterprint", handleAfterPrint);
-  }
-  resetSearchPrintLayout();
 });
 
 watch(
@@ -1160,113 +1046,7 @@ watch(
   font-weight: 700;
 }
 
-.search-print-header {
-  display: none;
-}
-
 .search-map-frame {
   height: clamp(320px, calc(100vh - 360px), 720px);
-}
-
-:global(body.car-search-print-mode) {
-  background: #ffffff !important;
-}
-
-:global(body.car-search-print-mode .app-sidebar),
-:global(body.car-search-print-mode .app-topbar),
-:global(body.car-search-print-mode .app-drawer) {
-  display: none !important;
-}
-
-:global(body.car-search-print-mode .app-shell),
-:global(body.car-search-print-mode .app-main) {
-  display: block !important;
-  width: 100% !important;
-  height: auto !important;
-  overflow: visible !important;
-}
-
-@media print {
-  :global(body.car-search-print-mode) {
-    background: #ffffff !important;
-  }
-
-  .new-analysis-root {
-    width: 100% !important;
-    max-width: none !important;
-    min-height: 0 !important;
-    padding: 4mm !important;
-    gap: 0 !important;
-    margin: 0 !important;
-  }
-
-  .search-card {
-    display: flex;
-    flex-direction: column;
-    border: 0;
-    border-radius: 0;
-    box-shadow: none;
-    width: 100%;
-    min-height: calc(100vh - 8mm);
-    margin: 0;
-    padding: 0;
-  }
-
-  .search-controls {
-    display: none !important;
-  }
-
-  .search-print-header {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 3mm;
-    margin-bottom: 2mm;
-    flex: 0 0 auto;
-  }
-
-  .search-print-brand {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-  }
-
-  .search-print-logo {
-    width: 8mm;
-    height: 8mm;
-    object-fit: contain;
-  }
-
-  .search-print-title {
-    font-size: 12pt;
-    font-weight: 700;
-    line-height: 1.15;
-    color: #0f172a;
-    white-space: nowrap;
-  }
-
-  .search-print-meta {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: flex-end;
-    gap: 1mm 3mm;
-    max-width: 105mm;
-    font-size: 8pt;
-    line-height: 1.2;
-    color: #334155;
-  }
-
-  .search-map-frame {
-    margin-top: auto !important;
-    margin-bottom: auto !important;
-    break-inside: avoid;
-  }
-
-  .search-map-frame :deep(.maplibregl-ctrl-top-left),
-  .search-map-frame :deep(.maplibregl-ctrl-top-right),
-  .search-map-frame :deep(.maplibregl-ctrl-bottom-left),
-  .search-map-frame :deep(.maplibregl-ctrl-bottom-right) {
-    display: none !important;
-  }
 }
 </style>

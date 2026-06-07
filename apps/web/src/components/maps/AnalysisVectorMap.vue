@@ -2,7 +2,7 @@
   <div class="relative h-full w-full">
     <div ref="mapEl" class="h-full w-full rounded-xl border border-border"></div>
     <div
-      v-if="overlapSelector.open && !printMode"
+      v-if="overlapSelector.open"
       ref="overlapSelectorEl"
       data-testid="analysis-overlap-selector"
       class="absolute z-40 min-w-[240px] max-w-[340px] rounded-xl border border-border bg-card p-2 shadow-lg"
@@ -57,10 +57,6 @@ import {
 import {
   getPreferredAnalysisBounds,
   getPreferredAnalysisFitMaxZoom,
-  getPrintMapIdleTimeoutMs,
-  getPrintMapReadyMaxWaitMs,
-  getPrintMapReadyPollMs,
-  isPrintMapReady,
 } from "@/features/analyses/analysis-vector-bounds";
 
 type VectorSourceContract = {
@@ -100,7 +96,6 @@ const props = withDefaults(defineProps<{
   activeLegendCode?: string | null;
   carKey?: string | null;
   authMode?: "private" | "public";
-  printMode?: boolean;
   autoFitMode?: "always" | "once" | "never";
   fitSessionKey?: string | number | null;
   showSatellite?: boolean;
@@ -109,7 +104,6 @@ const props = withDefaults(defineProps<{
   activeLegendCode: null,
   carKey: null,
   authMode: "private",
-  printMode: false,
   autoFitMode: "always",
   fitSessionKey: null,
   showSatellite: true,
@@ -594,13 +588,12 @@ function fitToSourceBounds(force = false) {
   const bounds = asBounds(preferredBounds);
   if (!bounds) return;
   map.fitBounds(bounds, {
-    padding: props.printMode ? 24 : 32,
+    padding: 32,
     duration: 0,
     maxZoom: getPreferredAnalysisFitMaxZoom({
       sourceMaxZoom: props.vectorSource.maxzoom,
       bounds: props.vectorSource.bounds,
       carBounds: props.vectorSource.carBounds,
-      printMode: props.printMode,
     }),
   });
   hasAutoFitApplied = true;
@@ -619,139 +612,7 @@ function refresh() {
   syncLegendVisibility();
 }
 
-function waitForPrintFrame() {
-  return new Promise<void>((resolve) => {
-    window.requestAnimationFrame(() => {
-      window.requestAnimationFrame(() => resolve());
-    });
-  });
-}
-
-async function waitForMapIdle(localMap: maplibregl.Map, timeoutMs = 5000) {
-  if (localMap.loaded() && localMap.areTilesLoaded()) {
-    return;
-  }
-  await new Promise<void>((resolve) => {
-    let settled = false;
-    let timeoutId: number | null = null;
-    const finish = () => {
-      if (settled) return;
-      settled = true;
-      if (timeoutId != null) {
-        window.clearTimeout(timeoutId);
-      }
-      localMap.off("idle", handler);
-      resolve();
-    };
-    const handler = () => finish();
-    timeoutId = window.setTimeout(finish, timeoutMs);
-    localMap.on("idle", handler);
-  });
-}
-
-function waitForTimeout(ms: number) {
-  return new Promise<void>((resolve) => {
-    window.setTimeout(resolve, ms);
-  });
-}
-
-function requiredLegendLayersReady(localMap: maplibregl.Map) {
-  return props.legendItems.every((item) => {
-    return Boolean(localMap.getLayer(fillLayerId(item.code)) && localMap.getLayer(lineLayerId(item.code)));
-  });
-}
-
-function currentPrintMapReady(localMap: maplibregl.Map) {
-  const canvas = localMap.getCanvas();
-  const rect = canvas.getBoundingClientRect();
-  return isPrintMapReady({
-    styleLoaded: Boolean(localMap.isStyleLoaded()),
-    sourceReady: Boolean(localMap.getSource(SOURCE_ID)),
-    selectedLineLayerReady: Boolean(localMap.getLayer(SELECTED_LINE_LAYER_ID)),
-    legendLayersReady: requiredLegendLayersReady(localMap),
-    canvasReady: canvas.width > 0 && canvas.height > 0 && rect.width > 0 && rect.height > 0,
-    mapLoaded: Boolean(localMap.loaded()),
-    tilesLoaded: Boolean(localMap.areTilesLoaded()),
-  });
-}
-
-async function waitUntilPrintMapReady(localMap: maplibregl.Map) {
-  const startedAt = performance.now();
-  const maxWaitMs = getPrintMapReadyMaxWaitMs();
-  const pollMs = getPrintMapReadyPollMs();
-
-  while (performance.now() - startedAt < maxWaitMs) {
-    localMap.resize();
-
-    if (localMap.isStyleLoaded()) {
-      refresh();
-      fitToSourceBounds(true);
-      await waitForPrintFrame();
-    }
-
-    if (currentPrintMapReady(localMap)) {
-      return true;
-    }
-
-    await waitForTimeout(pollMs);
-  }
-
-  if (localMap.isStyleLoaded()) {
-    refresh();
-    fitToSourceBounds(true);
-    await waitForPrintFrame();
-  }
-  return currentPrintMapReady(localMap);
-}
-
-async function prepareForPrint() {
-  if (map) {
-    await waitUntilPrintMapReady(map);
-  }
-  refresh();
-  fitToSourceBounds(true);
-  await waitForPrintFrame();
-  refresh();
-  fitToSourceBounds(true);
-  if (map) {
-    await waitForMapIdle(map, getPrintMapIdleTimeoutMs({ hasFreshFit: true }));
-    await waitForPrintFrame();
-  }
-}
-
-function resetAfterPrint() {
-  refresh();
-  fitToSourceBounds(true);
-}
-
-type PrintImageOptions = {
-  type?: "image/jpeg" | "image/png";
-  quality?: number;
-  skipPrepare?: boolean;
-};
-
-async function capturePrintImage(options: PrintImageOptions = {}) {
-  if (!map) return null;
-  if (!options.skipPrepare) {
-    await prepareForPrint();
-  }
-  map.triggerRepaint();
-  await waitForPrintFrame();
-
-  const canvas = map.getCanvas();
-  if (!canvas || canvas.width <= 0 || canvas.height <= 0) return null;
-
-  const type = options.type ?? "image/jpeg";
-  const quality = Math.max(0.1, Math.min(1, options.quality ?? 0.72));
-
-  try {
-    return canvas.toDataURL(type, quality);
-  } catch {
-    return null;
-  }
-}
-
-defineExpose({ refresh, prepareForPrint, resetAfterPrint, capturePrintImage });
+defineExpose({ refresh });
 
 onMounted(async () => {
   if (!mapEl.value) return;
@@ -775,9 +636,6 @@ onMounted(async () => {
     },
     renderWorldCopies: false,
     fadeDuration: 0,
-    canvasContextAttributes: {
-      preserveDrawingBuffer: props.printMode,
-    },
     cancelPendingTileRequestsWhileZooming: true,
     transformRequest: (url) => {
       if (!shouldAttachAuthHeaders(url)) return { url };
@@ -785,9 +643,7 @@ onMounted(async () => {
     },
   });
 
-  if (!props.printMode) {
-    map.addControl(new maplibregl.NavigationControl({ visualizePitch: false }), "top-left");
-  }
+  map.addControl(new maplibregl.NavigationControl({ visualizePitch: false }), "top-left");
 
   bindMapEvents();
   window.addEventListener("pointerdown", handleWindowPointerDown);
