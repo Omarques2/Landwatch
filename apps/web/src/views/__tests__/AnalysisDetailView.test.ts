@@ -498,6 +498,110 @@ describe("AnalysisDetailView", () => {
     expect(document.title).toBe("LandWatch");
   });
 
+  it("downloads backend PDF without replacing the client print button", async () => {
+    const getMock = http.get as unknown as ReturnType<typeof vi.fn>;
+    getMock.mockImplementation((url: string, config?: Record<string, unknown>) => {
+      if (url === "/v1/analyses/analysis-deter-1/status") {
+        return Promise.resolve({ data: { data: completedStatus() } });
+      }
+      if (url === "/v1/analyses/analysis-deter-1") {
+        return Promise.resolve({
+          data: {
+            data: {
+              id: "analysis-deter-1",
+              carKey: "MT-123",
+              farmName: "Fazenda DETER",
+              analysisDate: "2026-02-12",
+              status: "completed",
+              analysisKind: "STANDARD",
+              biomas: ["Cerrado"],
+              intersectionCount: 1,
+              datasetGroups: [],
+              results: [],
+            },
+          },
+        });
+      }
+      if (url === "/v1/analyses/analysis-deter-1/vector-map") {
+        return Promise.resolve({ data: { data: vectorMapPayload([], true) } });
+      }
+      if (url === "/v1/analyses/analysis-deter-1/pdf") {
+        expect(config).toMatchObject({ responseType: "blob" });
+        return Promise.resolve({
+          data: new Blob(["pdf"], { type: "application/pdf" }),
+          headers: {
+            "content-disposition":
+              'attachment; filename="Sigfarm-LandWatch-api.pdf"',
+          },
+        });
+      }
+      return Promise.reject(new Error(`unexpected request: ${url}`));
+    });
+
+    let exportedBlob: Blob | null = null;
+    const appendedDownloads: string[] = [];
+    if (!("createObjectURL" in URL)) {
+      Object.defineProperty(URL, "createObjectURL", {
+        configurable: true,
+        writable: true,
+        value: vi.fn(),
+      });
+    }
+    if (!("revokeObjectURL" in URL)) {
+      Object.defineProperty(URL, "revokeObjectURL", {
+        configurable: true,
+        writable: true,
+        value: vi.fn(),
+      });
+    }
+    const appendSpy = vi
+      .spyOn(document.body, "appendChild")
+      .mockImplementation((node: Node) => {
+        if (node instanceof HTMLAnchorElement) {
+          appendedDownloads.push(node.download);
+        }
+        return node;
+      });
+    const createObjectUrlSpy = vi
+      .spyOn(URL, "createObjectURL")
+      .mockImplementation((blob: Blob | MediaSource) => {
+        exportedBlob = blob as Blob;
+        return "blob:pdf";
+      });
+    const revokeObjectUrlSpy = vi
+      .spyOn(URL, "revokeObjectURL")
+      .mockImplementation(() => {});
+    const clickSpy = vi
+      .spyOn(HTMLAnchorElement.prototype, "click")
+      .mockImplementation(() => {});
+
+    const wrapper = mount(AnalysisDetailView);
+    await flushPromises();
+
+    const buttons = wrapper.findAll("button").map((item) => item.text());
+    expect(buttons).toContain("Baixar PDF");
+    expect(buttons).toContain("Baixar PDF API");
+
+    const backendButton = wrapper
+      .findAll("button")
+      .find((item) => item.text().includes("Baixar PDF API"));
+    await backendButton!.trigger("click");
+    await flushPromises();
+
+    expect(getMock).toHaveBeenCalledWith("/v1/analyses/analysis-deter-1/pdf", {
+      responseType: "blob",
+    });
+    expect(exportedBlob).not.toBeNull();
+    expect(appendedDownloads).toContain("Sigfarm-LandWatch-api.pdf");
+    expect(clickSpy).toHaveBeenCalled();
+    expect(revokeObjectUrlSpy).toHaveBeenCalledWith("blob:pdf");
+
+    appendSpy.mockRestore();
+    createObjectUrlSpy.mockRestore();
+    revokeObjectUrlSpy.mockRestore();
+    clickSpy.mockRestore();
+  });
+
   it("renders UCS legend by displayName while keeping table labels by category", async () => {
     const getMock = http.get as unknown as ReturnType<typeof vi.fn>;
     getMock.mockImplementation((url: string) => {

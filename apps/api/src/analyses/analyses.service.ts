@@ -27,6 +27,8 @@ import {
   type AnalysisVectorMapMetadata,
 } from './analysis-vector-map.service';
 import { AnalysisPostprocessService } from './analysis-postprocess.service';
+import { AnalysisPdfService } from './pdf/analysis-pdf.service';
+import type { AnalysisPdfRequestContext } from './pdf/analysis-pdf.types';
 import { LandwatchStatusService } from '../landwatch-status/landwatch-status.service';
 import { isValidCpfCnpj, sanitizeDoc } from '../common/validators/cpf-cnpj';
 import {
@@ -102,6 +104,7 @@ export class AnalysesService {
     private readonly cache: AnalysisCacheService,
     private readonly vectorMap: AnalysisVectorMapService,
     private readonly postprocess: AnalysisPostprocessService,
+    private readonly pdf: AnalysisPdfService,
     private readonly landwatchStatus: LandwatchStatusService,
     @Optional() @Inject(NOW_PROVIDER) nowProvider?: () => Date,
   ) {
@@ -770,6 +773,10 @@ export class AnalysesService {
       }),
     );
     return collection;
+  }
+
+  async getPdfById(id: string, context: AnalysisPdfRequestContext) {
+    return this.pdf.generate(id, context);
   }
 
   async listIndigenaPhases(asOf?: string) {

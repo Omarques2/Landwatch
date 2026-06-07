@@ -7,6 +7,7 @@ import {
   Query,
   Req,
   Res,
+  StreamableFile,
   UnauthorizedException,
 } from '@nestjs/common';
 import type { Response } from 'express';
@@ -14,20 +15,7 @@ import type { AuthedRequest } from '../auth/authed-request.type';
 import { AnalysesService } from './analyses.service';
 import { CreateAnalysisDto } from './dto/create-analysis.dto';
 import { ListAnalysesQuery } from './dto/list-analyses.query';
-
-function resolveApiOrigin(req: AuthedRequest) {
-  const forwardedProto =
-    typeof req.headers['x-forwarded-proto'] === 'string'
-      ? req.headers['x-forwarded-proto'].split(',')[0]?.trim()
-      : null;
-  const fallbackProto = req.secure ? 'https' : 'http';
-  const protocol = forwardedProto || fallbackProto;
-  const host =
-    typeof req.headers['x-forwarded-host'] === 'string'
-      ? req.headers['x-forwarded-host'].split(',')[0]?.trim()
-      : req.headers.host;
-  return host ? `${protocol}://${host}` : null;
-}
+import { resolveApiOrigin, resolveWebOrigin } from './request-origin';
 
 @Controller('v1/analyses')
 export class AnalysesController {
@@ -132,11 +120,33 @@ export class AnalysesController {
   }
 
   @Get(':id/pdf')
-  getPdf(@Param('id') id: string) {
-    return {
-      status: 'disabled',
-      message: 'PDF backend desativado no MVP. Use a impressão do navegador.',
-      analysisId: id,
-    };
+  async getPdf(
+    @Param('id') id: string,
+    @Req() req: AuthedRequest,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    if (!req.user?.sub) {
+      throw new UnauthorizedException({
+        code: 'UNAUTHORIZED',
+        message: 'Missing user claims',
+      });
+    }
+    const pdf = await this.analyses.getPdfById(id, {
+      mode: 'user',
+      userSubject: String(req.user.sub),
+      orgHeader: req.headers['x-org-id'],
+      apiBaseUrl: resolveApiOrigin(req),
+      webBaseUrl: resolveWebOrigin(req),
+    });
+    res.setHeader('Content-Type', pdf.contentType);
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${pdf.filename}"`,
+    );
+    return new StreamableFile(pdf.buffer, {
+      type: pdf.contentType,
+      disposition: `attachment; filename="${pdf.filename}"`,
+      length: pdf.buffer.length,
+    });
   }
 }

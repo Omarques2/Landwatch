@@ -81,9 +81,30 @@ const envBaseSchema = z.object({
   LANDWATCH_CAR_MAP_SEARCH_MAX_RADIUS_METERS: numberSchema.default(50000),
   LANDWATCH_CAR_MAP_SEARCH_TTL_MINUTES: numberSchema.default(30),
 
-  LANDWATCH_PDF_STORAGE_DIR: z.string().optional(),
+  LANDWATCH_PDF_STORAGE_DIR: z.string().default('./storage/pdfs'),
   LANDWATCH_PDF_TTL_HOURS: numberSchema.default(2),
-  LANDWATCH_PDF_TILE_PROVIDERS: z.string().optional(),
+  LANDWATCH_PDF_TILE_PROVIDERS: z
+    .string()
+    .default('https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}'),
+  LANDWATCH_WEB_BASE_URL: z
+    .string()
+    .url()
+    .default('https://landwatch.sigfarmintelligence.com'),
+  LANDWATCH_API_BASE_URL: z
+    .string()
+    .url()
+    .default('https://landwatch.sigfarmintelligence.com'),
+  LANDWATCH_PDF_STATIC_MAP_URL: z.string().optional().default(''),
+  LANDWATCH_PDF_STATIC_MAP_MODE: z
+    .enum(['bbox', 'center_zoom', 'center-zoom', 'camera'])
+    .default('center_zoom'),
+  LANDWATCH_PDF_STATIC_MAP_TOKEN: z.string().optional().default(''),
+  LANDWATCH_PDF_SATELLITE_TILE_URL: z.string().optional().default(''),
+  LANDWATCH_PDF_SATELLITE_TOKEN: z.string().optional().default(''),
+  LANDWATCH_PDF_TILE_TIMEOUT_MS: numberSchema.default(2500),
+  LANDWATCH_PDF_MAX_TILES: numberSchema.default(16),
+  LANDWATCH_PDF_JPEG_QUALITY: numberSchema.default(72),
+  LANDWATCH_PDF_MAP_SCALE: numberSchema.default(2),
   ANALYSIS_STANDARD_CURRENT_USE_FAST_INTERSECTIONS:
     booleanSchema.default(false),
   ANALYSIS_STANDARD_ASOF_USE_LEGACY_AREA: booleanSchema.default(false),

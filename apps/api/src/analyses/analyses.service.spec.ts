@@ -64,6 +64,10 @@ describe('AnalysesService', () => {
       postprocess: {
         enqueue: jest.fn(),
       },
+      pdf: {
+        generateForUser: jest.fn(),
+        generateForAutomation: jest.fn(),
+      },
       landwatchStatus: {
         assertNotRefreshing: jest.fn().mockResolvedValue(undefined),
       },
@@ -83,6 +87,7 @@ describe('AnalysesService', () => {
       deps.cache as any,
       deps.vectorMap as any,
       deps.postprocess as any,
+      deps.pdf as any,
       deps.landwatchStatus as any,
       () => now,
     );
@@ -147,6 +152,7 @@ describe('AnalysesService', () => {
       deps.cache as any,
       deps.vectorMap as any,
       deps.postprocess as any,
+      deps.pdf as any,
       deps.landwatchStatus as any,
       () => now,
     );
@@ -179,6 +185,7 @@ describe('AnalysesService', () => {
       deps.cache as any,
       deps.vectorMap as any,
       deps.postprocess as any,
+      deps.pdf as any,
       deps.landwatchStatus as any,
       () => now,
     );
@@ -223,6 +230,7 @@ describe('AnalysesService', () => {
       deps.cache as any,
       deps.vectorMap as any,
       deps.postprocess as any,
+      deps.pdf as any,
       deps.landwatchStatus as any,
       () => now,
     );
@@ -252,6 +260,7 @@ describe('AnalysesService', () => {
       deps.cache as any,
       deps.vectorMap as any,
       deps.postprocess as any,
+      deps.pdf as any,
       deps.landwatchStatus as any,
       () => now,
     );
@@ -285,6 +294,7 @@ describe('AnalysesService', () => {
       deps.cache as any,
       deps.vectorMap as any,
       deps.postprocess as any,
+      deps.pdf as any,
       deps.landwatchStatus as any,
       () => now,
     );
@@ -329,6 +339,7 @@ describe('AnalysesService', () => {
       deps.cache as any,
       deps.vectorMap as any,
       deps.postprocess as any,
+      deps.pdf as any,
       deps.landwatchStatus as any,
       () => now,
     );
@@ -357,6 +368,7 @@ describe('AnalysesService', () => {
       deps.cache as any,
       deps.vectorMap as any,
       deps.postprocess as any,
+      deps.pdf as any,
       deps.landwatchStatus as any,
       () => now,
     );
@@ -383,6 +395,7 @@ describe('AnalysesService', () => {
       deps.cache as any,
       deps.vectorMap as any,
       deps.postprocess as any,
+      deps.pdf as any,
       deps.landwatchStatus as any,
       () => now,
     );
@@ -413,6 +426,7 @@ describe('AnalysesService', () => {
       deps.cache as any,
       deps.vectorMap as any,
       deps.postprocess as any,
+      deps.pdf as any,
       deps.landwatchStatus as any,
       () => now,
     );
@@ -441,6 +455,7 @@ describe('AnalysesService', () => {
       deps.cache as any,
       deps.vectorMap as any,
       deps.postprocess as any,
+      deps.pdf as any,
       deps.landwatchStatus as any,
       () => now,
     );
@@ -476,6 +491,7 @@ describe('AnalysesService', () => {
       deps.cache as any,
       deps.vectorMap as any,
       deps.postprocess as any,
+      deps.pdf as any,
       deps.landwatchStatus as any,
       () => now,
     );
@@ -506,6 +522,7 @@ describe('AnalysesService', () => {
       deps.cache as any,
       deps.vectorMap as any,
       deps.postprocess as any,
+      deps.pdf as any,
       deps.landwatchStatus as any,
       () => now,
     );
@@ -538,6 +555,7 @@ describe('AnalysesService', () => {
       deps.cache as any,
       deps.vectorMap as any,
       deps.postprocess as any,
+      deps.pdf as any,
       deps.landwatchStatus as any,
       () => now,
     );
@@ -587,6 +605,7 @@ describe('AnalysesService', () => {
       deps.cache as any,
       deps.vectorMap as any,
       deps.postprocess as any,
+      deps.pdf as any,
       deps.landwatchStatus as any,
       () => now,
     );
@@ -612,6 +631,7 @@ describe('AnalysesService', () => {
       deps.cache as any,
       deps.vectorMap as any,
       deps.postprocess as any,
+      deps.pdf as any,
       deps.landwatchStatus as any,
       () => now,
     );
@@ -644,6 +664,7 @@ describe('AnalysesService', () => {
       deps.cache as any,
       deps.vectorMap as any,
       deps.postprocess as any,
+      deps.pdf as any,
       deps.landwatchStatus as any,
       () => now,
     );

@@ -105,6 +105,15 @@
           Baixar PDF
         </UiButton>
         <UiButton
+          variant="outline"
+          size="sm"
+          :disabled="!canDownloadPdf || backendPdfDownloading"
+          :class="!canDownloadPdf || backendPdfDownloading ? 'opacity-50' : ''"
+          @click="downloadBackendPdf"
+        >
+          {{ backendPdfDownloading ? "Gerando PDF API..." : "Baixar PDF API" }}
+        </UiButton>
+        <UiButton
           v-if="hasAnalysisAttachments"
           variant="outline"
           size="sm"
@@ -513,6 +522,7 @@ const attachmentsOpen = ref(false);
 const attachmentsLoading = ref(false);
 const analysisAttachments = ref<AnalysisAttachment[]>([]);
 const attachmentsResolved = ref(false);
+const backendPdfDownloading = ref(false);
 const activeLegendCode = ref<string | null>(null);
 const originalTitle = ref<string | null>(null);
 const featureContextMenu = ref<{
@@ -1081,6 +1091,35 @@ async function printPdf() {
   setPrintTitle();
   await preparePrintLayoutSafely();
   window.print();
+}
+
+function filenameFromContentDisposition(value: unknown) {
+  if (typeof value !== "string") return "";
+  const utf8Match = value.match(/filename\*=UTF-8''([^;]+)/i);
+  if (utf8Match?.[1]) return decodeURIComponent(utf8Match[1].replace(/"/g, ""));
+  const asciiMatch = value.match(/filename="?([^";]+)"?/i);
+  return asciiMatch?.[1]?.trim() ?? "";
+}
+
+async function downloadBackendPdf() {
+  if (!canDownloadPdf.value || backendPdfDownloading.value) return;
+  const id = analysis.value?.id;
+  if (!id) return;
+  backendPdfDownloading.value = true;
+  try {
+    const res = await http.get(`/v1/analyses/${id}/pdf`, {
+      responseType: "blob",
+    });
+    const headers = (res as { headers?: Record<string, unknown> }).headers ?? {};
+    const filename =
+      filenameFromContentDisposition(headers["content-disposition"]) ||
+      `${buildExportFileBase()}-api.pdf`;
+    saveBlobAsFile(res.data as Blob, filename);
+  } catch {
+    loadError.value = "PDF da API indisponível.";
+  } finally {
+    backendPdfDownloading.value = false;
+  }
 }
 
 async function onMapFeatureContextMenu(payload: {

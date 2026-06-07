@@ -7,6 +7,7 @@ import {
   Query,
   Req,
   Res,
+  StreamableFile,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ApiKeyScope } from '@prisma/client';
@@ -16,20 +17,7 @@ import { AuthMode } from '../auth/auth-mode.decorator';
 import type { AuthedRequest } from '../auth/authed-request.type';
 import { CreateAnalysisDto } from './dto/create-analysis.dto';
 import { AnalysesService } from './analyses.service';
-
-function resolveApiOrigin(req: AuthedRequest) {
-  const forwardedProto =
-    typeof req.headers['x-forwarded-proto'] === 'string'
-      ? req.headers['x-forwarded-proto'].split(',')[0]?.trim()
-      : null;
-  const fallbackProto = req.secure ? 'https' : 'http';
-  const protocol = forwardedProto || fallbackProto;
-  const host =
-    typeof req.headers['x-forwarded-host'] === 'string'
-      ? req.headers['x-forwarded-host'].split(',')[0]?.trim()
-      : req.headers.host;
-  return host ? `${protocol}://${host}` : null;
-}
+import { resolveApiOrigin, resolveWebOrigin } from './request-origin';
 
 @Controller('v1/automation/analyses')
 @AuthMode('automation')
@@ -155,5 +143,36 @@ export class AutomationAnalysesController {
     res.setHeader('Cache-Control', tile.cacheControl);
     res.setHeader('ETag', tile.etag);
     res.status(200).send(tile.buffer);
+  }
+
+  @Get(':id/pdf')
+  @ApiKeyScopes(ApiKeyScope.pdf_read)
+  async getPdf(
+    @Req() req: AuthedRequest,
+    @Param('id') id: string,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    if (!req.apiKey) {
+      throw new UnauthorizedException({
+        code: 'UNAUTHORIZED',
+        message: 'Missing API key context',
+      });
+    }
+    const pdf = await this.analyses.getPdfById(id, {
+      mode: 'automation',
+      apiKey: req.apiKey,
+      apiBaseUrl: resolveApiOrigin(req),
+      webBaseUrl: resolveWebOrigin(req),
+    });
+    res.setHeader('Content-Type', pdf.contentType);
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${pdf.filename}"`,
+    );
+    return new StreamableFile(pdf.buffer, {
+      type: pdf.contentType,
+      disposition: `attachment; filename="${pdf.filename}"`,
+      length: pdf.buffer.length,
+    });
   }
 }

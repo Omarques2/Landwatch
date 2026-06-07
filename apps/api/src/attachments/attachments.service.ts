@@ -7,6 +7,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { BlobServiceClient } from '@azure/storage-blob';
+import type { ApiKeyPrincipal } from '../auth/authed-request.type';
 import {
   AttachmentEventType,
   AttachmentScope,
@@ -43,6 +44,12 @@ function assertIdentifier(value: string, name: string): string {
     });
   }
   return value;
+}
+
+function isUuid(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    value,
+  );
 }
 
 type ActorContext = {
@@ -1195,12 +1202,55 @@ export class AttachmentsService {
     return this.resolveActor(subject, orgHeader);
   }
 
+  async resolveActorFromApiKey(apiKey: ApiKeyPrincipal) {
+    const subject = `m2m:${apiKey.clientId}`;
+    const user = await this.prisma.user.upsert({
+      where: { entraSub: subject },
+      create: {
+        entraSub: subject,
+        displayName: `M2M ${apiKey.clientId}`,
+        status: UserStatus.active,
+      },
+      update: {},
+      select: { id: true, status: true },
+    });
+
+    if (user.status !== UserStatus.active) {
+      throw new ForbiddenException({
+        code: 'USER_NOT_ACTIVE',
+        message: 'User not active',
+      });
+    }
+
+    if (apiKey.orgId) {
+      const org = await this.prisma.org.findUnique({
+        where: { id: apiKey.orgId },
+        select: { id: true },
+      });
+      if (!org) {
+        throw new NotFoundException({
+          code: 'ORG_NOT_FOUND',
+          message: 'Organization not found',
+        });
+      }
+    }
+
+    return {
+      userId: user.id,
+      orgId: apiKey.orgId,
+      isPlatformAdmin: false,
+      subject,
+    } satisfies ActorContext;
+  }
+
   private async resolveActor(
     subject: string,
     orgHeader?: string | string[] | null,
   ) {
-    const user = await this.prisma.user.findUnique({
-      where: { identityUserId: subject },
+    const user = await this.prisma.user.findFirst({
+      where: isUuid(subject)
+        ? { OR: [{ identityUserId: subject }, { entraSub: subject }] }
+        : { entraSub: subject },
       select: { id: true, status: true },
     });
     if (!user) {

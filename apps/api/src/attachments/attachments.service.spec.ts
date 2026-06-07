@@ -25,7 +25,11 @@ function makePrismaMock() {
   };
 
   return {
-    user: { findUnique: jest.fn() },
+    user: {
+      findUnique: jest.fn(),
+      findFirst: jest.fn(),
+      upsert: jest.fn(),
+    },
     org: { findUnique: jest.fn() },
     orgMembership: { findUnique: jest.fn(), findMany: jest.fn() },
     orgUserPermission: {
@@ -166,7 +170,7 @@ describe('AttachmentsService', () => {
 
   it('requires X-Org-Id for non-admin user', async () => {
     const prisma = makePrismaMock();
-    prisma.user.findUnique.mockResolvedValue({
+    prisma.user.findFirst.mockResolvedValue({
       id: 'user-1',
       status: 'active',
     });
@@ -182,7 +186,7 @@ describe('AttachmentsService', () => {
   it('returns reviewer capabilities when ATTACHMENT_REVIEW exists for org user', async () => {
     const orgId = '00000000-0000-4000-8000-000000000001';
     const prisma = makePrismaMock();
-    prisma.user.findUnique.mockResolvedValue({
+    prisma.user.findFirst.mockResolvedValue({
       id: 'user-1',
       status: 'active',
     });
@@ -212,7 +216,7 @@ describe('AttachmentsService', () => {
   it('returns admin capabilities with platform scopes', async () => {
     process.env.PLATFORM_ADMIN_SUBS = 'sub-admin';
     const prisma = makePrismaMock();
-    prisma.user.findUnique.mockResolvedValue({
+    prisma.user.findFirst.mockResolvedValue({
       id: 'user-1',
       status: 'active',
     });
@@ -233,6 +237,35 @@ describe('AttachmentsService', () => {
         'PLATFORM_FEATURE',
         'PLATFORM_CAR',
       ],
+    });
+  });
+
+  it('resolves api key actor without requiring org membership', async () => {
+    const orgId = '00000000-0000-4000-8000-000000000001';
+    const prisma = makePrismaMock();
+    prisma.user.upsert.mockResolvedValue({
+      id: 'm2m-user-1',
+      status: 'active',
+    });
+    prisma.org.findUnique.mockResolvedValue({ id: orgId });
+    const service = new AttachmentsService(prisma as any);
+
+    const actor = await service.resolveActorFromApiKey({
+      clientId: 'client-1',
+      orgId,
+    } as any);
+
+    expect(prisma.user.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { entraSub: 'm2m:client-1' },
+      }),
+    );
+    expect(prisma.orgMembership.findUnique).not.toHaveBeenCalled();
+    expect(actor).toMatchObject({
+      userId: 'm2m-user-1',
+      orgId,
+      isPlatformAdmin: false,
+      subject: 'm2m:client-1',
     });
   });
 

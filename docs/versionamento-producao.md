@@ -51,7 +51,7 @@ sudo rm -rf /tmp/landwatch-versionamento-work
 mkdir -p /tmp/landwatch-versionamento-work
 
 sudo docker run --rm \
-  --env-file apps/Versionamento/.env \
+  --env-file apps/Versionamento/.env.prod \
   -e TMPDIR=/work \
   -v /tmp/landwatch-versionamento-work:/work \
   landwatch-versionamento:prod \
@@ -101,7 +101,7 @@ PRODES filtrando workspace e ano:
 
 ```bash
 sudo docker run --rm \
-  --env-file apps/Versionamento/.env \
+  --env-file apps/Versionamento/.env.prod \
   -e TMPDIR=/work \
   -v /tmp/landwatch-versionamento-work:/work \
   landwatch-versionamento:prod \
@@ -114,7 +114,7 @@ SICAR completo:
 
 ```bash
 sudo docker run --rm \
-  --env-file apps/Versionamento/.env \
+  --env-file apps/Versionamento/.env.prod \
   -e TMPDIR=/work \
   -v /tmp/landwatch-versionamento-work:/work \
   landwatch-versionamento:prod \

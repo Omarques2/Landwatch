@@ -18,6 +18,23 @@ describe('validateEnv', () => {
     expect(parsed.CORS_CREDENTIALS).toBe(false);
     expect(parsed.RATE_LIMIT_API_WINDOW_MS).toBe(60_000);
     expect(parsed.RATE_LIMIT_API_MAX).toBe(120);
+    expect(parsed.LANDWATCH_PDF_STORAGE_DIR).toBe('./storage/pdfs');
+    expect(parsed.LANDWATCH_PDF_TILE_PROVIDERS).toBe(
+      'https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',
+    );
+    expect(parsed.LANDWATCH_WEB_BASE_URL).toBe(
+      'https://landwatch.sigfarmintelligence.com',
+    );
+    expect(parsed.LANDWATCH_API_BASE_URL).toBe(
+      'https://landwatch.sigfarmintelligence.com',
+    );
+    expect(parsed.LANDWATCH_PDF_STATIC_MAP_MODE).toBe('center_zoom');
+    expect(parsed.LANDWATCH_PDF_STATIC_MAP_URL).toBe('');
+    expect(parsed.LANDWATCH_PDF_SATELLITE_TILE_URL).toBe('');
+    expect(parsed.LANDWATCH_PDF_TILE_TIMEOUT_MS).toBe(2500);
+    expect(parsed.LANDWATCH_PDF_MAX_TILES).toBe(16);
+    expect(parsed.LANDWATCH_PDF_JPEG_QUALITY).toBe(72);
+    expect(parsed.LANDWATCH_PDF_MAP_SCALE).toBe(2);
   });
 
   it('rejects when required variables are missing', () => {
@@ -95,5 +112,13 @@ describe('validateEnv', () => {
         FABRIC_SQL_QUERY_DRIVER: 'unknown_driver',
       }),
     ).toThrow('FABRIC_SQL_QUERY_DRIVER');
+  });
+
+  it('accepts PDF static map camera mode', () => {
+    const parsed = validateEnv({
+      ...baseEnv,
+      LANDWATCH_PDF_STATIC_MAP_MODE: 'center_zoom',
+    });
+    expect(parsed.LANDWATCH_PDF_STATIC_MAP_MODE).toBe('center_zoom');
   });
 });
