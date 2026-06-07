@@ -123,6 +123,8 @@ type RenderState = {
   y: number;
 };
 
+const TEXT_WIDTH_EPSILON = 0.25;
+
 @Injectable()
 export class AnalysisPdfService {
   private readonly logger = new Logger(AnalysisPdfService.name);
@@ -457,15 +459,15 @@ export class AnalysisPdfService {
       const status = formatStatusLabel(detail.sicarStatus).toUpperCase();
       const farmLineWidth = state.fonts.regular.widthOfTextAtSize(farmLine, 9);
       const badgeText = `SICAR ${detail.carKey} ${status}`;
-      const badgeWidth = Math.min(
-        220,
-        state.fonts.bold.widthOfTextAtSize(badgeText, 7.5) + 22,
-      );
+      const badgeNaturalWidth =
+        state.fonts.bold.widthOfTextAtSize(badgeText, 7.5) + 22;
       const inlineX = PDF.margin + farmLineWidth + 8;
-      const badgeX =
-        inlineX + badgeWidth <= PDF.pageWidth - PDF.margin
-          ? inlineX
-          : PDF.margin;
+      const inlineMaxWidth = PDF.pageWidth - PDF.margin - inlineX;
+      const canDrawInline = badgeNaturalWidth <= inlineMaxWidth;
+      const badgeX = canDrawInline ? inlineX : PDF.margin;
+      const badgeMaxWidth = canDrawInline
+        ? inlineMaxWidth
+        : PDF.pageWidth - PDF.margin * 2;
       const badgeY = badgeX === PDF.margin ? state.y - 17 : state.y - 3;
       this.drawInlineBadge(
         state,
@@ -473,6 +475,7 @@ export class AnalysisPdfService {
         badgeX,
         badgeY,
         detail.sicarStatus.toUpperCase() === 'AT',
+        badgeMaxWidth,
       );
       if (badgeX === PDF.margin) state.y -= 14;
     }
@@ -1371,7 +1374,7 @@ export class AnalysisPdfService {
     let output = this.safeText(text);
     while (
       output.length > 1 &&
-      font.widthOfTextAtSize(output, size) > maxWidth
+      font.widthOfTextAtSize(output, size) > maxWidth + TEXT_WIDTH_EPSILON
     ) {
       output = `${output.slice(0, -2)}…`;
     }

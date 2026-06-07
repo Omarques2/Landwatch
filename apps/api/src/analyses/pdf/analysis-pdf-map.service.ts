@@ -63,6 +63,8 @@ const DEFAULT_JPEG_QUALITY = 72;
 const PRINT_MAP_PADDING_PX = 24;
 const PRINT_MAP_BASE_WIDTH_PX = 720;
 const DEFAULT_STATIC_MAX_ZOOM = 15.5;
+const DEFAULT_TINY_CAR_MAX_ZOOM = 18;
+const DEFAULT_TILE_MAX_ZOOM = 18;
 
 @Injectable()
 export class AnalysisPdfMapService {
@@ -352,7 +354,10 @@ export class AnalysisPdfMapService {
   ): TileSelection {
     const camera = this.cameraForBounds(bounds, size);
     const minZoom = this.minUsefulTileZoom(camera.zoom);
-    const maxZoom = Math.max(minZoom, Math.min(15, Math.ceil(camera.zoom)));
+    const maxZoom = Math.max(
+      minZoom,
+      Math.min(DEFAULT_TILE_MAX_ZOOM, Math.ceil(camera.zoom)),
+    );
     let fallback: TileSelection | null = null;
     for (let z = maxZoom; z >= minZoom; z -= 1) {
       const selection = this.selectionForCameraZoom(camera, size, bounds, z);
@@ -402,7 +407,10 @@ export class AnalysisPdfMapService {
 
   private minUsefulTileZoom(cameraZoom: number) {
     if (!Number.isFinite(cameraZoom)) return 0;
-    return Math.max(0, Math.min(15, Math.floor(cameraZoom - 4)));
+    return Math.max(
+      0,
+      Math.min(DEFAULT_TILE_MAX_ZOOM, Math.floor(cameraZoom - 4)),
+    );
   }
 
   private projectionForTileSelection(selection: TileSelection): MapProjection {
@@ -438,7 +446,7 @@ export class AnalysisPdfMapService {
     const innerWidth = Math.max(1, size.widthPx - paddingPx * 2);
     const innerHeight = Math.max(1, size.heightPx - paddingPx * 2);
     const zoom = Math.min(
-      DEFAULT_STATIC_MAX_ZOOM,
+      this.maxCameraZoomForBounds(bounds),
       Math.log2(innerWidth / spanX),
       Math.log2(innerHeight / spanY),
     );
@@ -465,6 +473,18 @@ export class AnalysisPdfMapService {
         (size.widthPx / PRINT_MAP_BASE_WIDTH_PX) * PRINT_MAP_PADDING_PX,
       ),
     );
+  }
+
+  private maxCameraZoomForBounds(bounds: Bounds) {
+    const lngSpan = Math.abs(bounds[2] - bounds[0]);
+    const latSpan = Math.abs(bounds[3] - bounds[1]);
+    const span = Math.max(lngSpan, latSpan);
+
+    if (span <= 0.01) return DEFAULT_TINY_CAR_MAX_ZOOM;
+    if (span <= 0.03) return 17;
+    if (span <= 0.12) return 16;
+    if (span <= 0.4) return 15.75;
+    return DEFAULT_STATIC_MAX_ZOOM;
   }
 
   private pixelBounds(bounds: Bounds, z: number) {

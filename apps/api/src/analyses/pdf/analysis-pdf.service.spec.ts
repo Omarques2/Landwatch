@@ -246,6 +246,42 @@ describe('AnalysisPdfService', () => {
     qrSpy.mockRestore();
   });
 
+  it('keeps long SICAR badge text complete with status in the header', async () => {
+    const { service } = makeService();
+    const pdfDoc = await PDFDocument.create();
+    const page = pdfDoc.addPage([595.28, 841.89]);
+    const state = {
+      pdfDoc,
+      page,
+      fonts: {
+        regular: await pdfDoc.embedFont(StandardFonts.Helvetica),
+        bold: await pdfDoc.embedFont(StandardFonts.HelveticaBold),
+      },
+      logo: null,
+      y: 820,
+    };
+    const drawTextSpy = jest.spyOn(service as any, 'drawText');
+
+    (service as any).drawHeader(state, {
+      ...completedDetail,
+      farmName: 'Fazenda Pequena',
+      carKey: 'SP-3505500-BE98E951D538449794F9320FC51223FA',
+      sicarStatus: 'AT',
+      docInfos: [],
+    });
+
+    expect(drawTextSpy).toHaveBeenCalledWith(
+      expect.anything(),
+      'SICAR SP-3505500-BE98E951D538449794F9320FC51223FA ATIVO',
+      expect.any(Number),
+      expect.any(Number),
+      7.5,
+      true,
+      '#047857',
+    );
+    drawTextSpy.mockRestore();
+  });
+
   it('adds a clickable dataset status icon when a justified dataset has effective attachments', async () => {
     const { service } = makeService({
       detail: {

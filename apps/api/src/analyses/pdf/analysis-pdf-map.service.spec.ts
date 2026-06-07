@@ -498,6 +498,51 @@ describe('AnalysisPdfMapService', () => {
     fetchMock.mockRestore();
   });
 
+  it('zooms tiny CARs beyond the general print cap so they fill the map frame', async () => {
+    process.env.LANDWATCH_PDF_SATELLITE_TILE_URL =
+      'https://tiles.example.test/{z}/{x}/{y}.jpg';
+    process.env.LANDWATCH_PDF_MAX_TILES = '16';
+    const jpeg = await tileBuffer('#6b7280');
+    const fetchMock = jest
+      .spyOn(global, 'fetch' as any)
+      .mockResolvedValue({ ok: true, arrayBuffer: async () => jpeg } as any);
+    const service = new AnalysisPdfMapService();
+
+    const result = await service.renderMap({
+      widthPx: 1440,
+      heightPx: 896,
+      features: [
+        {
+          datasetCode: 'CAR_TESTE',
+          categoryCode: 'SICAR',
+          isSicar: true,
+          geometry: {
+            type: 'Polygon',
+            coordinates: [
+              [
+                [-49.8115, -16.409],
+                [-49.8065, -16.409],
+                [-49.8065, -16.405],
+                [-49.8115, -16.405],
+                [-49.8115, -16.409],
+              ],
+            ],
+          },
+        },
+      ],
+    });
+
+    const bounds = svgPathBounds(result.debugSvg);
+    expect(bounds.width).toBeGreaterThan(850);
+    expect(bounds.height).toBeGreaterThan(650);
+    const zooms = fetchMock.mock.calls
+      .map((call) => String(call[0]).match(/\/(\d+)\/-?\d+\/-?\d+\.jpg/)?.[1])
+      .filter((value): value is string => Boolean(value))
+      .map(Number);
+    expect(Math.max(...zooms)).toBeGreaterThanOrEqual(16);
+    fetchMock.mockRestore();
+  });
+
   it('renders the map when only one fallback tile request fails', async () => {
     process.env.LANDWATCH_PDF_SATELLITE_TILE_URL =
       'https://tiles.example.test/{z}/{x}/{y}.jpg';
