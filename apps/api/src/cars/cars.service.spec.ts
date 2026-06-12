@@ -125,6 +125,52 @@ describe('CarsService', () => {
     );
   });
 
+  it('returns active CAR location using maximum inscribed circle', async () => {
+    const prisma = makePrismaMock();
+    prisma.$queryRaw.mockResolvedValueOnce([
+      {
+        feature_key: 'CAR-1',
+        lat: '-12.345678',
+        lng: '-55.123456',
+      },
+    ]);
+    const landwatchStatus = makeLandwatchStatusMock();
+
+    const service = new CarsService(prisma as any, landwatchStatus as any);
+
+    const result = await service.getActiveLocationByKey({ carKey: ' CAR-1 ' });
+
+    expect(result).toEqual({
+      carKey: 'CAR-1',
+      location: {
+        lat: -12.345678,
+        lng: -55.123456,
+      },
+      method: 'maximum_inscribed_circle',
+      crs: 'EPSG:4326',
+    });
+    expect(landwatchStatus.assertNotRefreshing).toHaveBeenCalled();
+    const sql = prisma.$queryRaw.mock.calls[0][0];
+    expect(sql.strings.join('')).toContain('ST_MaximumInscribedCircle');
+    expect(sql.strings.join('')).toContain('"mv_feature_geom_active"');
+  });
+
+  it('throws when active CAR location is not found', async () => {
+    const prisma = makePrismaMock();
+    prisma.$queryRaw.mockResolvedValueOnce([]);
+    const landwatchStatus = makeLandwatchStatusMock();
+
+    const service = new CarsService(prisma as any, landwatchStatus as any);
+
+    await expect(
+      service.getActiveLocationByKey({ carKey: 'CAR-404' }),
+    ).rejects.toMatchObject({
+      response: {
+        code: 'CAR_NOT_FOUND',
+      },
+    });
+  });
+
   it('creates a vector map search session with stats and tile metadata', async () => {
     const prisma = makePrismaMock();
     prisma.user.findFirst.mockResolvedValue({ id: 'user-1' });

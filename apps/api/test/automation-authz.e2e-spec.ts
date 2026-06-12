@@ -6,6 +6,7 @@ import type { AuthedRequest } from '../src/auth/authed-request.type';
 import { ApiKeyGuard } from '../src/auth/api-key.guard';
 import { ActiveUserGuard } from '../src/auth/active-user.guard';
 import { AnalysesService } from '../src/analyses/analyses.service';
+import { CarsService } from '../src/cars/cars.service';
 import { UsersService } from '../src/users/users.service';
 import { applyGlobals } from './helpers/e2e-utils';
 
@@ -17,6 +18,14 @@ describe('Automation vs User Auth (e2e)', () => {
       .fn()
       .mockResolvedValue({ id: 'analysis-1', status: 'completed' }),
     getMapById: jest.fn().mockResolvedValue([]),
+  };
+  const carsService = {
+    getActiveLocationByKey: jest.fn().mockResolvedValue({
+      carKey: 'CAR-1',
+      location: { lat: -12.345678, lng: -55.123456 },
+      method: 'maximum_inscribed_circle',
+      crs: 'EPSG:4326',
+    }),
   };
 
   beforeAll(async () => {
@@ -53,6 +62,8 @@ describe('Automation vs User Auth (e2e)', () => {
       })
       .overrideProvider(AnalysesService)
       .useValue(analysesService)
+      .overrideProvider(CarsService)
+      .useValue(carsService)
       .overrideProvider(UsersService)
       .useValue({
         upsertFromClaims: jest.fn().mockResolvedValue({
@@ -94,6 +105,32 @@ describe('Automation vs User Auth (e2e)', () => {
     const res = await request(app.getHttpServer()).get(
       '/v1/automation/auth/me',
     );
+    expect(res.status).toBe(401);
+  });
+
+  it('allows automation CAR location endpoint with x-api-key only', async () => {
+    const res = await request(app.getHttpServer())
+      .get('/v1/automation/cars/location')
+      .query({ carKey: 'CAR-1' })
+      .set('x-api-key', 'lwk_dummy');
+
+    expect(res.status).toBe(200);
+    expect(res.body.data).toEqual({
+      carKey: 'CAR-1',
+      location: { lat: -12.345678, lng: -55.123456 },
+      method: 'maximum_inscribed_circle',
+      crs: 'EPSG:4326',
+    });
+    expect(carsService.getActiveLocationByKey).toHaveBeenCalledWith({
+      carKey: 'CAR-1',
+    });
+  });
+
+  it('rejects automation CAR location endpoint without x-api-key', async () => {
+    const res = await request(app.getHttpServer())
+      .get('/v1/automation/cars/location')
+      .query({ carKey: 'CAR-1' });
+
     expect(res.status).toBe(401);
   });
 

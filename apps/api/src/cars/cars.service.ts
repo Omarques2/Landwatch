@@ -38,6 +38,12 @@ type TileRow = {
   tile: Uint8Array | Buffer | null;
 };
 
+type ActiveCarLocationRow = {
+  feature_key: string;
+  lat: number | string | null;
+  lng: number | string | null;
+};
+
 function asNumber(value: bigint | number | string | null | undefined) {
   if (typeof value === 'number') return value;
   if (typeof value === 'bigint') return Number(value);
@@ -239,15 +245,22 @@ export class CarsService {
   }
 
   private getTileGeomProfileForZoom(z: number) {
-    if (z <= 4) return { profile: 's600', column: 'geom_3857_s600', simplifyMeters: 600 };
-    if (z <= 7) return { profile: 's300', column: 'geom_3857_s300', simplifyMeters: 300 };
-    if (z <= 10) return { profile: 's140', column: 'geom_3857_s140', simplifyMeters: 140 };
-    if (z <= 12) return { profile: 's70', column: 'geom_3857_s70', simplifyMeters: 70 };
-    if (z <= 14) return { profile: 's35', column: 'geom_3857_s35', simplifyMeters: 35 };
+    if (z <= 4)
+      return { profile: 's600', column: 'geom_3857_s600', simplifyMeters: 600 };
+    if (z <= 7)
+      return { profile: 's300', column: 'geom_3857_s300', simplifyMeters: 300 };
+    if (z <= 10)
+      return { profile: 's140', column: 'geom_3857_s140', simplifyMeters: 140 };
+    if (z <= 12)
+      return { profile: 's70', column: 'geom_3857_s70', simplifyMeters: 70 };
+    if (z <= 14)
+      return { profile: 's35', column: 'geom_3857_s35', simplifyMeters: 35 };
     return { profile: 'raw', column: 'geom_3857_raw', simplifyMeters: 0 };
   }
 
-  private normalizeMapSearchParams(input: CreateCarMapSearchDto): CarMapSearchParams {
+  private normalizeMapSearchParams(
+    input: CreateCarMapSearchDto,
+  ): CarMapSearchParams {
     const radiusMeters = clamp(
       Math.round(input.radiusMeters),
       1000,
@@ -261,14 +274,17 @@ export class CarsService {
     };
   }
 
-  private parseMapSearchParamsJson(input: Prisma.JsonValue): CarMapSearchParams {
+  private parseMapSearchParamsJson(
+    input: Prisma.JsonValue,
+  ): CarMapSearchParams {
     const value = (input ?? {}) as Record<string, unknown>;
     const lat = Number(value.lat);
     const lng = Number(value.lng);
     const radiusMeters = Number(value.radiusMeters);
-    const analysisDate = typeof value.analysisDate === 'string'
-      ? value.analysisDate.slice(0, 10)
-      : this.normalizeAnalysisDate();
+    const analysisDate =
+      typeof value.analysisDate === 'string'
+        ? value.analysisDate.slice(0, 10)
+        : this.normalizeAnalysisDate();
     if (
       !Number.isFinite(lat) ||
       !Number.isFinite(lng) ||
@@ -393,7 +409,9 @@ export class CarsService {
 
     const normalizedOrigin = apiOrigin?.trim().replace(/\/+$/, '') ?? '';
     const tilesPath = this.buildMapSearchTilePath(searchId);
-    const tilesUrl = normalizedOrigin ? `${normalizedOrigin}${tilesPath}` : tilesPath;
+    const tilesUrl = normalizedOrigin
+      ? `${normalizedOrigin}${tilesPath}`
+      : tilesPath;
     const bounds =
       stats.featureBounds ??
       this.buildSearchBounds(params.lat, params.lng, params.radiusMeters);
@@ -485,8 +503,22 @@ export class CarsService {
     }
 
     const buffer = useActive
-      ? await this.buildCurrentMapSearchTileBuffer(searchId, params, z, x, y, geomProfile.column)
-      : await this.buildHistoricalMapSearchTileBuffer(searchId, params, z, x, y, geomProfile.simplifyMeters);
+      ? await this.buildCurrentMapSearchTileBuffer(
+          searchId,
+          params,
+          z,
+          x,
+          y,
+          geomProfile.column,
+        )
+      : await this.buildHistoricalMapSearchTileBuffer(
+          searchId,
+          params,
+          z,
+          x,
+          y,
+          geomProfile.simplifyMeters,
+        );
 
     return {
       notModified: false,
@@ -558,7 +590,7 @@ export class CarsService {
       SELECT ST_AsMVT(tile_rows.*, ${this.sourceLayer}, ${this.tileExtent}, 'geom') AS tile
       FROM tile_rows
     `);
-    return (rows[0]?.tile as Uint8Array | Buffer | null) ?? Buffer.alloc(0);
+    return rows[0]?.tile ?? Buffer.alloc(0);
   }
 
   private async buildHistoricalMapSearchTileBuffer(
@@ -572,9 +604,10 @@ export class CarsService {
     const schema = this.getSchema();
     const tables = this.getTables(schema);
     const categoryCode = this.getCategoryCode();
-    const geomExpr = simplifyMeters > 0
-      ? Prisma.sql`ST_SimplifyPreserveTopology(${Prisma.raw(`"${schema}"."safe_transform_to_3857"`)}(gs.geom), ${simplifyMeters})`
-      : Prisma.sql`${Prisma.raw(`"${schema}"."safe_transform_to_3857"`)}(gs.geom)`;
+    const geomExpr =
+      simplifyMeters > 0
+        ? Prisma.sql`ST_SimplifyPreserveTopology(${Prisma.raw(`"${schema}"."safe_transform_to_3857"`)}(gs.geom), ${simplifyMeters})`
+        : Prisma.sql`${Prisma.raw(`"${schema}"."safe_transform_to_3857"`)}(gs.geom)`;
 
     const rows = await this.prisma.$queryRaw<TileRow[]>(Prisma.sql`
       WITH params AS (
@@ -629,7 +662,7 @@ export class CarsService {
       SELECT ST_AsMVT(tile_rows.*, ${this.sourceLayer}, ${this.tileExtent}, 'geom') AS tile
       FROM tile_rows
     `);
-    return (rows[0]?.tile as Uint8Array | Buffer | null) ?? Buffer.alloc(0);
+    return rows[0]?.tile ?? Buffer.alloc(0);
   }
 
   async getByKey(params: {
@@ -701,6 +734,90 @@ export class CarsService {
     return {
       featureKey: row.feature_key,
       geom: this.parseGeoJson(row.geom),
+    };
+  }
+
+  async getActiveLocationByKey(params: { carKey: string }): Promise<{
+    carKey: string;
+    location: { lat: number; lng: number };
+    method: 'maximum_inscribed_circle';
+    crs: 'EPSG:4326';
+  }> {
+    const schema = this.getSchema();
+    const tables = this.getTables(schema);
+    const categoryCode = this.getCategoryCode();
+    const carKey = params.carKey.trim();
+    if (!carKey) {
+      throw new BadRequestException({
+        code: 'INVALID_CAR_KEY',
+        message: 'CAR key must not be empty',
+      });
+    }
+
+    await this.ensureMvReady(true);
+
+    let raw: ActiveCarLocationRow[];
+    try {
+      raw = await this.prisma.$queryRaw<ActiveCarLocationRow[]>(Prisma.sql`
+        WITH selected_car AS (
+          SELECT
+            f.feature_key,
+            g.geom
+          FROM ${tables.geomActive} g
+          JOIN ${tables.feature} f
+            ON f.dataset_id = g.dataset_id
+           AND f.feature_id = g.feature_id
+          JOIN ${tables.dataset} d ON d.dataset_id = f.dataset_id
+          JOIN ${tables.category} c ON c.category_id = d.category_id
+          WHERE c.code = ${categoryCode}
+            AND f.feature_key = ${carKey}
+            AND g.geom IS NOT NULL
+          ORDER BY f.dataset_id, f.feature_id
+          LIMIT 1
+        ),
+        label_point AS (
+          SELECT
+            feature_key,
+            ST_Transform(mic.center, 4326) AS point
+          FROM selected_car
+          CROSS JOIN LATERAL ST_MaximumInscribedCircle(geom) mic
+        )
+        SELECT
+          feature_key,
+          ST_Y(point) AS lat,
+          ST_X(point) AS lng
+        FROM label_point
+      `);
+    } catch {
+      throw new BadRequestException({
+        code: 'SICAR_DATA_MISSING',
+        message:
+          'Base SICAR não carregada ou cache de geometrias ativas indisponível.',
+      });
+    }
+
+    if (!Array.isArray(raw) || raw.length === 0) {
+      throw new BadRequestException({
+        code: 'CAR_NOT_FOUND',
+        message: 'CAR não encontrado na base SICAR ativa.',
+      });
+    }
+
+    const row = raw[0];
+    const lat = asNullableNumber(row.lat);
+    const lng = asNullableNumber(row.lng);
+    if (lat === null || lng === null) {
+      throw new BadRequestException({
+        code: 'INVALID_LANDWATCH_RESPONSE',
+        message: 'Unexpected landwatch response',
+      });
+    }
+
+    return {
+      carKey: row.feature_key,
+      location: { lat, lng },
+      method: 'maximum_inscribed_circle',
+      crs: 'EPSG:4326',
     };
   }
 
