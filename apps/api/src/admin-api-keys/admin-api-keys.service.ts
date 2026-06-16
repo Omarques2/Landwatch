@@ -1,15 +1,22 @@
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { ApiClientStatus, ApiKeyScope } from '@prisma/client';
+import {
+  ApiClientKind,
+  ApiClientStatus,
+  ApiKeyScope,
+  OrgStatus,
+} from '@prisma/client';
 import { createHmac, randomBytes } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { DEFAULT_API_KEY_SCOPES } from './dto/create-api-key.dto';
 
 type CreateApiKeyInput = {
   clientName: string;
+  kind?: ApiClientKind;
   orgId?: string;
   scopes?: ApiKeyScope[];
   expiresAt?: string;
@@ -48,16 +55,37 @@ export class AdminApiKeysService {
   async create(input: CreateApiKeyInput) {
     const pepper = this.getPepper();
     const prefixLength = this.getPrefixLength();
+    const kind = input.kind ?? ApiClientKind.TENANT;
+
+    if (kind === ApiClientKind.TENANT && !input.orgId) {
+      throw new BadRequestException({
+        code: 'API_CLIENT_ORG_REQUIRED',
+        message: 'Tenant API client requires organization',
+      });
+    }
+
+    if (kind === ApiClientKind.PLATFORM && input.orgId) {
+      throw new BadRequestException({
+        code: 'API_CLIENT_PLATFORM_ORG_FORBIDDEN',
+        message: 'Platform API client must not have organization',
+      });
+    }
 
     if (input.orgId) {
       const org = await this.prisma.org.findUnique({
         where: { id: input.orgId },
-        select: { id: true },
+        select: { id: true, status: true },
       });
       if (!org) {
         throw new NotFoundException({
           code: 'ORG_NOT_FOUND',
           message: 'Organization not found',
+        });
+      }
+      if (org.status !== OrgStatus.active) {
+        throw new ForbiddenException({
+          code: 'ORG_DISABLED',
+          message: 'Organization disabled',
         });
       }
     }
@@ -74,9 +102,10 @@ export class AdminApiKeysService {
         data: {
           name: input.clientName,
           orgId: input.orgId ?? null,
+          kind,
           status: ApiClientStatus.active,
         },
-        select: { id: true, name: true, orgId: true, status: true },
+        select: { id: true, name: true, orgId: true, kind: true, status: true },
       });
 
       const apiKey = await tx.apiKey.create({
@@ -99,6 +128,7 @@ export class AdminApiKeysService {
       clientId: result.client.id,
       clientName: result.client.name,
       orgId: result.client.orgId,
+      kind: result.client.kind,
       keyPrefix: result.apiKey.keyPrefix,
       scopes: result.apiKey.scopes,
       expiresAt: result.apiKey.expiresAt,
@@ -116,7 +146,9 @@ export class AdminApiKeysService {
         revokedAt: true,
         lastUsedAt: true,
         createdAt: true,
-        client: { select: { id: true, name: true, orgId: true, status: true } },
+        client: {
+          select: { id: true, name: true, orgId: true, kind: true, status: true },
+        },
       },
     });
 

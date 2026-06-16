@@ -1238,7 +1238,7 @@ export class AttachmentsService {
     return {
       userId: user.id,
       orgId: apiKey.orgId,
-      isPlatformAdmin: false,
+      isPlatformAdmin: apiKey.kind === 'PLATFORM',
       subject,
     } satisfies ActorContext;
   }
@@ -1371,12 +1371,14 @@ export class AttachmentsService {
       canManageCategories: actor.isPlatformAdmin,
       canManagePermissions: actor.isPlatformAdmin,
       canViewAudit: actor.isPlatformAdmin,
-      allowedScopes: [
-        AttachmentScope.ORG_FEATURE,
-        AttachmentScope.ORG_CAR,
-        AttachmentScope.PLATFORM_FEATURE,
-        AttachmentScope.PLATFORM_CAR,
-      ],
+      allowedScopes: actor.isPlatformAdmin
+        ? [
+            AttachmentScope.ORG_FEATURE,
+            AttachmentScope.ORG_CAR,
+            AttachmentScope.PLATFORM_FEATURE,
+            AttachmentScope.PLATFORM_CAR,
+          ]
+        : [AttachmentScope.ORG_FEATURE, AttachmentScope.ORG_CAR],
     };
   }
 
@@ -1719,6 +1721,16 @@ export class AttachmentsService {
       });
     }
     const scope = input.scope as AttachmentScope;
+    if (
+      !actor.isPlatformAdmin &&
+      (scope === AttachmentScope.PLATFORM_FEATURE ||
+        scope === AttachmentScope.PLATFORM_CAR)
+    ) {
+      throw new ForbiddenException({
+        code: 'ATTACHMENT_PLATFORM_SCOPE_FORBIDDEN',
+        message: 'Only platform admins can create platform attachment targets',
+      });
+    }
     const appliesOrgId =
       scope === AttachmentScope.ORG_CAR || scope === AttachmentScope.ORG_FEATURE
         ? input.appliesOrgId?.trim() || actor.orgId

@@ -1,6 +1,6 @@
 import { createRouter, createWebHistory } from "vue-router";
 import { authClient } from "../auth/sigfarm-auth";
-import { getAccessStatus, getMeCached } from "../auth/me";
+import { getAccessCached, getAccessStatus, getMeCached } from "../auth/me";
 import { createAuthNavigationGuard } from "./auth-guard";
 
 import LoginView from "../views/LoginView.vue";
@@ -18,6 +18,7 @@ import SchedulesView from "../views/SchedulesView.vue";
 import FornecedoresView from "../views/FornecedoresView.vue";
 import AttachmentsView from "../views/AttachmentsView.vue";
 import AdminView from "../views/AdminView.vue";
+import AccessDeniedView from "../views/AccessDeniedView.vue";
 
 const router = createRouter({
   history: createWebHistory(),
@@ -30,49 +31,66 @@ const router = createRouter({
       component: AppShellView,
       meta: { requiresAuth: true },
       children: [
-        { path: "", redirect: "/dashboard" },
-        { path: "dashboard", component: DashboardView, meta: { title: "Dashboard" } },
-        { path: "farms", component: FarmsView, meta: { title: "Fazendas" } },
+        { path: "", redirect: "/analyses/new" },
+        {
+          path: "dashboard",
+          component: DashboardView,
+          meta: { title: "Dashboard", platformOnly: true },
+        },
+        {
+          path: "farms",
+          component: FarmsView,
+          meta: { title: "Fazendas", feature: "FARMS" },
+        },
         {
           path: "farms/:id",
           component: FarmDetailView,
-          meta: { title: "Detalhe da fazenda" },
+          meta: { title: "Detalhe da fazenda", feature: "FARMS" },
         },
-        { path: "analyses", component: AnalysesView, meta: { title: "Análises" } },
+        {
+          path: "analyses",
+          component: AnalysesView,
+          meta: { title: "Análises", feature: "ANALYSES" },
+        },
         {
           path: "analyses/new",
           component: NewAnalysisView,
-          meta: { title: "Nova análise" },
+          meta: { title: "Nova análise", feature: "ANALYSIS_CREATE" },
         },
         {
           path: "analyses/search",
           component: NewAnalysisView,
-          meta: { title: "Buscar CAR" },
+          meta: { title: "Buscar CAR", feature: "CAR_SEARCH" },
         },
         {
           path: "analyses/:id",
           component: AnalysisDetailView,
-          meta: { title: "Detalhe da análise" },
+          meta: { title: "Detalhe da análise", feature: "ANALYSES" },
         },
         {
           path: "schedules",
           component: SchedulesView,
-          meta: { title: "Agendamento" },
+          meta: { title: "Agendamento", feature: "SCHEDULES" },
         },
         {
           path: "attachments",
           component: AttachmentsView,
-          meta: { title: "Anexos" },
+          meta: { title: "Anexos", platformOnly: true },
         },
         {
           path: "admin",
           component: AdminView,
-          meta: { title: "Painel Admin" },
+          meta: { title: "Painel Admin", platformOnly: true },
         },
         {
           path: "fornecedores",
           component: FornecedoresView,
-          meta: { title: "Fornecedores" },
+          meta: { title: "Fornecedores", platformOnly: true },
+        },
+        {
+          path: "403",
+          component: AccessDeniedView,
+          meta: { title: "Acesso negado" },
         },
       ],
     },
@@ -91,6 +109,7 @@ router.beforeEach(
     exchangeSession: () => authClient.exchangeSession(),
     getMeCached,
     getAccessStatus,
+    getAccessCached,
   }),
 );
 

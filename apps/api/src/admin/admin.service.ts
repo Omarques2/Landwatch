@@ -2,17 +2,43 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  Optional,
 } from '@nestjs/common';
-import { OrgRole, OrgStatus, Prisma, UserStatus } from '@prisma/client';
+import {
+  AppFeature,
+  OrgKind,
+  OrgRole,
+  OrgStatus,
+  Prisma,
+  UserStatus,
+} from '@prisma/client';
+import { AccessService } from '../auth/access.service';
+import { ActorContextService } from '../auth/actor-context.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateOrgDto } from './dto/create-org.dto';
 import { ManageMembershipDto } from './dto/manage-membership.dto';
 import { UpdateOrgDto } from './dto/update-org.dto';
 import { UpdateUserStatusDto } from './dto/update-user-status.dto';
 
+const TENANT_ADMIN_FEATURES: AppFeature[] = [
+  AppFeature.FARMS,
+  AppFeature.ANALYSES,
+  AppFeature.ANALYSIS_CREATE,
+  AppFeature.CAR_SEARCH,
+  AppFeature.SCHEDULES,
+];
+
+type UpdateOrgFeaturesDto = {
+  features: Array<{ feature: AppFeature | string; enabled: boolean }>;
+};
+
 @Injectable()
 export class AdminService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly actorContext?: ActorContextService,
+    @Optional() private readonly access?: AccessService,
+  ) {}
 
   private platformAdminSubjects() {
     return new Set(
@@ -34,7 +60,32 @@ export class AdminService {
   }
 
   async assertAdmin(subject: string) {
+    if (this.actorContext && this.access) {
+      const actor = await this.actorContext.fromSubject(subject, {
+        orgMode: 'platform',
+      });
+      await this.access.requirePlatformAdmin(actor);
+      return;
+    }
     if (this.platformAdminSubjects().has(subject) || this.isDevBypassAdmin(subject)) {
+      return;
+    }
+    const user = await this.prisma.user.findFirst({
+      where: { OR: [{ identityUserId: subject }, { entraSub: subject }] },
+      select: {
+        id: true,
+        status: true,
+        memberships: {
+          where: {
+            role: { in: [OrgRole.owner, OrgRole.admin] },
+            org: { kind: OrgKind.PLATFORM, status: OrgStatus.active },
+          },
+          select: { id: true },
+          take: 1,
+        },
+      },
+    });
+    if (user?.status === UserStatus.active && user.memberships.length > 0) {
       return;
     }
     throw new ForbiddenException({
@@ -85,6 +136,7 @@ export class AdminService {
             id: row.org.id,
             name: row.org.name,
             slug: row.org.slug,
+            kind: row.org.kind,
           }
         : null,
     };
@@ -114,6 +166,7 @@ export class AdminService {
                   id: membership.org.id,
                   name: membership.org.name,
                   slug: membership.org.slug,
+                  kind: membership.org.kind,
                 }
               : null,
           }))
@@ -130,6 +183,7 @@ export class AdminService {
           select: {
             memberships: true,
             orgUserPermissions: true,
+            featureAccess: true,
           },
         },
       },
@@ -146,8 +200,9 @@ export class AdminService {
       });
     }
     const slug = this.slugify(dto.slug?.trim() || name);
+    const kind = dto.kind ?? OrgKind.TENANT;
     return this.prisma.org.create({
-      data: { name, slug },
+      data: { name, slug, kind },
     });
   }
 
@@ -167,7 +222,63 @@ export class AdminService {
     if (dto.status !== undefined) {
       data.status = dto.status as OrgStatus;
     }
+    if (dto.kind !== undefined) {
+      data.kind = dto.kind as OrgKind;
+    }
     return this.prisma.org.update({ where: { id: orgId }, data });
+  }
+
+  async listOrgFeatures(subject: string, orgId: string) {
+    await this.assertAdmin(subject);
+    const rows = await this.prisma.orgFeatureAccess.findMany({
+      where: { orgId, feature: { in: TENANT_ADMIN_FEATURES } },
+      select: { feature: true, enabled: true },
+    });
+    const byFeature = new Map(rows.map((row) => [row.feature, row.enabled]));
+    return TENANT_ADMIN_FEATURES.map((feature) => ({
+      feature,
+      enabled: byFeature.get(feature) ?? false,
+    }));
+  }
+
+  async updateOrgFeatures(
+    subject: string,
+    orgId: string,
+    dto: UpdateOrgFeaturesDto,
+  ) {
+    await this.assertAdmin(subject);
+    const allowed = new Set<AppFeature>(TENANT_ADMIN_FEATURES);
+    for (const item of dto.features ?? []) {
+      if (!allowed.has(item.feature as AppFeature)) {
+        throw new BadRequestException({
+          code: 'ORG_FEATURE_NOT_ALLOWED',
+          message: 'Feature cannot be configured for tenant organizations',
+        });
+      }
+    }
+    await this.prisma.$transaction(async (tx) => {
+      for (const item of dto.features) {
+        await tx.orgFeatureAccess.upsert({
+          where: {
+            orgId_feature: { orgId, feature: item.feature as AppFeature },
+          },
+          create: {
+            orgId,
+            feature: item.feature as AppFeature,
+            enabled: Boolean(item.enabled),
+          },
+          update: { enabled: Boolean(item.enabled) },
+        });
+      }
+      await tx.orgFeatureAccess.updateMany({
+        where: {
+          orgId,
+          feature: { notIn: TENANT_ADMIN_FEATURES },
+        },
+        data: { enabled: false },
+      });
+    });
+    return this.listOrgFeatures(subject, orgId);
   }
 
   async listUsers(subject: string, q?: string) {
@@ -199,6 +310,7 @@ export class AdminService {
                 id: true,
                 name: true,
                 slug: true,
+                kind: true,
               },
             },
           },
@@ -219,7 +331,7 @@ export class AdminService {
         user: {
           select: { id: true, email: true, displayName: true, status: true },
         },
-        org: { select: { id: true, name: true, slug: true } },
+        org: { select: { id: true, name: true, slug: true, kind: true } },
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -240,7 +352,7 @@ export class AdminService {
         user: {
           select: { id: true, email: true, displayName: true, status: true },
         },
-        org: { select: { id: true, name: true, slug: true } },
+        org: { select: { id: true, name: true, slug: true, kind: true } },
       },
     });
     return this.serializeMembership(row);
@@ -260,7 +372,7 @@ export class AdminService {
         user: {
           select: { id: true, email: true, displayName: true, status: true },
         },
-        org: { select: { id: true, name: true, slug: true } },
+        org: { select: { id: true, name: true, slug: true, kind: true } },
       },
     });
     return this.serializeMembership(row);
@@ -316,6 +428,7 @@ export class AdminService {
                   id: true,
                   name: true,
                   slug: true,
+                  kind: true,
                 },
               },
             },

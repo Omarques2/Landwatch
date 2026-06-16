@@ -295,7 +295,27 @@ export class AnalysisPdfService {
           : context.apiKey;
     try {
       return await attachmentsAny.listAnalysisAttachments(actor, analysisId);
-    } catch {
+    } catch (error: any) {
+      const status = error?.status ?? error?.response?.status;
+      if (status === 403) {
+        this.logger.warn(
+          JSON.stringify({
+            event: 'analysis_pdf.attachments_forbidden',
+            analysisId,
+            mode: context.mode,
+            code: error?.response?.code ?? error?.code,
+          }),
+        );
+        return [];
+      }
+      this.logger.error(
+        JSON.stringify({
+          event: 'analysis_pdf.attachments_failed',
+          analysisId,
+          mode: context.mode,
+          error: error?.message ?? String(error),
+        }),
+      );
       return [];
     }
   }

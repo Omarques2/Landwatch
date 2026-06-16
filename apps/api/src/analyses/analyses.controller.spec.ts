@@ -3,13 +3,44 @@ import { StreamableFile } from '@nestjs/common';
 import { buffer } from 'node:stream/consumers';
 import { AnalysesController } from './analyses.controller';
 import { AnalysesService } from './analyses.service';
+import { ActorContextService } from '../auth/actor-context.service';
+import { AccessService } from '../auth/access.service';
 
 describe('AnalysesController', () => {
+  const actor = {
+    userId: 'user-1',
+    subject: 'user-sub',
+    orgId: 'org-1',
+    orgRole: 'member',
+    isPlatformAdmin: false,
+    isPlatformOrgAdmin: false,
+    source: 'user',
+  };
+
+  function accessProviders() {
+    return [
+      {
+        provide: ActorContextService,
+        useValue: { fromRequest: jest.fn().mockResolvedValue(actor) },
+      },
+      {
+        provide: AccessService,
+        useValue: {
+          requireTenantFeature: jest.fn().mockResolvedValue(undefined),
+          assertCanReadAnalysis: jest.fn().mockResolvedValue(undefined),
+        },
+      },
+    ];
+  }
+
   it('rejects create when user is missing', async () => {
     const analysesService = { create: jest.fn() };
     const module: TestingModule = await Test.createTestingModule({
       controllers: [AnalysesController],
-      providers: [{ provide: AnalysesService, useValue: analysesService }],
+      providers: [
+        { provide: AnalysesService, useValue: analysesService },
+        ...accessProviders(),
+      ],
     }).compile();
 
     const controller = module.get(AnalysesController);
@@ -30,13 +61,20 @@ describe('AnalysesController', () => {
     };
     const module: TestingModule = await Test.createTestingModule({
       controllers: [AnalysesController],
-      providers: [{ provide: AnalysesService, useValue: analysesService }],
+      providers: [
+        { provide: AnalysesService, useValue: analysesService },
+        ...accessProviders(),
+      ],
     }).compile();
 
     const controller = module.get(AnalysesController);
+    const req = {
+      user: { sub: 'user-sub' },
+      headers: { 'x-org-id': 'org-1' },
+    } as any;
 
-    await controller.getMap('analysis-1', '0.005');
-    await controller.getGeoJson('analysis-1', '0.005');
+    await controller.getMap(req, 'analysis-1', '0.005');
+    await controller.getGeoJson(req, 'analysis-1', '0.005');
 
     expect(analysesService.getMapById).toHaveBeenCalledWith(
       'analysis-1',
@@ -58,7 +96,10 @@ describe('AnalysesController', () => {
     };
     const module: TestingModule = await Test.createTestingModule({
       controllers: [AnalysesController],
-      providers: [{ provide: AnalysesService, useValue: analysesService }],
+      providers: [
+        { provide: AnalysesService, useValue: analysesService },
+        ...accessProviders(),
+      ],
     }).compile();
 
     const controller = module.get(AnalysesController);

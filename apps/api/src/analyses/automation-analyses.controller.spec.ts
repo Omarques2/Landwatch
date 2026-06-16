@@ -3,15 +3,43 @@ import { StreamableFile } from '@nestjs/common';
 import { buffer } from 'node:stream/consumers';
 import { ApiKeyScope } from '@prisma/client';
 import { API_KEY_SCOPES_KEY } from '../auth/api-key-scopes.decorator';
+import { AccessService } from '../auth/access.service';
+import { ActorContextService } from '../auth/actor-context.service';
 import { AutomationAnalysesController } from './automation-analyses.controller';
 import { AnalysesService } from './analyses.service';
 
 describe('AutomationAnalysesController', () => {
+  const actor = {
+    userId: 'm2m-user-1',
+    subject: 'm2m:client-1',
+    orgId: 'org-1',
+    orgRole: null,
+    isPlatformAdmin: false,
+    isPlatformOrgAdmin: false,
+    source: 'apiKey',
+  };
+
+  function accessProviders() {
+    return [
+      {
+        provide: ActorContextService,
+        useValue: { fromApiKey: jest.fn().mockResolvedValue(actor) },
+      },
+      {
+        provide: AccessService,
+        useValue: { assertCanReadAnalysis: jest.fn().mockResolvedValue(undefined) },
+      },
+    ];
+  }
+
   it('rejects create when api key context is missing', async () => {
     const analysesService = { createForApiKey: jest.fn() };
     const module: TestingModule = await Test.createTestingModule({
       controllers: [AutomationAnalysesController],
-      providers: [{ provide: AnalysesService, useValue: analysesService }],
+      providers: [
+        { provide: AnalysesService, useValue: analysesService },
+        ...accessProviders(),
+      ],
     }).compile();
 
     const controller = module.get(AutomationAnalysesController);
@@ -24,13 +52,16 @@ describe('AutomationAnalysesController', () => {
 
   it('forwards create to service with api key context', async () => {
     const analysesService = {
-      createForApiKey: jest
+      createForActor: jest
         .fn()
         .mockResolvedValue({ analysisId: 'analysis-1' }),
     };
     const module: TestingModule = await Test.createTestingModule({
       controllers: [AutomationAnalysesController],
-      providers: [{ provide: AnalysesService, useValue: analysesService }],
+      providers: [
+        { provide: AnalysesService, useValue: analysesService },
+        ...accessProviders(),
+      ],
     }).compile();
 
     const controller = module.get(AutomationAnalysesController);
@@ -38,7 +69,8 @@ describe('AutomationAnalysesController', () => {
       apiKey: {
         id: 'key-1',
         clientId: 'client-1',
-        orgId: null,
+        orgId: 'org-1',
+        kind: 'TENANT',
         scopes: [ApiKeyScope.analysis_write],
       },
     };
@@ -46,8 +78,8 @@ describe('AutomationAnalysesController', () => {
 
     const result = await controller.create(req as any, dto as any);
     expect(result).toEqual({ analysisId: 'analysis-1' });
-    expect(analysesService.createForApiKey).toHaveBeenCalledWith(
-      req.apiKey,
+    expect(analysesService.createForActor).toHaveBeenCalledWith(
+      actor,
       dto,
     );
   });
@@ -61,7 +93,10 @@ describe('AutomationAnalysesController', () => {
     };
     const module: TestingModule = await Test.createTestingModule({
       controllers: [AutomationAnalysesController],
-      providers: [{ provide: AnalysesService, useValue: analysesService }],
+      providers: [
+        { provide: AnalysesService, useValue: analysesService },
+        ...accessProviders(),
+      ],
     }).compile();
 
     const controller = module.get(AutomationAnalysesController);
@@ -69,7 +104,8 @@ describe('AutomationAnalysesController', () => {
       apiKey: {
         id: 'key-1',
         clientId: 'client-1',
-        orgId: null,
+        orgId: 'org-1',
+        kind: 'TENANT',
         scopes: [ApiKeyScope.analysis_read],
       },
     };
@@ -125,7 +161,10 @@ describe('AutomationAnalysesController', () => {
     };
     const module: TestingModule = await Test.createTestingModule({
       controllers: [AutomationAnalysesController],
-      providers: [{ provide: AnalysesService, useValue: analysesService }],
+      providers: [
+        { provide: AnalysesService, useValue: analysesService },
+        ...accessProviders(),
+      ],
     }).compile();
 
     const controller = module.get(AutomationAnalysesController);
@@ -134,6 +173,7 @@ describe('AutomationAnalysesController', () => {
         id: 'key-1',
         clientId: 'client-1',
         orgId: 'org-1',
+        kind: 'TENANT',
         scopes: [ApiKeyScope.pdf_read],
       },
       headers: {

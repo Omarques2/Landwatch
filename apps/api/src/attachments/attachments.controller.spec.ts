@@ -23,12 +23,7 @@ function makeServiceMock() {
       canManageCategories: false,
       canManagePermissions: false,
       canViewAudit: false,
-      allowedScopes: [
-        'ORG_FEATURE',
-        'ORG_CAR',
-        'PLATFORM_FEATURE',
-        'PLATFORM_CAR',
-      ],
+      allowedScopes: ['ORG_FEATURE', 'ORG_CAR'],
     }),
     getDatasets: jest.fn().mockResolvedValue([]),
     getFeatureAttachments: jest.fn().mockResolvedValue({
@@ -37,6 +32,12 @@ function makeServiceMock() {
     }),
     createAttachment: jest.fn().mockResolvedValue({ id: 'att-1' }),
     getPmtilesArchive: jest.fn(),
+  };
+}
+
+function makeAccessMock() {
+  return {
+    requirePlatformAdmin: jest.fn().mockResolvedValue(undefined),
   };
 }
 
@@ -75,7 +76,8 @@ describe('AttachmentsController', () => {
 
   it('returns datasets from service', async () => {
     const service = makeServiceMock();
-    const controller = new AttachmentsController(service as any);
+    const access = makeAccessMock();
+    const controller = new AttachmentsController(service as any, access as any);
     await controller.getDatasets({
       user: { sub: 'sub-1' },
       headers: { 'x-org-id': 'org-1' },
@@ -85,11 +87,17 @@ describe('AttachmentsController', () => {
       'org-1',
     );
     expect(service.getDatasets).toHaveBeenCalled();
+    expect(access.requirePlatformAdmin).toHaveBeenCalledWith(
+      expect.objectContaining({ orgId: 'org-1' }),
+    );
   });
 
   it('returns capabilities from service', async () => {
     const service = makeServiceMock();
-    const controller = new AttachmentsController(service as any);
+    const controller = new AttachmentsController(
+      service as any,
+      makeAccessMock() as any,
+    );
 
     const result = await controller.getCapabilities({
       user: { sub: 'sub-1' },
@@ -108,18 +116,16 @@ describe('AttachmentsController', () => {
     );
     expect(result).toMatchObject({
       canUpload: true,
-      allowedScopes: [
-        'ORG_FEATURE',
-        'ORG_CAR',
-        'PLATFORM_FEATURE',
-        'PLATFORM_CAR',
-      ],
+      allowedScopes: ['ORG_FEATURE', 'ORG_CAR'],
     });
   });
 
   it('rejects invalid metadata json on multipart upload', async () => {
     const service = makeServiceMock();
-    const controller = new AttachmentsController(service as any);
+    const controller = new AttachmentsController(
+      service as any,
+      makeAccessMock() as any,
+    );
     await expect(
       controller.createAttachment(
         { user: { sub: 'sub-1' }, headers: {}, ip: '127.0.0.1' } as any,
@@ -136,7 +142,10 @@ describe('AttachmentsController', () => {
 
   it('accepts ORG_CAR target metadata without appliesOrgId and forwards to service', async () => {
     const service = makeServiceMock();
-    const controller = new AttachmentsController(service as any);
+    const controller = new AttachmentsController(
+      service as any,
+      makeAccessMock() as any,
+    );
 
     await controller.createAttachment(
       { user: { sub: 'sub-1' }, headers: {}, ip: '127.0.0.1' } as any,
@@ -182,7 +191,10 @@ describe('AttachmentsController', () => {
 
   it('forwards optional carKey when listing feature attachments', async () => {
     const service = makeServiceMock();
-    const controller = new AttachmentsController(service as any);
+    const controller = new AttachmentsController(
+      service as any,
+      makeAccessMock() as any,
+    );
 
     await controller.getFeatureAttachments(
       { user: { sub: 'sub-1' }, headers: { 'x-org-id': 'org-1' } } as any,
@@ -201,7 +213,10 @@ describe('AttachmentsController', () => {
 
   it('destroys PMTiles source stream when response closes', async () => {
     const service = makeServiceMock();
-    const controller = new AttachmentsController(service as any);
+    const controller = new AttachmentsController(
+      service as any,
+      makeAccessMock() as any,
+    );
     const stream = new PassThrough();
     const destroySpy = jest.spyOn(stream, 'destroy');
     service.getPmtilesArchive.mockResolvedValue({

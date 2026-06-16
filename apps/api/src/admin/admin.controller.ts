@@ -56,6 +56,20 @@ export class AdminController {
     return this.admin.updateOrg(this.subject(req), orgId, dto);
   }
 
+  @Get('orgs/:orgId/features')
+  listOrgFeatures(@Req() req: AuthedRequest, @Param('orgId') orgId: string) {
+    return this.admin.listOrgFeatures(this.subject(req), orgId);
+  }
+
+  @Patch('orgs/:orgId/features')
+  updateOrgFeatures(
+    @Req() req: AuthedRequest,
+    @Param('orgId') orgId: string,
+    @Body() dto: { features: Array<{ feature: string; enabled: boolean }> },
+  ) {
+    return this.admin.updateOrgFeatures(this.subject(req), orgId, dto);
+  }
+
   @Get('users')
   listUsers(@Req() req: AuthedRequest, @Query('q') q?: string) {
     return this.admin.listUsers(this.subject(req), q);

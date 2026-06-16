@@ -10,6 +10,8 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import type { AuthedRequest } from '../auth/authed-request.type';
+import { AccessService } from '../auth/access.service';
+import { ActorContextService } from '../auth/actor-context.service';
 import { SchedulesService } from './schedules.service';
 import { CreateScheduleDto } from './dto/create-schedule.dto';
 import { UpdateScheduleDto } from './dto/update-schedule.dto';
@@ -17,7 +19,11 @@ import { ListSchedulesQuery } from './dto/list-schedules.query';
 
 @Controller('v1/schedules')
 export class SchedulesController {
-  constructor(private readonly schedules: SchedulesService) {}
+  constructor(
+    private readonly schedules: SchedulesService,
+    private readonly actorContext: ActorContextService,
+    private readonly access: AccessService,
+  ) {}
 
   @Post()
   async create(@Req() req: AuthedRequest, @Body() dto: CreateScheduleDto) {
@@ -27,12 +33,16 @@ export class SchedulesController {
         message: 'Missing user claims',
       });
     }
-    return this.schedules.create(req.user, dto);
+    const actor = await this.actorContext.fromRequest(req, { orgMode: 'tenant' });
+    await this.access.requireTenantFeature(actor, 'SCHEDULES');
+    return this.schedules.createForActor(actor, dto);
   }
 
   @Get()
-  async list(@Query() query: ListSchedulesQuery) {
-    return this.schedules.list({
+  async list(@Req() req: AuthedRequest, @Query() query: ListSchedulesQuery) {
+    const actor = await this.actorContext.fromRequest(req, { orgMode: 'tenant' });
+    await this.access.requireTenantFeature(actor, 'SCHEDULES');
+    return this.schedules.listForActor(actor, {
       page: query.page ?? 1,
       pageSize: query.pageSize ?? 20,
       farmId: query.farmId,
@@ -42,22 +52,34 @@ export class SchedulesController {
   }
 
   @Patch(':id')
-  async update(@Param('id') id: string, @Body() dto: UpdateScheduleDto) {
-    return this.schedules.update(id, dto);
+  async update(
+    @Req() req: AuthedRequest,
+    @Param('id') id: string,
+    @Body() dto: UpdateScheduleDto,
+  ) {
+    const actor = await this.actorContext.fromRequest(req, { orgMode: 'tenant' });
+    await this.access.requireTenantFeature(actor, 'SCHEDULES');
+    return this.schedules.updateForActor(actor, id, dto);
   }
 
   @Post(':id/pause')
-  async pause(@Param('id') id: string) {
-    return this.schedules.pause(id);
+  async pause(@Req() req: AuthedRequest, @Param('id') id: string) {
+    const actor = await this.actorContext.fromRequest(req, { orgMode: 'tenant' });
+    await this.access.requireTenantFeature(actor, 'SCHEDULES');
+    return this.schedules.pauseForActor(actor, id);
   }
 
   @Post(':id/resume')
-  async resume(@Param('id') id: string) {
-    return this.schedules.resume(id);
+  async resume(@Req() req: AuthedRequest, @Param('id') id: string) {
+    const actor = await this.actorContext.fromRequest(req, { orgMode: 'tenant' });
+    await this.access.requireTenantFeature(actor, 'SCHEDULES');
+    return this.schedules.resumeForActor(actor, id);
   }
 
   @Post(':id/run-now')
-  async runNow(@Param('id') id: string) {
-    return this.schedules.runNow(id);
+  async runNow(@Req() req: AuthedRequest, @Param('id') id: string) {
+    const actor = await this.actorContext.fromRequest(req, { orgMode: 'tenant' });
+    await this.access.requireTenantFeature(actor, 'SCHEDULES');
+    return this.schedules.runNowForActor(actor, id);
   }
 }

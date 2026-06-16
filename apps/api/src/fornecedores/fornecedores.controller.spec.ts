@@ -1,8 +1,23 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { FornecedoresController } from './fornecedores.controller';
 import { FornecedoresService } from './fornecedores.service';
+import { ActorContextService } from '../auth/actor-context.service';
+import { AccessService } from '../auth/access.service';
 
 describe('FornecedoresController', () => {
+  function accessProviders() {
+    return [
+      {
+        provide: ActorContextService,
+        useValue: { fromRequest: jest.fn().mockResolvedValue({ isPlatformAdmin: true }) },
+      },
+      {
+        provide: AccessService,
+        useValue: { requirePlatformAdmin: jest.fn().mockResolvedValue(undefined) },
+      },
+    ];
+  }
+
   it('returns summary from service', async () => {
     const service = {
       getSummary: jest.fn().mockResolvedValue({ totalFornecedores: 1 }),
@@ -10,11 +25,14 @@ describe('FornecedoresController', () => {
 
     const module: TestingModule = await Test.createTestingModule({
       controllers: [FornecedoresController],
-      providers: [{ provide: FornecedoresService, useValue: service }],
+      providers: [
+        { provide: FornecedoresService, useValue: service },
+        ...accessProviders(),
+      ],
     }).compile();
 
     const controller = module.get(FornecedoresController);
-    await expect(controller.getSummary()).resolves.toEqual({
+    await expect(controller.getSummary({ user: { sub: 'sub-1' } } as any)).resolves.toEqual({
       totalFornecedores: 1,
     });
     expect(service.getSummary).toHaveBeenCalledTimes(1);
@@ -32,11 +50,14 @@ describe('FornecedoresController', () => {
 
     const module: TestingModule = await Test.createTestingModule({
       controllers: [FornecedoresController],
-      providers: [{ provide: FornecedoresService, useValue: service }],
+      providers: [
+        { provide: FornecedoresService, useValue: service },
+        ...accessProviders(),
+      ],
     }).compile();
 
     const controller = module.get(FornecedoresController);
-    await controller.list({
+    await controller.list({ user: { sub: 'sub-1' } } as any, {
       page: 2,
       pageSize: 10,
       nome: 'Fornecedor X',
@@ -67,11 +88,18 @@ describe('FornecedoresController', () => {
 
     const module: TestingModule = await Test.createTestingModule({
       controllers: [FornecedoresController],
-      providers: [{ provide: FornecedoresService, useValue: service }],
+      providers: [
+        { provide: FornecedoresService, useValue: service },
+        ...accessProviders(),
+      ],
     }).compile();
 
     const controller = module.get(FornecedoresController);
-    await controller.listGtaPendencias('f-1', { status: 'PENDENTE' } as any);
+    await controller.listGtaPendencias(
+      'f-1',
+      { user: { sub: 'user-1' } } as any,
+      { status: 'PENDENTE' } as any,
+    );
     await controller.updateCar({ user: { sub: 'user-1' } } as any, 'f-1', {
       car: 'MT-1234567-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
     });

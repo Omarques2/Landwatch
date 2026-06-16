@@ -1,4 +1,5 @@
-import { IsOptional, IsString, MaxLength } from 'class-validator';
+import { OrgKind } from '@prisma/client';
+import { IsEnum, IsOptional, IsString, MaxLength } from 'class-validator';
 
 export class CreateOrgDto {
   @IsString()
@@ -9,4 +10,8 @@ export class CreateOrgDto {
   @IsString()
   @MaxLength(120)
   slug?: string;
+
+  @IsOptional()
+  @IsEnum(OrgKind)
+  kind?: OrgKind;
 }

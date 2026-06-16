@@ -15,19 +15,52 @@ export type MeResponse = {
   memberships?: any[];
 };
 
+export type AppFeature =
+  | "FARMS"
+  | "ANALYSES"
+  | "ANALYSIS_CREATE"
+  | "CAR_SEARCH"
+  | "SCHEDULES"
+  | "ATTACHMENTS"
+  | "ATTACHMENTS_REVIEW";
+
+export type AccessMeResponse = {
+  activeOrg: {
+    id: string;
+    name: string;
+    slug: string;
+    status: string;
+    kind: "TENANT" | "PLATFORM";
+  } | null;
+  activeOrgId: string | null;
+  orgRole: "owner" | "admin" | "member" | null;
+  isPlatformAdmin: boolean;
+  isPlatformOrgAdmin: boolean;
+  features: AppFeature[];
+  permissions: string[];
+};
+
 type CacheState = {
   value: MeResponse | null;
   fetchedAt: number;
   inflight?: Promise<MeResponse | null>;
 };
 
+type AccessCacheState = {
+  value: AccessMeResponse | null;
+  fetchedAt: number;
+  inflight?: Promise<AccessMeResponse | null>;
+};
+
 let cache: CacheState | null = null;
+let accessCache: AccessCacheState | null = null;
 
 // TTL curto para navegação (evita re-fetch em cada route)
 const TTL_MS = 5_000;
 
 export function clearMeCache() {
   cache = null;
+  accessCache = null;
 }
 
 async function authenticatedGet<T>(
@@ -102,6 +135,56 @@ export async function getMeCached(force = false): Promise<MeResponse | null> {
   })();
 
   cache = { value: cache?.value ?? null, fetchedAt: cache?.fetchedAt ?? 0, inflight };
+  return inflight;
+}
+
+export async function getAccessCached(force = false): Promise<AccessMeResponse | null> {
+  const now = Date.now();
+
+  if (!force && accessCache && now - accessCache.fetchedAt < TTL_MS) {
+    return accessCache.value;
+  }
+
+  if (!force && accessCache?.inflight) return accessCache.inflight;
+
+  const inflight = (async () => {
+    try {
+      const res = await runWithRetryBackoff(
+        async () =>
+          authenticatedGet<AccessMeResponse>("/v1/access/me", "/v1/access/me"),
+        {
+          attempts: 3,
+          baseDelayMs: 150,
+          maxDelayMs: 1_000,
+          jitterMs: 80,
+          shouldRetry: (error) => {
+            if (isRetryableHttpError(error)) return true;
+            const status = (error as any)?.response?.status;
+            return status === undefined || status === null;
+          },
+        },
+      );
+      accessCache = { value: res, fetchedAt: Date.now() };
+      return res;
+    } catch (error: any) {
+      const status = error?.response?.status;
+      if (status === 401) {
+        accessCache = { value: null, fetchedAt: Date.now() };
+        return null;
+      }
+      const fallback = accessCache?.value ?? null;
+      accessCache = { value: fallback, fetchedAt: Date.now() };
+      return fallback;
+    } finally {
+      if (accessCache) delete accessCache.inflight;
+    }
+  })();
+
+  accessCache = {
+    value: accessCache?.value ?? null,
+    fetchedAt: accessCache?.fetchedAt ?? 0,
+    inflight,
+  };
   return inflight;
 }
 

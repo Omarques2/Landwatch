@@ -22,6 +22,7 @@ import { validateSync } from 'class-validator';
 import type { Response } from 'express';
 import { pipeline } from 'stream/promises';
 import type { AuthedRequest } from '../auth/authed-request.type';
+import { AccessService } from '../auth/access.service';
 import { AttachmentsService } from './attachments.service';
 import { CreateAttachmentCategoryDto } from './dto/create-attachment-category.dto';
 import { UpdateAttachmentCategoryDto } from './dto/update-attachment-category.dto';
@@ -66,7 +67,10 @@ function isClientAbortLikeError(error: unknown): boolean {
 
 @Controller('v1/attachments')
 export class AttachmentsController {
-  constructor(private readonly attachments: AttachmentsService) {}
+  constructor(
+    private readonly attachments: AttachmentsService,
+    private readonly access: AccessService,
+  ) {}
 
   private async resolveActor(req: AuthedRequest) {
     if (!req.user?.sub) {
@@ -75,10 +79,12 @@ export class AttachmentsController {
         message: 'Missing user claims',
       });
     }
-    return this.attachments.resolveActorFromRequest(
+    const actor = await this.attachments.resolveActorFromRequest(
       String(req.user.sub),
       req.headers['x-org-id'],
     );
+    await this.access.requirePlatformAdmin(actor as any);
+    return actor;
   }
 
   @Get('datasets')

@@ -1,12 +1,21 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, Req } from '@nestjs/common';
+import type { AuthedRequest } from '../auth/authed-request.type';
+import { AccessService } from '../auth/access.service';
+import { ActorContextService } from '../auth/actor-context.service';
 import { DashboardService } from './dashboard.service';
 
 @Controller('v1/dashboard')
 export class DashboardController {
-  constructor(private readonly dashboard: DashboardService) {}
+  constructor(
+    private readonly dashboard: DashboardService,
+    private readonly actorContext: ActorContextService,
+    private readonly access: AccessService,
+  ) {}
 
   @Get('summary')
-  async getSummary() {
+  async getSummary(@Req() req: AuthedRequest) {
+    const actor = await this.actorContext.fromRequest(req, { orgMode: 'platform' });
+    await this.access.requirePlatformAdmin(actor);
     return this.dashboard.getSummary();
   }
 }

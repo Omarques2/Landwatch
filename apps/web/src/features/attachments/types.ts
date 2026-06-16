@@ -309,11 +309,25 @@ export type AdminOrgRow = {
   name: string;
   slug: string;
   status: 'active' | 'disabled';
+  kind?: 'TENANT' | 'PLATFORM';
   createdAt: string;
   _count?: {
     memberships: number;
     orgUserPermissions: number;
+    featureAccess?: number;
   };
+};
+
+export type AdminOrgFeature =
+  | 'FARMS'
+  | 'ANALYSES'
+  | 'ANALYSIS_CREATE'
+  | 'CAR_SEARCH'
+  | 'SCHEDULES';
+
+export type AdminOrgFeatureRow = {
+  feature: AdminOrgFeature;
+  enabled: boolean;
 };
 
 export type AdminCapabilities = {
@@ -335,6 +349,7 @@ export type AdminUserRow = {
       id: string;
       name: string;
       slug: string;
+      kind?: 'TENANT' | 'PLATFORM';
     } | null;
   }>;
 };
@@ -355,6 +370,7 @@ export type AdminMembershipRow = {
     id: string;
     name: string;
     slug: string;
+    kind?: 'TENANT' | 'PLATFORM';
   } | null;
 };
 

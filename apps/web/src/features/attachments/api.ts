@@ -10,6 +10,7 @@ import type {
   AttachmentTargetSelectionResponse,
   AttachmentVisibility,
   AdminCapabilities,
+  AdminOrgFeatureRow,
   AdminMembershipRow,
   AdminOrgRow,
   AdminUserRow,
@@ -370,6 +371,24 @@ export async function createAdminOrg(payload: { name: string; slug?: string }) {
 export async function updateAdminOrg(orgId: string, payload: Partial<Pick<AdminOrgRow, 'name' | 'status'>>) {
   const response = await http.patch<ApiEnvelope<AdminOrgRow>>(
     `/v1/admin/orgs/${encodeURIComponent(orgId)}`,
+    payload,
+  );
+  return unwrapData(response.data);
+}
+
+export async function listAdminOrgFeatures(orgId: string) {
+  const response = await http.get<ApiEnvelope<AdminOrgFeatureRow[]>>(
+    `/v1/admin/orgs/${encodeURIComponent(orgId)}/features`,
+  );
+  return unwrapData(response.data);
+}
+
+export async function updateAdminOrgFeatures(
+  orgId: string,
+  payload: { features: AdminOrgFeatureRow[] },
+) {
+  const response = await http.patch<ApiEnvelope<AdminOrgFeatureRow[]>>(
+    `/v1/admin/orgs/${encodeURIComponent(orgId)}/features`,
     payload,
   );
   return unwrapData(response.data);

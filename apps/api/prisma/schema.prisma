@@ -54,6 +54,7 @@ model Org {
   name      String
   slug      String    @unique
   status    OrgStatus @default(active)
+  kind      OrgKind   @default(TENANT)
   createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
 
   memberships                    OrgMembership[]
@@ -61,12 +62,15 @@ model Org {
   apiClients                     ApiClient[]
   farms                          Farm[]
   analyses                       Analysis[]
+  schedules                      AnalysisSchedule[]
+  featureAccess                  OrgFeatureAccess[]
   orgUserPermissions             OrgUserPermission[]
   ownedAttachments               Attachment[]                  @relation("AttachmentOwnerOrg")
   attachmentTargets              AttachmentTarget[]            @relation("AttachmentTargetAppliesOrg")
   attachmentEvents               AttachmentEvent[]             @relation("AttachmentEventActorOrg")
   analysisAttachmentEffectiveOrg AnalysisAttachmentEffective[] @relation("AnalysisAttachmentEffectiveCapturedOrg")
   attachmentMapFilterSessions    AttachmentMapFilterSession[]  @relation("AttachmentMapFilterSessionOrg")
+  carMapSearchSessions           CarMapSearchSession[]         @relation("CarMapSearchSessionOrg")
 
   @@map("org")
   @@schema("app")
@@ -120,10 +124,11 @@ model ApiClient {
   id        String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   name      String
   orgId     String?         @map("org_id") @db.Uuid
+  kind      ApiClientKind   @default(TENANT)
   status    ApiClientStatus @default(active)
   createdAt DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  org  Org?     @relation(fields: [orgId], references: [id], onDelete: SetNull)
+  org  Org?     @relation(fields: [orgId], references: [id], onDelete: Restrict)
   keys ApiKey[]
 
   @@map("api_client")
@@ -159,13 +164,12 @@ model Farm {
   updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   owner     User               @relation(fields: [ownerUserId], references: [id], onDelete: Restrict)
-  org       Org?               @relation(fields: [orgId], references: [id], onDelete: SetNull)
+  org       Org?               @relation(fields: [orgId], references: [id], onDelete: Restrict)
   analyses  Analysis[]
   schedules AnalysisSchedule[]
   alerts    AnalysisAlert[]
   documents FarmDocument[]
 
-  @@unique([carKey], map: "farm_car_key_key")
   @@index([ownerUserId], map: "farm_owner_user_id_idx")
   @@index([orgId], map: "farm_org_id_idx")
   @@map("farm")
@@ -314,6 +318,7 @@ model AnalysisPostprocessJob {
 model AnalysisSchedule {
   id              String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   farmId          String            @map("farm_id") @db.Uuid
+  orgId           String?           @map("org_id") @db.Uuid
   analysisKind    AnalysisKind      @map("analysis_kind")
   frequency       ScheduleFrequency
   nextRunAt       DateTime          @map("next_run_at") @db.Timestamptz(6)
@@ -325,11 +330,13 @@ model AnalysisSchedule {
   updatedAt       DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   farm      Farm            @relation(fields: [farmId], references: [id], onDelete: Cascade)
+  org       Org?            @relation(fields: [orgId], references: [id], onDelete: Restrict)
   createdBy User            @relation("UserSchedules", fields: [createdByUserId], references: [id], onDelete: Restrict)
   analyses  Analysis[]      @relation("ScheduleAnalyses")
   alerts    AnalysisAlert[]
 
   @@index([farmId], map: "analysis_schedule_farm_id_idx")
+  @@index([orgId], map: "analysis_schedule_org_id_idx")
   @@index([isActive, nextRunAt], map: "analysis_schedule_due_idx")
   @@index([createdByUserId], map: "analysis_schedule_user_id_idx")
   @@map("analysis_schedule")
@@ -390,6 +397,22 @@ model OrgUserPermission {
   @@index([orgId, permission], map: "org_user_permission_org_idx")
   @@index([userId, permission], map: "org_user_permission_user_idx")
   @@map("org_user_permission")
+  @@schema("app")
+}
+
+model OrgFeatureAccess {
+  id        String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId     String     @map("org_id") @db.Uuid
+  feature   AppFeature
+  enabled   Boolean    @default(true)
+  createdAt DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime   @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  org Org @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, feature], map: "org_feature_access_org_feature_key")
+  @@index([orgId], map: "org_feature_access_org_idx")
+  @@map("org_feature_access")
   @@schema("app")
 }
 
@@ -538,6 +561,7 @@ model AttachmentMapFilterSession {
 model CarMapSearchSession {
   id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   actorUserId    String   @map("actor_user_id") @db.Uuid
+  actorOrgId     String?  @map("actor_org_id") @db.Uuid
   searchVersion  Int      @default(1) @map("search_version")
   paramsJson     Json     @map("params_json")
   expiresAt      DateTime @map("expires_at") @db.Timestamptz(6)
@@ -545,8 +569,10 @@ model CarMapSearchSession {
   updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   actorUser User @relation("CarMapSearchSessionUser", fields: [actorUserId], references: [id], onDelete: Cascade)
+  actorOrg  Org? @relation("CarMapSearchSessionOrg", fields: [actorOrgId], references: [id], onDelete: Cascade)
 
   @@index([actorUserId, createdAt(sort: Desc)], map: "car_map_search_session_user_idx")
+  @@index([actorOrgId, createdAt(sort: Desc)], map: "car_map_search_session_org_idx")
   @@index([expiresAt], map: "car_map_search_session_expires_idx")
   @@map("car_map_search_session")
   @@schema("app")
@@ -603,6 +629,14 @@ enum OrgStatus {
   @@schema("app")
 }
 
+enum OrgKind {
+  TENANT
+  PLATFORM
+
+  @@map("org_kind")
+  @@schema("app")
+}
+
 enum OrgRole {
   owner
   admin
@@ -624,6 +658,27 @@ enum OrgPermission {
   ATTACHMENT_REVIEW
 
   @@map("org_permission")
+  @@schema("app")
+}
+
+enum AppFeature {
+  FARMS
+  ANALYSES
+  ANALYSIS_CREATE
+  CAR_SEARCH
+  SCHEDULES
+  ATTACHMENTS
+  ATTACHMENTS_REVIEW
+
+  @@map("app_feature")
+  @@schema("app")
+}
+
+enum ApiClientKind {
+  TENANT
+  PLATFORM
+
+  @@map("api_client_kind")
   @@schema("app")
 }
 

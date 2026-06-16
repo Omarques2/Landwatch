@@ -3,6 +3,8 @@ import { flushPromises, mount } from "@vue/test-utils";
 import AnalysesView from "@/views/AnalysesView.vue";
 import { http } from "@/api/http";
 
+const routerPushMock = vi.fn();
+
 vi.mock("@/api/http", () => ({
   http: {
     get: vi.fn(),
@@ -10,10 +12,14 @@ vi.mock("@/api/http", () => ({
 }));
 
 vi.mock("vue-router", () => ({
-  useRouter: () => ({ push: vi.fn() }),
+  useRouter: () => ({ push: routerPushMock }),
 }));
 
 describe("AnalysesView", () => {
+  beforeEach(() => {
+    routerPushMock.mockReset();
+  });
+
   it("renders skeleton while analyses are loading", () => {
     (http.get as unknown as ReturnType<typeof vi.fn>).mockReturnValue(
       new Promise(() => {}),
@@ -131,6 +137,23 @@ describe("AnalysesView", () => {
     await flushPromises();
 
     expect(wrapper.text()).toContain("DETER preventiva");
+  });
+
+  it("redirects to new analysis when list access is forbidden", async () => {
+    const mockGet = http.get as unknown as ReturnType<typeof vi.fn>;
+    mockGet.mockImplementation((url: string) => {
+      if (url === "/v1/analyses") {
+        return Promise.reject({ response: { status: 403 } });
+      }
+      return Promise.resolve({
+        data: { data: [], meta: { page: 1, pageSize: 20, total: 0 } },
+      });
+    });
+
+    mount(AnalysesView);
+    await flushPromises();
+
+    expect(routerPushMock).toHaveBeenCalledWith("/analyses/new");
   });
 
   it("uses fixed desktop columns for badge alignment", async () => {

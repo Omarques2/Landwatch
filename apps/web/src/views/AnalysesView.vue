@@ -323,6 +323,15 @@ function formatDate(value: string) {
   return value.slice(0, 10);
 }
 
+function isForbidden(error: unknown) {
+  return (error as { response?: { status?: number } })?.response?.status === 403;
+}
+
+async function handleForbidden(error: unknown) {
+  if (!isForbidden(error)) throw error;
+  await router.push("/analyses/new");
+}
+
 async function fetchAnalyses(pageToLoad: number) {
   const res = await http.get<ApiEnvelope<AnalysisRow[]>>("/v1/analyses", {
     params: {
@@ -480,8 +489,12 @@ function setupObserver() {
 }
 
 onMounted(async () => {
-  await loadAnalyses({ reset: true });
-  await loadFarms();
+  try {
+    await loadAnalyses({ reset: true });
+    await loadFarms();
+  } catch (error) {
+    await handleForbidden(error);
+  }
   startPolling();
   setupObserver();
 });

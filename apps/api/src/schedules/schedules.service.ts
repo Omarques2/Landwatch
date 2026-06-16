@@ -11,6 +11,7 @@ import {
   ScheduleFrequency,
 } from '@prisma/client';
 import type { Claims } from '../auth/claims.type';
+import type { ActorContext } from '../auth/actor-context.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { AnalysesService } from '../analyses/analyses.service';
 import { NOW_PROVIDER } from '../analyses/analysis-runner.service';
@@ -39,11 +40,40 @@ export class SchedulesService {
   ) {
     const userId = await this.resolveUserId(claims);
     await this.ensureFarm(input.farmId);
+    return this.createForUser(userId, null, input);
+  }
+
+  async createForActor(
+    actor: ActorContext,
+    input: {
+      farmId: string;
+      analysisKind: AnalysisKind;
+      frequency: ScheduleFrequency;
+      timezone?: string;
+      isActive?: boolean;
+    },
+  ) {
+    const farm = await this.ensureFarmForActor(actor, input.farmId);
+    return this.createForUser(actor.userId, farm.orgId, input);
+  }
+
+  private async createForUser(
+    userId: string,
+    orgId: string | null,
+    input: {
+      farmId: string;
+      analysisKind: AnalysisKind;
+      frequency: ScheduleFrequency;
+      timezone?: string;
+      isActive?: boolean;
+    },
+  ) {
 
     const now = this.nowProvider();
     const schedule = await this.prisma.analysisSchedule.create({
       data: {
         farmId: input.farmId,
+        orgId: orgId ?? undefined,
         analysisKind: input.analysisKind,
         frequency: input.frequency,
         timezone: input.timezone?.trim() || 'UTC',
@@ -66,7 +96,20 @@ export class SchedulesService {
     farmId?: string;
     isActive?: boolean;
   }) {
+    return this.listForActor(null, params);
+  }
+
+  async listForActor(
+    actor: ActorContext | null,
+    params: {
+      page: number;
+      pageSize: number;
+      farmId?: string;
+      isActive?: boolean;
+    },
+  ) {
     const where = {
+      ...(actor && !actor.isPlatformAdmin ? { orgId: actor.orgId } : {}),
       ...(params.farmId ? { farmId: params.farmId } : {}),
       ...(typeof params.isActive === 'boolean'
         ? { isActive: params.isActive }
@@ -123,6 +166,19 @@ export class SchedulesService {
       isActive?: boolean;
     },
   ) {
+    return this.updateForActor(null, id, input);
+  }
+
+  async updateForActor(
+    actor: ActorContext | null,
+    id: string,
+    input: {
+      analysisKind?: AnalysisKind;
+      frequency?: ScheduleFrequency;
+      timezone?: string;
+      isActive?: boolean;
+    },
+  ) {
     const current = await this.prisma.analysisSchedule.findUnique({
       where: { id },
       include: { farm: { select: { name: true } } },
@@ -133,6 +189,7 @@ export class SchedulesService {
         message: 'Schedule not found',
       });
     }
+    this.assertCanUseSchedule(actor, current.orgId ?? null);
 
     const now = this.nowProvider();
     const nextRunAt =
@@ -159,6 +216,11 @@ export class SchedulesService {
   }
 
   async pause(id: string) {
+    return this.pauseForActor(null, id);
+  }
+
+  async pauseForActor(actor: ActorContext | null, id: string) {
+    await this.ensureScheduleForActor(actor, id);
     return this.prisma.analysisSchedule.update({
       where: { id },
       data: { isActive: false },
@@ -166,6 +228,10 @@ export class SchedulesService {
   }
 
   async resume(id: string) {
+    return this.resumeForActor(null, id);
+  }
+
+  async resumeForActor(actor: ActorContext | null, id: string) {
     const schedule = await this.prisma.analysisSchedule.findUnique({
       where: { id },
     });
@@ -175,6 +241,7 @@ export class SchedulesService {
         message: 'Schedule not found',
       });
     }
+    this.assertCanUseSchedule(actor, schedule.orgId ?? null);
     const now = this.nowProvider();
     const nextRunAt =
       schedule.nextRunAt <= now
@@ -238,6 +305,10 @@ export class SchedulesService {
   }
 
   async runNow(id: string) {
+    return this.runNowForActor(null, id);
+  }
+
+  async runNowForActor(actor: ActorContext | null, id: string) {
     const schedule = await this.prisma.analysisSchedule.findUnique({
       where: { id },
     });
@@ -247,6 +318,7 @@ export class SchedulesService {
         message: 'Schedule not found',
       });
     }
+    this.assertCanUseSchedule(actor, schedule.orgId ?? null);
     const inFlight = await this.prisma.analysis.findFirst({
       where: {
         scheduleId: id,
@@ -331,6 +403,57 @@ export class SchedulesService {
       throw new NotFoundException({
         code: 'FARM_NOT_FOUND',
         message: 'Farm not found',
+      });
+    }
+  }
+
+  private async ensureFarmForActor(actor: ActorContext, farmId: string) {
+    const farm = await this.prisma.farm.findUnique({
+      where: { id: farmId },
+      select: { id: true, orgId: true },
+    });
+    if (!farm) {
+      throw new NotFoundException({
+        code: 'FARM_NOT_FOUND',
+        message: 'Farm not found',
+      });
+    }
+    if (!actor.isPlatformAdmin && farm.orgId !== actor.orgId) {
+      throw new NotFoundException({
+        code: 'FARM_NOT_FOUND',
+        message: 'Farm not found',
+      });
+    }
+    if (!actor.isPlatformAdmin && farm.orgId === null) {
+      throw new NotFoundException({
+        code: 'FARM_NOT_FOUND',
+        message: 'Farm not found',
+      });
+    }
+    return farm;
+  }
+
+  private async ensureScheduleForActor(actor: ActorContext | null, id: string) {
+    const schedule = await this.prisma.analysisSchedule.findUnique({
+      where: { id },
+      select: { id: true, orgId: true },
+    });
+    if (!schedule) {
+      throw new NotFoundException({
+        code: 'SCHEDULE_NOT_FOUND',
+        message: 'Schedule not found',
+      });
+    }
+    this.assertCanUseSchedule(actor, schedule.orgId ?? null);
+    return schedule;
+  }
+
+  private assertCanUseSchedule(actor: ActorContext | null, orgId: string | null) {
+    if (!actor || actor.isPlatformAdmin) return;
+    if (!actor.orgId || orgId !== actor.orgId) {
+      throw new NotFoundException({
+        code: 'SCHEDULE_NOT_FOUND',
+        message: 'Schedule not found',
       });
     }
   }

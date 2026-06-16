@@ -1,11 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createAuthNavigationGuard } from "@/router/auth-guard";
+import { hydrateActiveOrgFromMemberships } from "@/state/org-context";
+
+vi.mock("@/state/org-context", () => ({
+  hydrateActiveOrgFromMemberships: vi.fn(),
+}));
 
 type MockRoute = {
   path: string;
   fullPath?: string;
   meta: {
     requiresAuth?: boolean;
+    feature?: string;
+    platformOnly?: boolean;
   };
 };
 
@@ -18,12 +25,19 @@ function makeDeps(overrides: Partial<{
   exchangeSession: ReturnType<typeof vi.fn>;
   getMeCached: ReturnType<typeof vi.fn>;
   getAccessStatus: ReturnType<typeof vi.fn>;
+  getAccessCached: ReturnType<typeof vi.fn>;
 }> = {}) {
   return {
     ensureSession: overrides.ensureSession ?? vi.fn().mockResolvedValue(null),
     exchangeSession: overrides.exchangeSession ?? vi.fn().mockResolvedValue(null),
     getMeCached: overrides.getMeCached ?? vi.fn().mockResolvedValue(null),
     getAccessStatus: overrides.getAccessStatus ?? vi.fn().mockResolvedValue(null),
+    getAccessCached:
+      overrides.getAccessCached ??
+      vi.fn().mockResolvedValue({
+        isPlatformAdmin: false,
+        features: ["FARMS", "ANALYSES", "ANALYSIS_CREATE", "CAR_SEARCH", "SCHEDULES"],
+      }),
   };
 }
 
@@ -36,18 +50,23 @@ describe("createAuthNavigationGuard", () => {
     vi.unstubAllEnvs();
   });
 
-  it("bypasses authentication flow on localhost when VITE_AUTH_BYPASS_LOCALHOST is enabled", async () => {
+  it("bypasses session exchange but still checks access on localhost", async () => {
     vi.stubEnv("VITE_AUTH_BYPASS_LOCALHOST", "true");
 
-    const deps = makeDeps();
+    const deps = makeDeps({
+      getMeCached: vi.fn().mockResolvedValue({ status: "active", memberships: [] }),
+    });
     const guard = createAuthNavigationGuard(deps);
 
-    const result = await guard(route("/dashboard") as any);
+    const result = await guard({
+      ...route("/dashboard"),
+      meta: { requiresAuth: true, platformOnly: true },
+    } as any);
 
-    expect(result).toBe(true);
+    expect(result).toBe("/analyses/new");
     expect(deps.ensureSession).not.toHaveBeenCalled();
     expect(deps.exchangeSession).not.toHaveBeenCalled();
-    expect(deps.getMeCached).not.toHaveBeenCalled();
+    expect(deps.getMeCached).toHaveBeenCalledWith(false);
     expect(deps.getAccessStatus).not.toHaveBeenCalled();
   });
 
@@ -196,5 +215,64 @@ describe("createAuthNavigationGuard", () => {
 
     expect(result).toBe("/pending");
     expect(deps.getAccessStatus).toHaveBeenCalledWith();
+  });
+
+  it("redirects direct access to disabled routes to new analysis", async () => {
+    const deps = makeDeps({
+      ensureSession: vi.fn().mockResolvedValue({ data: { sessionId: "sid" } }),
+      getMeCached: vi.fn().mockResolvedValue({ status: "active" }),
+      getAccessCached: vi.fn().mockResolvedValue({
+        isPlatformAdmin: false,
+        features: ["FARMS"],
+      }),
+    });
+
+    const guard = createAuthNavigationGuard(deps);
+    const result = await guard({
+      ...route("/analyses"),
+      meta: { requiresAuth: true, feature: "ANALYSES" },
+    } as any);
+
+    expect(result).toBe("/analyses/new");
+  });
+
+  it("redirects tenant dashboard access to new analysis", async () => {
+    const deps = makeDeps({
+      ensureSession: vi.fn().mockResolvedValue({ data: { sessionId: "sid" } }),
+      getMeCached: vi.fn().mockResolvedValue({ status: "active" }),
+      getAccessCached: vi.fn().mockResolvedValue({
+        isPlatformAdmin: false,
+        features: ["FARMS"],
+      }),
+    });
+
+    const guard = createAuthNavigationGuard(deps);
+    const result = await guard({
+      ...route("/dashboard"),
+      meta: { requiresAuth: true, platformOnly: true },
+    } as any);
+
+    expect(result).toBe("/analyses/new");
+  });
+
+  it("hydrates active org from memberships before loading access", async () => {
+    const deps = makeDeps({
+      ensureSession: vi.fn().mockResolvedValue({ data: { sessionId: "sid" } }),
+      getMeCached: vi.fn().mockResolvedValue({
+        status: "active",
+        memberships: [{ orgId: "org-1", role: "member" }],
+      }),
+    });
+
+    const guard = createAuthNavigationGuard(deps);
+    await guard({
+      ...route("/analyses/new"),
+      meta: { requiresAuth: true, feature: "ANALYSIS_CREATE" },
+    } as any);
+
+    expect(hydrateActiveOrgFromMemberships).toHaveBeenCalledWith([
+      { orgId: "org-1", role: "member" },
+    ]);
+    expect(deps.getAccessCached).toHaveBeenCalledWith(false);
   });
 });

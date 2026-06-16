@@ -14,6 +14,7 @@ import {
 } from '@prisma/client';
 import type { Claims } from '../auth/claims.type';
 import type { ApiKeyPrincipal } from '../auth/authed-request.type';
+import type { ActorContext } from '../auth/actor-context.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { AnalysisRunnerService, NOW_PROVIDER } from './analysis-runner.service';
 import {
@@ -48,6 +49,7 @@ type CreateAnalysisInput = {
 type CreateActor = {
   userId: string;
   orgId: string | null;
+  isPlatformAdmin?: boolean;
 };
 
 type AnalysisMapRow = {
@@ -306,12 +308,9 @@ export class AnalysesService {
     const farm = input.farmId
       ? await this.prisma.farm.findUnique({
           where: { id: input.farmId },
-          select: { id: true, name: true },
+          select: { id: true, name: true, orgId: true },
         })
-      : await this.prisma.farm.findFirst({
-          where: { carKey },
-          select: { id: true, name: true },
-        });
+      : await this.findScopedFarm(actor, carKey);
 
     if (input.farmId && !farm) {
       throw new NotFoundException({
@@ -320,17 +319,37 @@ export class AnalysesService {
       });
     }
 
+    if (
+      farm &&
+      !actor.isPlatformAdmin &&
+      (farm.orgId ?? null) !== null &&
+      farm.orgId !== orgId
+    ) {
+      throw new ForbiddenException({
+        code: 'FARM_ORG_FORBIDDEN',
+        message: 'Farm belongs to another organization',
+      });
+    }
+
+    const shouldCopyPublicFarm =
+      Boolean(farm && (farm.orgId ?? null) === null && orgId) &&
+      (input.farmName !== undefined || documents.length > 0);
+
     const cnpjDocs = documents
       .filter((doc) => doc.docType === FarmDocType.CNPJ)
       .map((doc) => doc.docNormalized);
 
-    let farmId = farm?.id ?? null;
-    let farmNameSnapshot = this.normalizeFarmNameInput(farm?.name ?? null);
+    let farmId = shouldCopyPublicFarm ? null : (farm?.id ?? null);
+    let farmNameSnapshot = shouldCopyPublicFarm
+      ? null
+      : this.normalizeFarmNameInput(farm?.name ?? null);
     const analysis = await this.prisma.$transaction(async (tx) => {
-      if (!farm && requestedFarmName) {
+      const newFarmName =
+        requestedFarmName ?? this.normalizeFarmNameInput(farm?.name ?? null);
+      if ((!farm || shouldCopyPublicFarm) && newFarmName) {
         const createdFarm = await tx.farm.create({
           data: {
-            name: requestedFarmName,
+            name: newFarmName,
             carKey,
             ownerUserId: userId,
             orgId: orgId ?? undefined,
@@ -341,7 +360,7 @@ export class AnalysesService {
         farmNameSnapshot = this.normalizeFarmNameInput(createdFarm.name);
       }
 
-      if (farm && requestedFarmName) {
+      if (farm && !shouldCopyPublicFarm && requestedFarmName) {
         const currentFarmName = this.normalizeFarmNameInput(farm.name) ?? farm.name;
         if (requestedFarmName !== currentFarmName) {
           await tx.analysis.updateMany({
@@ -432,9 +451,34 @@ export class AnalysesService {
     return this.createWithActor(actor, input);
   }
 
+  async createForActor(actor: ActorContext, input: CreateAnalysisInput) {
+    return this.createWithActor(
+      {
+        userId: actor.userId,
+        orgId: actor.isPlatformAdmin ? actor.orgId : actor.orgId,
+        isPlatformAdmin: actor.isPlatformAdmin,
+      },
+      input,
+    );
+  }
+
   async createForApiKey(apiKey: ApiKeyPrincipal, input: CreateAnalysisInput) {
     const actor = await this.resolveActorFromApiKey(apiKey);
     return this.createWithActor(actor, input);
+  }
+
+  private async findScopedFarm(actor: CreateActor, carKey: string) {
+    if (actor.orgId) {
+      const orgFarm = await this.prisma.farm.findFirst({
+        where: { carKey, orgId: actor.orgId },
+        select: { id: true, name: true, orgId: true },
+      });
+      if (orgFarm) return orgFarm;
+    }
+    return this.prisma.farm.findFirst({
+      where: { carKey, orgId: null },
+      select: { id: true, name: true, orgId: true },
+    });
   }
 
   async createScheduled(input: {
@@ -471,6 +515,7 @@ export class AnalysesService {
         status: 'pending',
         analysisKind: input.analysisKind,
         createdByUserId: input.createdByUserId,
+        orgId: farm.orgId ?? undefined,
         farmId: farm.id,
         farmNameSnapshot: this.normalizeFarmNameInput(farm.name),
         scheduleId: input.scheduleId,
@@ -496,16 +541,32 @@ export class AnalysesService {
     return analysis;
   }
 
-  async list(params: {
+  async list(
+    actorOrParams:
+      | ActorContext
+      | {
+          carKey?: string;
+          farmId?: string;
+          startDate?: string;
+          endDate?: string;
+          page: number;
+          pageSize: number;
+        },
+    maybeParams?: {
     carKey?: string;
     farmId?: string;
     startDate?: string;
     endDate?: string;
     page: number;
     pageSize: number;
-  }) {
+  },
+  ) {
+    const actor = maybeParams ? (actorOrParams as ActorContext) : null;
+    const params = maybeParams ?? (actorOrParams as NonNullable<typeof maybeParams>);
     const { carKey, farmId, startDate, endDate, page, pageSize } = params;
-    const where: Prisma.AnalysisWhereInput = {};
+    const where: Prisma.AnalysisWhereInput = actor?.isPlatformAdmin
+      ? {}
+      : { orgId: actor?.orgId ?? undefined };
     if (carKey) where.carKey = carKey;
     if (farmId) where.farmId = farmId;
     const dateRange = this.buildDateRange(startDate, endDate);

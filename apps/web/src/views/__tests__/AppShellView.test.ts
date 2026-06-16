@@ -1,8 +1,8 @@
-import { describe, expect, it, vi } from "vitest";
-import { mount } from "@vue/test-utils";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { flushPromises, mount } from "@vue/test-utils";
 import { ref } from "vue";
 import AppShellView from "@/views/AppShellView.vue";
-import { getMeCached } from "@/auth/me";
+import { getAccessCached, getMeCached } from "@/auth/me";
 import { mvBusy } from "@/state/landwatch-status";
 
 vi.mock("@/auth/auth", () => ({
@@ -11,6 +11,10 @@ vi.mock("@/auth/auth", () => ({
 
 vi.mock("@/auth/me", () => ({
   getMeCached: vi.fn().mockResolvedValue(null),
+  getAccessCached: vi.fn().mockResolvedValue({
+    isPlatformAdmin: true,
+    features: ["FARMS", "ANALYSES", "ANALYSIS_CREATE", "CAR_SEARCH", "SCHEDULES", "ATTACHMENTS"],
+  }),
 }));
 
 vi.mock("@/state/landwatch-status", () => ({
@@ -26,6 +30,20 @@ vi.mock("vue-router", () => ({
 }));
 
 describe("AppShellView", () => {
+  beforeEach(() => {
+    (getMeCached as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      email: "user@example.com",
+      displayName: "User",
+      status: "active",
+      memberships: [{ orgId: "org-1", role: "member" }],
+    });
+    (getAccessCached as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      isPlatformAdmin: true,
+      features: ["FARMS", "ANALYSES", "ANALYSIS_CREATE", "CAR_SEARCH", "SCHEDULES", "ATTACHMENTS"],
+    });
+    mvBusy.value = false;
+  });
+
   it("shows sidebar user skeleton while profile is loading", () => {
     (getMeCached as unknown as ReturnType<typeof vi.fn>).mockReturnValue(
       new Promise(() => {}),
@@ -75,9 +93,10 @@ describe("AppShellView", () => {
 
     await Promise.resolve();
     expect(getMeCached).toHaveBeenCalledWith(true);
+    expect(getAccessCached).toHaveBeenCalledWith(true);
   });
 
-  it("renders the Agendamento item in navigation", () => {
+  it("renders the Agendamento item in navigation", async () => {
     const wrapper = mount(AppShellView, {
       global: {
         stubs: {
@@ -87,10 +106,11 @@ describe("AppShellView", () => {
       },
     });
 
+    await flushPromises();
     expect(wrapper.text()).toContain("Agendamento");
   });
 
-  it("renders the Fornecedores item in navigation", () => {
+  it("renders the Fornecedores item for platform admins", async () => {
     const wrapper = mount(AppShellView, {
       global: {
         stubs: {
@@ -100,6 +120,28 @@ describe("AppShellView", () => {
       },
     });
 
+    await flushPromises();
     expect(wrapper.text()).toContain("Fornecedores");
+  });
+
+  it("hides platform-only navigation for tenants", async () => {
+    (getAccessCached as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      isPlatformAdmin: false,
+      features: ["FARMS"],
+    });
+
+    const wrapper = mount(AppShellView, {
+      global: {
+        stubs: {
+          RouterView: true,
+          UiSheet: { template: "<div><slot /></div>" },
+        },
+      },
+    });
+
+    await flushPromises();
+    expect(wrapper.text()).toContain("Fazendas");
+    expect(wrapper.text()).not.toContain("Fornecedores");
+    expect(wrapper.text()).not.toContain("Painel Admin");
   });
 });

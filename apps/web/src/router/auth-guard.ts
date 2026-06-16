@@ -1,11 +1,14 @@
 import type { RouteLocationNormalized } from "vue-router";
 import { isLocalAuthBypassEnabled } from "@/auth/local-bypass";
+import type { AccessMeResponse, AppFeature } from "@/auth/me";
+import { hydrateActiveOrgFromMemberships } from "@/state/org-context";
 
 type AuthGuardDeps = {
   ensureSession: () => Promise<unknown | null>;
   exchangeSession: () => Promise<unknown>;
   getMeCached: (force?: boolean) => Promise<{ status?: string } | null>;
   getAccessStatus: () => Promise<{ status?: string } | null>;
+  getAccessCached: (force?: boolean) => Promise<AccessMeResponse | null>;
 };
 
 type AuthGuardResult = true | string;
@@ -17,12 +20,37 @@ function canAccessApp(me: { status?: string } | null): boolean {
   return me?.status === "active";
 }
 
+function canAccessRoute(
+  to: RouteLocationNormalized,
+  access: AccessMeResponse | null,
+): boolean {
+  if (to.path === "/403") return true;
+  if (to.meta.platformOnly) return Boolean(access?.isPlatformAdmin);
+  const feature = to.meta.feature as AppFeature | undefined;
+  if (!feature) return true;
+  if (access?.isPlatformAdmin) return true;
+  return Boolean(access?.features?.includes(feature));
+}
+
 type EnsureSessionOptions = {
   attempts: number;
   allowProfileFallback: boolean;
 };
 
 export function createAuthNavigationGuard(deps: AuthGuardDeps) {
+  async function enforceAccess(to: RouteLocationNormalized) {
+    const me = (await deps.getMeCached(false)) ?? (await deps.getAccessStatus());
+    if (!me) return "/pending";
+    if (!canAccessApp(me)) return "/pending";
+    hydrateActiveOrgFromMemberships((me as any).memberships);
+    const access = await deps.getAccessCached(false);
+    if (!canAccessRoute(to, access)) {
+      if (to.path !== "/analyses/new") return "/analyses/new";
+      return "/403";
+    }
+    return true;
+  }
+
   async function ensureSessionSafely(): Promise<unknown | null> {
     try {
       return await deps.ensureSession();
@@ -75,7 +103,9 @@ export function createAuthNavigationGuard(deps: AuthGuardDeps) {
   ): Promise<AuthGuardResult> {
     if (isLocalAuthBypassEnabled()) {
       if (to.path === "/login") return "/";
-      return true;
+      if (!to.meta.requiresAuth) return true;
+      if (to.path === "/pending") return true;
+      return enforceAccess(to);
     }
 
     if (to.path === "/login") {
@@ -102,9 +132,6 @@ export function createAuthNavigationGuard(deps: AuthGuardDeps) {
       return true;
     }
 
-    const me = (await deps.getMeCached(false)) ?? (await deps.getAccessStatus());
-    if (!me) return "/pending";
-    if (!canAccessApp(me)) return "/pending";
-    return true;
+    return enforceAccess(to);
   };
 }

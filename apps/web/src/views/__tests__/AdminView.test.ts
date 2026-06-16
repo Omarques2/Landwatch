@@ -2,21 +2,25 @@ import { flushPromises, mount } from "@vue/test-utils";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import AdminView from "@/views/AdminView.vue";
 import {
+  listAdminOrgFeatures,
   listAdminMemberships,
   listAdminOrgs,
   listAdminUsers,
+  updateAdminOrgFeatures,
   updateAdminUserStatus,
 } from "@/features/attachments/api";
 
 vi.mock("@/features/attachments/api", () => ({
   addAdminMembership: vi.fn(),
   createAdminOrg: vi.fn(),
+  listAdminOrgFeatures: vi.fn(),
   listAdminMemberships: vi.fn(),
   listAdminOrgs: vi.fn(),
   listAdminUsers: vi.fn(),
   removeAdminMembership: vi.fn(),
   updateAdminMembership: vi.fn(),
   updateAdminOrg: vi.fn(),
+  updateAdminOrgFeatures: vi.fn(),
   updateAdminUserStatus: vi.fn(),
 }));
 
@@ -57,6 +61,13 @@ describe("AdminView", () => {
       },
     ]);
     (listAdminMemberships as unknown as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    (listAdminOrgFeatures as unknown as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { feature: "FARMS", enabled: true },
+      { feature: "ANALYSES", enabled: false },
+      { feature: "ANALYSIS_CREATE", enabled: false },
+      { feature: "CAR_SEARCH", enabled: true },
+      { feature: "SCHEDULES", enabled: false },
+    ]);
     (listAdminUsers as unknown as ReturnType<typeof vi.fn>).mockResolvedValue([
       {
         id: "user-1",
@@ -74,6 +85,13 @@ describe("AdminView", () => {
       status: "active",
       memberships: [{ orgId: "org-1", role: "member", org: { id: "org-1", name: "Org 1", slug: "org-1" } }],
     });
+    (updateAdminOrgFeatures as unknown as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { feature: "FARMS", enabled: true },
+      { feature: "ANALYSES", enabled: true },
+      { feature: "ANALYSIS_CREATE", enabled: false },
+      { feature: "CAR_SEARCH", enabled: true },
+      { feature: "SCHEDULES", enabled: false },
+    ]);
   });
 
   it("renders pending user and activates with selected org and role", async () => {
@@ -98,6 +116,34 @@ describe("AdminView", () => {
       status: "active",
       orgId: "org-1",
       role: "member",
+    });
+  });
+
+  it("loads and saves organization feature access", async () => {
+    const wrapper = mount(AdminView);
+    await flushPromises();
+
+    expect(listAdminOrgFeatures).toHaveBeenCalledWith("org-1");
+    expect(wrapper.text()).toContain("Fazendas");
+    expect(wrapper.text()).toContain("Análises");
+    expect(wrapper.text()).not.toContain("Anexos");
+
+    const analysesInput = wrapper
+      .findAll("input")
+      .find((node) => node.attributes("value") === "ANALYSES");
+    expect(analysesInput).toBeTruthy();
+    await analysesInput!.setValue(true);
+
+    const saveButton = wrapper
+      .findAll("button")
+      .find((node) => node.text().includes("Salvar acessos"));
+    expect(saveButton).toBeTruthy();
+    await saveButton!.trigger("click");
+
+    expect(updateAdminOrgFeatures).toHaveBeenCalledWith("org-1", {
+      features: expect.arrayContaining([
+        { feature: "ANALYSES", enabled: true },
+      ]),
     });
   });
 });

@@ -128,12 +128,7 @@ http.interceptors.response.use(
     }
 
     if (status === 403) {
-      if (bypassEnabled) return Promise.reject(error);
-      try {
-        await authClient.logout();
-      } finally {
-        redirectToLogin();
-      }
+      return Promise.reject(error);
     }
 
     return Promise.reject(error);

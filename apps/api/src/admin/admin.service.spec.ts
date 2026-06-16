@@ -9,6 +9,7 @@ function makePrismaMock() {
       update: jest.fn(),
     },
     user: {
+      findFirst: jest.fn(),
       findMany: jest.fn(),
       update: jest.fn(),
     },
@@ -17,6 +18,11 @@ function makePrismaMock() {
       upsert: jest.fn(),
       update: jest.fn(),
       deleteMany: jest.fn(),
+    },
+    orgFeatureAccess: {
+      findMany: jest.fn(),
+      upsert: jest.fn(),
+      updateMany: jest.fn(),
     },
   };
   return {
@@ -47,6 +53,28 @@ describe('AdminService', () => {
     await expect(service.assertAdmin('admin-sub')).resolves.toBeUndefined();
   });
 
+  it('allows owner/admin members of platform orgs', async () => {
+    const prisma = makePrismaMock();
+    prisma.user.findFirst.mockResolvedValue({
+      id: 'user-1',
+      status: 'active',
+      memberships: [{ id: 'membership-1' }],
+    });
+    const service = new AdminService(prisma as any);
+
+    await expect(service.assertAdmin('platform-owner-sub')).resolves.toBeUndefined();
+    expect(prisma.user.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          OR: [
+            { identityUserId: 'platform-owner-sub' },
+            { entraSub: 'platform-owner-sub' },
+          ],
+        },
+      }),
+    );
+  });
+
   it('returns capabilities without throwing for non-admin subjects', async () => {
     const service = new AdminService(makePrismaMock() as any);
 
@@ -71,9 +99,38 @@ describe('AdminService', () => {
     });
 
     expect(prisma.org.create).toHaveBeenCalledWith({
-      data: { name: 'São José Farm', slug: 'sao-jose-farm' },
+      data: { name: 'São José Farm', slug: 'sao-jose-farm', kind: 'TENANT' },
     });
     expect(result.slug).toBe('sao-jose-farm');
+  });
+
+  it('lists tenant feature access for an organization', async () => {
+    process.env.PLATFORM_ADMIN_SUBS = 'admin-sub';
+    const prisma = makePrismaMock();
+    prisma.orgFeatureAccess.findMany.mockResolvedValue([
+      { feature: 'FARMS', enabled: true },
+      { feature: 'ANALYSES', enabled: false },
+    ]);
+    const service = new AdminService(prisma as any);
+
+    await expect(service.listOrgFeatures('admin-sub', 'org-1')).resolves.toEqual([
+      { feature: 'FARMS', enabled: true },
+      { feature: 'ANALYSES', enabled: false },
+      { feature: 'ANALYSIS_CREATE', enabled: false },
+      { feature: 'CAR_SEARCH', enabled: false },
+      { feature: 'SCHEDULES', enabled: false },
+    ]);
+  });
+
+  it('rejects attachment features in organization access updates', async () => {
+    process.env.PLATFORM_ADMIN_SUBS = 'admin-sub';
+    const service = new AdminService(makePrismaMock() as any);
+
+    await expect(
+      service.updateOrgFeatures('admin-sub', 'org-1', {
+        features: [{ feature: 'ATTACHMENTS', enabled: true }],
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it('adds users to organizations with the requested role', async () => {

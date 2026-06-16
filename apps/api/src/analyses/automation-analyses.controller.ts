@@ -15,6 +15,8 @@ import type { Response } from 'express';
 import { ApiKeyScopes } from '../auth/api-key-scopes.decorator';
 import { AuthMode } from '../auth/auth-mode.decorator';
 import type { AuthedRequest } from '../auth/authed-request.type';
+import { AccessService } from '../auth/access.service';
+import { ActorContextService } from '../auth/actor-context.service';
 import { CreateAnalysisDto } from './dto/create-analysis.dto';
 import { AnalysesService } from './analyses.service';
 import { resolveApiOrigin, resolveWebOrigin } from './request-origin';
@@ -22,41 +24,42 @@ import { resolveApiOrigin, resolveWebOrigin } from './request-origin';
 @Controller('v1/automation/analyses')
 @AuthMode('automation')
 export class AutomationAnalysesController {
-  constructor(private readonly analyses: AnalysesService) {}
+  constructor(
+    private readonly analyses: AnalysesService,
+    private readonly actorContext: ActorContextService,
+    private readonly access: AccessService,
+  ) {}
 
-  @Post()
-  @ApiKeyScopes(ApiKeyScope.analysis_write)
-  async create(@Req() req: AuthedRequest, @Body() dto: CreateAnalysisDto) {
+  private async actor(req: AuthedRequest) {
     if (!req.apiKey) {
       throw new UnauthorizedException({
         code: 'UNAUTHORIZED',
         message: 'Missing API key context',
       });
     }
-    return this.analyses.createForApiKey(req.apiKey, dto);
+    return this.actorContext.fromApiKey(req.apiKey);
+  }
+
+  @Post()
+  @ApiKeyScopes(ApiKeyScope.analysis_write)
+  async create(@Req() req: AuthedRequest, @Body() dto: CreateAnalysisDto) {
+    const actor = await this.actor(req);
+    return this.analyses.createForActor(actor, dto);
   }
 
   @Get(':id')
   @ApiKeyScopes(ApiKeyScope.analysis_read)
   async get(@Req() req: AuthedRequest, @Param('id') id: string) {
-    if (!req.apiKey) {
-      throw new UnauthorizedException({
-        code: 'UNAUTHORIZED',
-        message: 'Missing API key context',
-      });
-    }
+    const actor = await this.actor(req);
+    await this.access.assertCanReadAnalysis(actor, id);
     return this.analyses.getById(id);
   }
 
   @Get(':id/status')
   @ApiKeyScopes(ApiKeyScope.analysis_read)
   async getStatus(@Req() req: AuthedRequest, @Param('id') id: string) {
-    if (!req.apiKey) {
-      throw new UnauthorizedException({
-        code: 'UNAUTHORIZED',
-        message: 'Missing API key context',
-      });
-    }
+    const actor = await this.actor(req);
+    await this.access.assertCanReadAnalysis(actor, id);
     return this.analyses.getStatusById(id);
   }
 
@@ -67,12 +70,8 @@ export class AutomationAnalysesController {
     @Param('id') id: string,
     @Query('tolerance') tolerance?: string,
   ) {
-    if (!req.apiKey) {
-      throw new UnauthorizedException({
-        code: 'UNAUTHORIZED',
-        message: 'Missing API key context',
-      });
-    }
+    const actor = await this.actor(req);
+    await this.access.assertCanReadAnalysis(actor, id);
     const parsed = tolerance ? Number(tolerance) : undefined;
     return this.analyses.getMapById(id, parsed);
   }
@@ -84,12 +83,8 @@ export class AutomationAnalysesController {
     @Param('id') id: string,
     @Query('tolerance') tolerance?: string,
   ) {
-    if (!req.apiKey) {
-      throw new UnauthorizedException({
-        code: 'UNAUTHORIZED',
-        message: 'Missing API key context',
-      });
-    }
+    const actor = await this.actor(req);
+    await this.access.assertCanReadAnalysis(actor, id);
     const parsed = tolerance ? Number(tolerance) : undefined;
     return this.analyses.getGeoJsonById(id, parsed);
   }
@@ -97,12 +92,8 @@ export class AutomationAnalysesController {
   @Get(':id/vector-map')
   @ApiKeyScopes(ApiKeyScope.analysis_read)
   async getVectorMap(@Req() req: AuthedRequest, @Param('id') id: string) {
-    if (!req.apiKey) {
-      throw new UnauthorizedException({
-        code: 'UNAUTHORIZED',
-        message: 'Missing API key context',
-      });
-    }
+    const actor = await this.actor(req);
+    await this.access.assertCanReadAnalysis(actor, id);
     const apiOrigin = resolveApiOrigin(req);
     const tileBasePath = apiOrigin
       ? `${apiOrigin}/v1/automation/analyses/${id}/tiles`
@@ -120,12 +111,8 @@ export class AutomationAnalysesController {
     @Param('y') y: string,
     @Res() res: Response,
   ) {
-    if (!req.apiKey) {
-      throw new UnauthorizedException({
-        code: 'UNAUTHORIZED',
-        message: 'Missing API key context',
-      });
-    }
+    const actor = await this.actor(req);
+    await this.access.assertCanReadAnalysis(actor, id);
     const tile = await this.analyses.getVectorTileById(
       id,
       Number(z),
@@ -152,15 +139,11 @@ export class AutomationAnalysesController {
     @Param('id') id: string,
     @Res({ passthrough: true }) res: Response,
   ) {
-    if (!req.apiKey) {
-      throw new UnauthorizedException({
-        code: 'UNAUTHORIZED',
-        message: 'Missing API key context',
-      });
-    }
+    const actor = await this.actor(req);
+    await this.access.assertCanReadAnalysis(actor, id);
     const pdf = await this.analyses.getPdfById(id, {
       mode: 'automation',
-      apiKey: req.apiKey,
+      apiKey: req.apiKey!,
       apiBaseUrl: resolveApiOrigin(req),
       webBaseUrl: resolveWebOrigin(req),
     });

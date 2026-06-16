@@ -55,38 +55,66 @@
           <div v-else-if="!selectedOrg" class="grid h-full place-items-center rounded-2xl border border-dashed border-border text-sm text-muted-foreground">
             Escolha uma organização.
           </div>
-          <div v-else-if="memberships.length === 0" class="rounded-2xl border border-dashed border-border px-4 py-8 text-sm text-muted-foreground">
-            Sem membros.
-          </div>
-          <div v-else class="space-y-3">
-            <article
-              v-for="membership in memberships"
-              :key="membership.userId"
-              class="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border bg-background p-4"
-            >
-              <div class="min-w-0">
-                <div class="truncate text-sm font-semibold text-foreground">
-                  {{ membership.user?.displayName || membership.user?.email || membership.userId }}
-                </div>
-                <div class="truncate text-xs text-muted-foreground">
-                  {{ membership.user?.email || membership.userId }}
-                </div>
-              </div>
-              <div class="flex items-center gap-2">
-                <UiSelect
-                  class="w-28"
-                  :model-value="membership.role"
-                  @update:model-value="updateRole(membership.userId, $event as AdminMembershipRow['role'])"
-                >
-                  <option value="owner">owner</option>
-                  <option value="admin">admin</option>
-                  <option value="member">member</option>
-                </UiSelect>
-                <UiButton variant="outline" size="icon" class="border-destructive/30 text-destructive hover:bg-destructive/10" @click="removeMember(membership.userId)">
-                  <Trash2 class="h-4 w-4" />
+          <div v-else class="space-y-4">
+            <section class="rounded-2xl border border-border bg-background p-4">
+              <div class="mb-3 flex items-center justify-between gap-3">
+                <div class="text-sm font-semibold text-foreground">Acessos</div>
+                <UiButton size="sm" :disabled="savingFeatures || !featuresDirty" @click="saveFeatures">
+                  Salvar acessos
                 </UiButton>
               </div>
-            </article>
+              <UiSkeleton v-if="loadingFeatures" class="h-20 rounded-2xl" />
+              <div v-else class="grid gap-2 sm:grid-cols-2">
+                <label
+                  v-for="item in orgFeatures"
+                  :key="item.feature"
+                  class="flex items-center justify-between gap-3 rounded-xl border border-border px-3 py-2 text-sm"
+                >
+                  <span class="font-medium text-foreground">{{ featureLabels[item.feature] }}</span>
+                  <input
+                    type="checkbox"
+                    class="h-4 w-4 accent-foreground"
+                    :value="item.feature"
+                    :checked="item.enabled"
+                    @change="setFeatureFromEvent(item.feature, $event)"
+                  />
+                </label>
+              </div>
+            </section>
+
+            <div v-if="memberships.length === 0" class="rounded-2xl border border-dashed border-border px-4 py-8 text-sm text-muted-foreground">
+              Sem membros.
+            </div>
+            <div v-else class="space-y-3">
+              <article
+                v-for="membership in memberships"
+                :key="membership.userId"
+                class="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border bg-background p-4"
+              >
+                <div class="min-w-0">
+                  <div class="truncate text-sm font-semibold text-foreground">
+                    {{ membership.user?.displayName || membership.user?.email || membership.userId }}
+                  </div>
+                  <div class="truncate text-xs text-muted-foreground">
+                    {{ membership.user?.email || membership.userId }}
+                  </div>
+                </div>
+                <div class="flex items-center gap-2">
+                  <UiSelect
+                    class="w-28"
+                    :model-value="membership.role"
+                    @update:model-value="updateRole(membership.userId, $event as AdminMembershipRow['role'])"
+                  >
+                    <option value="owner">owner</option>
+                    <option value="admin">admin</option>
+                    <option value="member">member</option>
+                  </UiSelect>
+                  <UiButton variant="outline" size="icon" class="border-destructive/30 text-destructive hover:bg-destructive/10" @click="removeMember(membership.userId)">
+                    <Trash2 class="h-4 w-4" />
+                  </UiButton>
+                </div>
+              </article>
+            </div>
           </div>
         </div>
       </section>
@@ -242,21 +270,25 @@ import { Button as UiButton, Dialog as UiDialog, Input as UiInput, Select as UiS
 import {
   addAdminMembership,
   createAdminOrg,
+  listAdminOrgFeatures,
   listAdminMemberships,
   listAdminOrgs,
   listAdminUsers,
   removeAdminMembership,
+  updateAdminOrgFeatures,
   updateAdminUserStatus,
   updateAdminMembership,
   updateAdminOrg,
 } from '@/features/attachments/api';
-import type { AdminMembershipRow, AdminOrgRow, AdminUserRow } from '@/features/attachments/types';
+import type { AdminMembershipRow, AdminOrgFeature, AdminOrgFeatureRow, AdminOrgRow, AdminUserRow } from '@/features/attachments/types';
 
 const { push: pushToast } = useToast();
 
 const orgs = ref<AdminOrgRow[]>([]);
 const users = ref<AdminUserRow[]>([]);
 const memberships = ref<AdminMembershipRow[]>([]);
+const orgFeatures = ref<AdminOrgFeatureRow[]>([]);
+const originalOrgFeatures = ref<AdminOrgFeatureRow[]>([]);
 const selectedOrg = ref<AdminOrgRow | null>(null);
 const newOrgName = ref('');
 const userQuery = ref('');
@@ -266,13 +298,28 @@ const memberDialogOpen = ref(false);
 const loadingOrgs = ref(false);
 const loadingUsers = ref(false);
 const loadingMemberships = ref(false);
+const loadingFeatures = ref(false);
 const savingOrg = ref(false);
+const savingFeatures = ref(false);
 const userStatusDialogOpen = ref(false);
 const selectedUserForStatus = ref<AdminUserRow | null>(null);
 const activationOrgId = ref('');
 const activationRole = ref<AdminMembershipRow['role']>('member');
 let userDebounce: number | undefined;
 let candidateDebounce: number | undefined;
+
+const featureLabels: Record<AdminOrgFeature, string> = {
+  FARMS: 'Fazendas',
+  ANALYSES: 'Análises',
+  ANALYSIS_CREATE: 'Nova análise',
+  CAR_SEARCH: 'Buscar CAR',
+  SCHEDULES: 'Agendamento',
+};
+
+const featuresDirty = computed(() => {
+  const original = new Map(originalOrgFeatures.value.map((item) => [item.feature, item.enabled]));
+  return orgFeatures.value.some((item) => original.get(item.feature) !== item.enabled);
+});
 
 const memberCandidates = computed(() => {
   const existing = new Set(memberships.value.map((item) => item.userId));
@@ -331,9 +378,50 @@ async function loadMemberships() {
   }
 }
 
+async function loadFeatures() {
+  if (!selectedOrg.value) {
+    orgFeatures.value = [];
+    originalOrgFeatures.value = [];
+    return;
+  }
+  loadingFeatures.value = true;
+  try {
+    const rows = await listAdminOrgFeatures(selectedOrg.value.id);
+    orgFeatures.value = rows;
+    originalOrgFeatures.value = rows.map((item) => ({ ...item }));
+  } finally {
+    loadingFeatures.value = false;
+  }
+}
+
 async function selectOrg(org: AdminOrgRow) {
   selectedOrg.value = org;
-  await loadMemberships();
+  await Promise.all([loadMemberships(), loadFeatures()]);
+}
+
+function setFeature(feature: AdminOrgFeature, enabled: boolean) {
+  orgFeatures.value = orgFeatures.value.map((item) =>
+    item.feature === feature ? { ...item, enabled } : item,
+  );
+}
+
+function setFeatureFromEvent(feature: AdminOrgFeature, event: Event) {
+  setFeature(feature, Boolean((event.target as HTMLInputElement | null)?.checked));
+}
+
+async function saveFeatures() {
+  if (!selectedOrg.value) return;
+  savingFeatures.value = true;
+  try {
+    const rows = await updateAdminOrgFeatures(selectedOrg.value.id, {
+      features: orgFeatures.value,
+    });
+    orgFeatures.value = rows;
+    originalOrgFeatures.value = rows.map((item) => ({ ...item }));
+    pushToast({ kind: 'success', title: 'Acessos salvos' });
+  } finally {
+    savingFeatures.value = false;
+  }
 }
 
 async function createOrg() {

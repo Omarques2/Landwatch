@@ -19,7 +19,7 @@
           :on-logout="onLogout"
           :on-select="navigate"
           :on-new-analysis="goNewAnalysis"
-          :disable-new-analysis="mvBusy"
+          :disable-new-analysis="mvBusy || !canCreateAnalysis"
           @toggle-collapsed="sidebarOpen = !sidebarOpen"
         />
       </aside>
@@ -42,7 +42,7 @@
           :on-logout="onLogout"
           :on-select="navigate"
           :on-new-analysis="goNewAnalysis"
-          :disable-new-analysis="mvBusy"
+          :disable-new-analysis="mvBusy || !canCreateAnalysis"
           @close="drawerOpen = false"
         />
       </UiSheet>
@@ -78,7 +78,20 @@
               Base geoespacial em atualização
             </div>
 
+            <select
+              v-if="localBypassEnabled"
+              v-model="devProfileSub"
+              class="hidden h-9 rounded-md border border-border bg-background px-2 text-xs text-foreground md:block"
+              title="Usuário local"
+              @change="switchDevProfile"
+            >
+              <option v-for="profile in devProfiles" :key="profile.sub" :value="profile.sub">
+                {{ profile.email }}
+              </option>
+            </select>
+
             <UiButton
+              v-if="canCreateAnalysis"
               variant="default"
               size="md"
               class="h-9 px-4"
@@ -116,17 +129,23 @@ import {
   Shield,
 } from "lucide-vue-next";
 import { logout } from "@/auth/auth";
-import { getMeCached, type MeResponse } from "@/auth/me";
+import { clearMeCache, getAccessCached, getMeCached, type AccessMeResponse, type AppFeature, type MeResponse } from "@/auth/me";
+import {
+  getDevBypassProfileOverride,
+  getDevBypassProfiles,
+  isLocalAuthBypassEnabled,
+  setDevBypassProfileOverride,
+  type DevBypassProfile,
+} from "@/auth/local-bypass";
 import {
   fetchLandwatchStatus,
   mvBusy,
   startLandwatchStatusPolling,
   stopLandwatchStatusPolling,
 } from "@/state/landwatch-status";
-import { hydrateActiveOrgFromMemberships } from "@/state/org-context";
+import { hydrateActiveOrgFromMemberships, setActiveOrgId } from "@/state/org-context";
 import SidebarNav from "@/components/SidebarNav.vue";
 import HamburgerIcon from "@/components/icons/HamburgerIcon.vue";
-import { getAdminCapabilities } from "@/features/attachments/api";
 
 const router = useRouter();
 const route = useRoute();
@@ -134,24 +153,59 @@ const route = useRoute();
 const sidebarOpen = ref(true);
 const drawerOpen = ref(false);
 const me = ref<MeResponse | null>(null);
+const access = ref<AccessMeResponse | null>(null);
 const meLoading = ref(true);
-const canAccessAdmin = ref(false);
+const localBypassEnabled = isLocalAuthBypassEnabled();
+const devProfiles = ref<DevBypassProfile[]>(getDevBypassProfiles());
+const devProfileSub = ref(
+  getDevBypassProfileOverride()?.sub ?? devProfiles.value[0]?.sub ?? "",
+);
 
-const baseNavItems = [
-  { key: "dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { key: "farms", label: "Fazendas", icon: MapPin },
-  { key: "analyses", label: "Análises", icon: FileText },
-  { key: "schedules", label: "Agendamento", icon: CalendarClock },
-  { key: "attachments", label: "Anexos", icon: Paperclip },
-  { key: "fornecedores", label: "Fornecedores", icon: Beef },
-  { key: "new-analysis", label: "Nova análise", icon: ClipboardPlus },
-  { key: "car-search", label: "Buscar CAR", icon: LocateFixed },
+type ShellNavItem = {
+  key: string;
+  label: string;
+  icon: any;
+  feature?: AppFeature;
+  platformOnly?: boolean;
+  placement?: "main" | "bottom";
+};
+
+const baseNavItems: ShellNavItem[] = [
+  { key: "dashboard", label: "Dashboard", icon: LayoutDashboard, platformOnly: true },
+  { key: "farms", label: "Fazendas", icon: MapPin, feature: "FARMS" },
+  { key: "analyses", label: "Análises", icon: FileText, feature: "ANALYSES" },
+  { key: "schedules", label: "Agendamento", icon: CalendarClock, feature: "SCHEDULES" },
+  { key: "attachments", label: "Anexos", icon: Paperclip, platformOnly: true },
+  { key: "fornecedores", label: "Fornecedores", icon: Beef, platformOnly: true },
+  { key: "new-analysis", label: "Nova análise", icon: ClipboardPlus, feature: "ANALYSIS_CREATE" },
+  { key: "car-search", label: "Buscar CAR", icon: LocateFixed, feature: "CAR_SEARCH" },
 ];
 
-const navItems = computed(() => [
-  ...baseNavItems,
-  ...(canAccessAdmin.value ? [{ key: "admin", label: "Painel Admin", icon: Shield, placement: "bottom" as const }] : []),
-]);
+function hasFeature(feature?: AppFeature) {
+  if (!feature) return true;
+  if (access.value?.isPlatformAdmin) return true;
+  return Boolean(access.value?.features.includes(feature));
+}
+
+const isPlatformAdmin = computed(() => Boolean(access.value?.isPlatformAdmin));
+const canCreateAnalysis = computed(() => hasFeature("ANALYSIS_CREATE"));
+
+const navItems = computed(() => {
+  const filtered: ShellNavItem[] = baseNavItems.filter((item) => {
+    if (item.platformOnly) return isPlatformAdmin.value;
+    return hasFeature(item.feature);
+  });
+  if (isPlatformAdmin.value) {
+    filtered.push({
+      key: "admin",
+      label: "Painel Admin",
+      icon: Shield,
+      platformOnly: true,
+      placement: "bottom" as const,
+    });
+  }
+  return filtered;
+});
 
 const activeKey = computed(() => {
   if (route.path.startsWith("/dashboard")) return "dashboard";
@@ -185,14 +239,10 @@ async function loadMe() {
   try {
     me.value = await getMeCached(true);
     hydrateActiveOrgFromMemberships(me.value?.memberships as any);
-    try {
-      canAccessAdmin.value = (await getAdminCapabilities()).canAccessAdmin;
-    } catch {
-      canAccessAdmin.value = false;
-    }
+    access.value = await getAccessCached(true);
   } catch {
     me.value = null;
-    canAccessAdmin.value = false;
+    access.value = null;
   } finally {
     meLoading.value = false;
   }
@@ -216,8 +266,17 @@ async function navigate(key: string) {
 }
 
 async function goNewAnalysis() {
-  if (mvBusy.value) return;
+  if (mvBusy.value || !canCreateAnalysis.value) return;
   await router.push("/analyses/new");
+}
+
+function switchDevProfile() {
+  const profile = devProfiles.value.find((item) => item.sub === devProfileSub.value);
+  if (!profile) return;
+  setDevBypassProfileOverride(profile);
+  clearMeCache();
+  setActiveOrgId(profile.orgId ?? null);
+  window.location.assign("/");
 }
 
 onMounted(async () => {

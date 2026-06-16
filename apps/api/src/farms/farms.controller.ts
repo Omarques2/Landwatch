@@ -10,6 +10,8 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import type { AuthedRequest } from '../auth/authed-request.type';
+import { AccessService } from '../auth/access.service';
+import { ActorContextService } from '../auth/actor-context.service';
 import { CreateFarmDto } from './dto/create-farm.dto';
 import { FarmByCarQuery } from './dto/farm-by-car.query';
 import { ListFarmsQuery } from './dto/list-farms.query';
@@ -18,13 +20,19 @@ import { FarmsService } from './farms.service';
 
 @Controller('v1/farms')
 export class FarmsController {
-  constructor(private readonly farms: FarmsService) {}
+  constructor(
+    private readonly farms: FarmsService,
+    private readonly actorContext: ActorContextService,
+    private readonly access: AccessService,
+  ) {}
 
   @Get()
-  async list(@Query() query: ListFarmsQuery) {
+  async list(@Req() req: AuthedRequest, @Query() query: ListFarmsQuery) {
+    const actor = await this.actorContext.fromRequest(req, { orgMode: 'tenant' });
+    await this.access.requireTenantFeature(actor, 'FARMS');
     const page = query.page ?? 1;
     const pageSize = query.pageSize ?? 20;
-    return this.farms.list({
+    return this.farms.list(actor, {
       q: query.q,
       page,
       pageSize,
@@ -33,13 +41,17 @@ export class FarmsController {
   }
 
   @Get('by-car')
-  async getByCar(@Query() query: FarmByCarQuery) {
-    return this.farms.getByCarKey(query.carKey);
+  async getByCar(@Req() req: AuthedRequest, @Query() query: FarmByCarQuery) {
+    const actor = await this.actorContext.fromRequest(req, { orgMode: 'tenant' });
+    await this.access.requireTenantFeature(actor, 'FARMS');
+    return this.farms.getByCarKeyForActor(actor, query.carKey);
   }
 
   @Get(':id')
-  async get(@Param('id') id: string) {
-    return this.farms.getById(id);
+  async get(@Req() req: AuthedRequest, @Param('id') id: string) {
+    const actor = await this.actorContext.fromRequest(req, { orgMode: 'tenant' });
+    await this.access.requireTenantFeature(actor, 'FARMS');
+    return this.farms.getByIdForActor(actor, id);
   }
 
   @Post()
@@ -50,7 +62,9 @@ export class FarmsController {
         message: 'Missing user claims',
       });
     }
-    return this.farms.create(req.user, dto);
+    const actor = await this.actorContext.fromRequest(req, { orgMode: 'tenant' });
+    await this.access.requireTenantFeature(actor, 'FARMS');
+    return this.farms.createForActor(actor, dto);
   }
 
   @Patch(':id')
@@ -65,6 +79,8 @@ export class FarmsController {
         message: 'Missing user claims',
       });
     }
-    return this.farms.update(req.user, id, dto);
+    const actor = await this.actorContext.fromRequest(req, { orgMode: 'tenant' });
+    await this.access.requireTenantFeature(actor, 'FARMS');
+    return this.farms.updateForActor(actor, id, dto);
   }
 }

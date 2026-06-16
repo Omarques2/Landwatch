@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { randomUUID, createHash } from 'crypto';
 import { Prisma } from '@prisma/client';
+import type { ActorContext } from '../auth/actor-context.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { LandwatchStatusService } from '../landwatch-status/landwatch-status.service';
 import { CreateCarMapSearchDto } from './dto/create-car-map-search.dto';
@@ -388,6 +389,25 @@ export class CarsService {
     const schema = this.getSchema();
     const categoryCode = this.getCategoryCode();
     const actorUserId = await this.requireActorUserId(subject);
+    return this.createMapSearchForUser(actorUserId, null, dto, apiOrigin);
+  }
+
+  async createMapSearchForActor(
+    actor: ActorContext,
+    dto: CreateCarMapSearchDto,
+    apiOrigin?: string | null,
+  ) {
+    return this.createMapSearchForUser(actor.userId, actor.orgId, dto, apiOrigin);
+  }
+
+  private async createMapSearchForUser(
+    actorUserId: string,
+    actorOrgId: string | null,
+    dto: CreateCarMapSearchDto,
+    apiOrigin?: string | null,
+  ) {
+    const schema = this.getSchema();
+    const categoryCode = this.getCategoryCode();
     const params = this.normalizeMapSearchParams(dto);
     const useActive = this.isCurrentSnapshot(params.analysisDate);
     await this.ensureMvReady(useActive);
@@ -401,6 +421,7 @@ export class CarsService {
       data: {
         id: searchId,
         actorUserId,
+        actorOrgId: actorOrgId ?? undefined,
         searchVersion: this.getMapSearchVersion(),
         paramsJson: params as unknown as Prisma.InputJsonValue,
         expiresAt,
@@ -462,10 +483,56 @@ export class CarsService {
     }
 
     const actorUserId = await this.requireActorUserId(subject);
+    return this.getMapSearchTileForUser(actorUserId, null, false, searchId, z, x, y, ifNoneMatchHeader);
+  }
+
+  async getMapSearchTileForActor(
+    actor: ActorContext,
+    searchId: string,
+    z: number,
+    x: number,
+    y: number,
+    ifNoneMatchHeader?: string | string[],
+  ) {
+    return this.getMapSearchTileForUser(
+      actor.userId,
+      actor.orgId,
+      actor.isPlatformAdmin,
+      searchId,
+      z,
+      x,
+      y,
+      ifNoneMatchHeader,
+    );
+  }
+
+  private async getMapSearchTileForUser(
+    actorUserId: string,
+    actorOrgId: string | null,
+    isPlatformAdmin: boolean,
+    searchId: string,
+    z: number,
+    x: number,
+    y: number,
+    ifNoneMatchHeader?: string | string[],
+  ): Promise<{
+    notModified: boolean;
+    etag: string;
+    cacheControl: string;
+    buffer: Uint8Array;
+  }> {
+    if (z < 0 || z > 22 || x < 0 || y < 0 || x >= 2 ** z || y >= 2 ** z) {
+      throw new BadRequestException({
+        code: 'INVALID_TILE_COORDS',
+        message: 'tile coordinates are invalid',
+      });
+    }
     const session = await this.prisma.carMapSearchSession.findFirst({
       where: {
         id: searchId,
-        actorUserId,
+        ...(isPlatformAdmin
+          ? {}
+          : { actorUserId, actorOrgId: actorOrgId ?? null }),
         searchVersion: this.getMapSearchVersion(),
         expiresAt: { gt: new Date() },
       },

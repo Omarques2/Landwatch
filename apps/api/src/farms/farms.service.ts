@@ -7,6 +7,7 @@ import {
 import { FarmDocType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import type { Claims } from '../auth/claims.type';
+import type { ActorContext } from '../auth/actor-context.service';
 import { isValidCpfCnpj, sanitizeDoc } from '../common/validators/cpf-cnpj';
 
 type ListParams = {
@@ -57,6 +58,7 @@ export class FarmsService {
     id: string;
     name: string;
     carKey: string;
+    orgId?: string | null;
     documents?: Array<{ id: string; docType: string; docNormalized: string }>;
     _count?: { documents: number };
   }) {
@@ -64,6 +66,8 @@ export class FarmsService {
       id: farm.id,
       name: farm.name,
       carKey: farm.carKey,
+      orgId: farm.orgId ?? null,
+      isPublic: (farm.orgId ?? null) === null,
       documentsCount: farm._count?.documents ?? farm.documents?.length ?? 0,
       documents: farm.documents?.map((doc) => ({
         id: doc.id,
@@ -98,6 +102,31 @@ export class FarmsService {
     },
   ) {
     const ownerUserId = await this.resolveUserId(claims);
+    return this.createForOwner(ownerUserId, null, data);
+  }
+
+  async createForActor(
+    actor: ActorContext,
+    data: {
+      name: string;
+      carKey: string;
+      cpfCnpj?: string;
+      documents?: string[];
+    },
+  ) {
+    return this.createForOwner(actor.userId, actor.orgId, data);
+  }
+
+  private async createForOwner(
+    ownerUserId: string,
+    orgId: string | null,
+    data: {
+      name: string;
+      carKey: string;
+      cpfCnpj?: string;
+      documents?: string[];
+    },
+  ) {
     const carKey = this.normalizeCarKey(data.carKey);
     const documents = this.normalizeDocuments([
       ...(data.documents ?? []),
@@ -110,6 +139,7 @@ export class FarmsService {
           name: data.name.trim(),
           carKey,
           ownerUserId,
+          orgId: orgId ?? undefined,
         },
       });
       if (documents.length > 0) {
@@ -130,12 +160,20 @@ export class FarmsService {
     });
   }
 
-  async list(params: ListParams) {
+  async list(actorOrParams: ActorContext | ListParams, maybeParams?: ListParams) {
+    const actor = maybeParams ? (actorOrParams as ActorContext) : null;
+    const params = maybeParams ?? (actorOrParams as ListParams);
     const { q, page, pageSize, includeDocs } = params;
     const skip = (page - 1) * pageSize;
     const digits = q ? q.replace(/\D/g, '') : '';
 
-    const where = q
+    const scopedWhere = actor?.isPlatformAdmin
+      ? {}
+      : actor?.orgId
+        ? { OR: [{ orgId: actor.orgId }, { orgId: null }] }
+        : {};
+
+    const searchWhere = q
       ? {
           OR: [
             { name: { contains: q, mode: 'insensitive' as const } },
@@ -152,6 +190,11 @@ export class FarmsService {
           ],
         }
       : {};
+
+    const clauses = [scopedWhere, searchWhere].filter(
+      (clause) => Object.keys(clause).length > 0,
+    );
+    const where = clauses.length > 1 ? { AND: clauses } : (clauses[0] ?? {});
 
     const [total, rows] = await this.prisma.$transaction([
       this.prisma.farm.count({ where }),
@@ -174,6 +217,8 @@ export class FarmsService {
           id: base.id,
           name: base.name,
           carKey: base.carKey,
+          orgId: base.orgId,
+          isPublic: base.isPublic,
           documentsCount: base.documentsCount,
         };
       }
@@ -186,6 +231,22 @@ export class FarmsService {
   async getById(id: string) {
     const farm = await this.prisma.farm.findUnique({
       where: { id },
+      include: { documents: true, _count: { select: { documents: true } } },
+    });
+    if (!farm) {
+      throw new NotFoundException({
+        code: 'FARM_NOT_FOUND',
+        message: 'Farm not found',
+      });
+    }
+    return this.shapeFarm(farm);
+  }
+
+  async getByIdForActor(actor: ActorContext, id: string) {
+    const farm = await this.prisma.farm.findFirst({
+      where: actor.isPlatformAdmin
+        ? { id }
+        : { id, OR: [{ orgId: actor.orgId ?? '__none__' }, { orgId: null }] },
       include: { documents: true, _count: { select: { documents: true } } },
     });
     if (!farm) {
@@ -212,6 +273,47 @@ export class FarmsService {
     return this.shapeFarm(farm);
   }
 
+  async getByCarKeyForActor(actor: ActorContext, carKeyInput: string) {
+    const carKey = this.normalizeCarKey(carKeyInput);
+    let farm:
+      | Awaited<ReturnType<typeof this.prisma.farm.findFirst>>
+      | null = null;
+    if (actor.isPlatformAdmin && !actor.orgId) {
+      const matches = await this.prisma.farm.findMany({
+        where: { carKey },
+        take: 2,
+        select: { id: true },
+      });
+      if (matches.length > 1) {
+        throw new BadRequestException({
+          code: 'FARM_CAR_KEY_AMBIGUOUS',
+          message: 'CAR key exists in multiple scopes',
+        });
+      }
+      farm = await this.prisma.farm.findFirst({
+        where: { carKey },
+        include: { documents: true, _count: { select: { documents: true } } },
+      });
+    } else {
+      farm =
+        (await this.prisma.farm.findFirst({
+          where: { carKey, orgId: actor.orgId },
+          include: { documents: true, _count: { select: { documents: true } } },
+        })) ??
+        (await this.prisma.farm.findFirst({
+          where: { carKey, orgId: null },
+          include: { documents: true, _count: { select: { documents: true } } },
+        }));
+    }
+    if (!farm) {
+      throw new NotFoundException({
+        code: 'FARM_NOT_FOUND',
+        message: 'Farm not found',
+      });
+    }
+    return this.shapeFarm(farm);
+  }
+
   async update(
     claims: Claims,
     id: string,
@@ -224,6 +326,47 @@ export class FarmsService {
   ) {
     await this.resolveUserId(claims);
     await this.getById(id);
+    return this.updateById(id, data);
+  }
+
+  async updateForActor(
+    actor: ActorContext,
+    id: string,
+    data: {
+      name?: string;
+      carKey?: string;
+      cpfCnpj?: string | null;
+      documents?: string[];
+    },
+  ) {
+    const current = await this.prisma.farm.findUnique({
+      where: { id },
+      select: { id: true, orgId: true },
+    });
+    if (!current) {
+      throw new NotFoundException({
+        code: 'FARM_NOT_FOUND',
+        message: 'Farm not found',
+      });
+    }
+    if (!actor.isPlatformAdmin && current.orgId !== actor.orgId) {
+      throw new ForbiddenException({
+        code: 'FARM_EDIT_FORBIDDEN',
+        message: 'Farm cannot be edited by this actor',
+      });
+    }
+    return this.updateById(id, data);
+  }
+
+  private async updateById(
+    id: string,
+    data: {
+      name?: string;
+      carKey?: string;
+      cpfCnpj?: string | null;
+      documents?: string[];
+    },
+  ) {
 
     if (data.name !== undefined && data.name.trim().length === 0) {
       throw new BadRequestException({

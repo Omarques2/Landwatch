@@ -1,4 +1,4 @@
-import { ApiKeyScope } from '@prisma/client';
+import { ApiClientKind, ApiKeyScope } from '@prisma/client';
 import {
   ArrayNotEmpty,
   IsArray,
@@ -16,6 +16,10 @@ export class CreateApiKeyDto {
   @IsOptional()
   @IsUUID()
   orgId?: string;
+
+  @IsOptional()
+  @IsEnum(ApiClientKind)
+  kind?: ApiClientKind;
 
   @IsArray()
   @ArrayNotEmpty()

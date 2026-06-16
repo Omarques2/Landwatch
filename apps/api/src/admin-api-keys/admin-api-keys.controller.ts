@@ -17,6 +17,7 @@ export class AdminApiKeysController {
   create(@Body() dto: CreateApiKeyDto) {
     return this.apiKeys.create({
       clientName: dto.clientName,
+      kind: dto.kind,
       orgId: dto.orgId,
       scopes: dto.scopes,
       expiresAt: dto.expiresAt,

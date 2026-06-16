@@ -12,6 +12,8 @@ import {
 } from '@nestjs/common';
 import type { Response } from 'express';
 import type { AuthedRequest } from '../auth/authed-request.type';
+import { AccessService } from '../auth/access.service';
+import { ActorContextService } from '../auth/actor-context.service';
 import { AnalysesService } from './analyses.service';
 import { CreateAnalysisDto } from './dto/create-analysis.dto';
 import { ListAnalysesQuery } from './dto/list-analyses.query';
@@ -19,7 +21,11 @@ import { resolveApiOrigin, resolveWebOrigin } from './request-origin';
 
 @Controller('v1/analyses')
 export class AnalysesController {
-  constructor(private readonly analyses: AnalysesService) {}
+  constructor(
+    private readonly analyses: AnalysesService,
+    private readonly actorContext: ActorContextService,
+    private readonly access: AccessService,
+  ) {}
 
   @Post()
   async create(@Req() req: AuthedRequest, @Body() dto: CreateAnalysisDto) {
@@ -29,14 +35,18 @@ export class AnalysesController {
         message: 'Missing user claims',
       });
     }
-    return this.analyses.create(req.user, dto);
+    const actor = await this.actorContext.fromRequest(req, { orgMode: 'tenant' });
+    await this.access.requireTenantFeature(actor, 'ANALYSIS_CREATE');
+    return this.analyses.createForActor(actor, dto);
   }
 
   @Get()
-  async list(@Query() query: ListAnalysesQuery) {
+  async list(@Req() req: AuthedRequest, @Query() query: ListAnalysesQuery) {
+    const actor = await this.actorContext.fromRequest(req, { orgMode: 'tenant' });
+    await this.access.requireTenantFeature(actor, 'ANALYSES');
     const page = query.page ?? 1;
     const pageSize = query.pageSize ?? 20;
-    return this.analyses.list({
+    return this.analyses.list(actor, {
       carKey: query.carKey,
       farmId: query.farmId,
       startDate: query.startDate,
@@ -52,35 +62,52 @@ export class AnalysesController {
   }
 
   @Get(':id')
-  async get(@Param('id') id: string) {
+  async get(@Req() req: AuthedRequest, @Param('id') id: string) {
+    const actor = await this.actorContext.fromRequest(req, { orgMode: 'tenant' });
+    await this.access.requireTenantFeature(actor, 'ANALYSES');
+    await this.access.assertCanReadAnalysis(actor, id);
     return this.analyses.getById(id);
   }
 
   @Get(':id/status')
-  async getStatus(@Param('id') id: string) {
+  async getStatus(@Req() req: AuthedRequest, @Param('id') id: string) {
+    const actor = await this.actorContext.fromRequest(req, { orgMode: 'tenant' });
+    await this.access.requireTenantFeature(actor, 'ANALYSES');
+    await this.access.assertCanReadAnalysis(actor, id);
     return this.analyses.getStatusById(id);
   }
 
   @Get(':id/map')
   async getMap(
+    @Req() req: AuthedRequest,
     @Param('id') id: string,
     @Query('tolerance') tolerance?: string,
   ) {
+    const actor = await this.actorContext.fromRequest(req, { orgMode: 'tenant' });
+    await this.access.requireTenantFeature(actor, 'ANALYSES');
+    await this.access.assertCanReadAnalysis(actor, id);
     const parsed = tolerance ? Number(tolerance) : undefined;
     return this.analyses.getMapById(id, parsed);
   }
 
   @Get(':id/geojson')
   async getGeoJson(
+    @Req() req: AuthedRequest,
     @Param('id') id: string,
     @Query('tolerance') tolerance?: string,
   ) {
+    const actor = await this.actorContext.fromRequest(req, { orgMode: 'tenant' });
+    await this.access.requireTenantFeature(actor, 'ANALYSES');
+    await this.access.assertCanReadAnalysis(actor, id);
     const parsed = tolerance ? Number(tolerance) : undefined;
     return this.analyses.getGeoJsonById(id, parsed);
   }
 
   @Get(':id/vector-map')
   async getVectorMap(@Req() req: AuthedRequest, @Param('id') id: string) {
+    const actor = await this.actorContext.fromRequest(req, { orgMode: 'tenant' });
+    await this.access.requireTenantFeature(actor, 'ANALYSES');
+    await this.access.assertCanReadAnalysis(actor, id);
     const apiOrigin = resolveApiOrigin(req);
     const tileBasePath = apiOrigin
       ? `${apiOrigin}/v1/analyses/${id}/tiles`
@@ -100,6 +127,9 @@ export class AnalysesController {
     const parsedZ = Number(z);
     const parsedX = Number(x);
     const parsedY = Number(y);
+    const actor = await this.actorContext.fromRequest(req, { orgMode: 'tenant' });
+    await this.access.requireTenantFeature(actor, 'ANALYSES');
+    await this.access.assertCanReadAnalysis(actor, id);
     const tile = await this.analyses.getVectorTileById(
       id,
       parsedZ,
@@ -131,6 +161,9 @@ export class AnalysesController {
         message: 'Missing user claims',
       });
     }
+    const actor = await this.actorContext.fromRequest(req, { orgMode: 'tenant' });
+    await this.access.requireTenantFeature(actor, 'ANALYSES');
+    await this.access.assertCanReadAnalysis(actor, id);
     const pdf = await this.analyses.getPdfById(id, {
       mode: 'user',
       userSubject: String(req.user.sub),

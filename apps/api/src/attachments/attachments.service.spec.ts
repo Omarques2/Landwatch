@@ -204,12 +204,7 @@ describe('AttachmentsService', () => {
       canManageCategories: false,
       canManagePermissions: false,
       canViewAudit: false,
-      allowedScopes: [
-        'ORG_FEATURE',
-        'ORG_CAR',
-        'PLATFORM_FEATURE',
-        'PLATFORM_CAR',
-      ],
+      allowedScopes: ['ORG_FEATURE', 'ORG_CAR'],
     });
   });
 
@@ -274,11 +269,11 @@ describe('AttachmentsService', () => {
       ['PLATFORM_FEATURE', undefined],
       ['PLATFORM_CAR', 'CAR-1'],
     ] as const)(
-      'allows regular organization users to create %s targets',
+      'rejects regular organization users creating %s targets',
       (scope, carKey) => {
         const service = new AttachmentsService(makePrismaMock() as any);
 
-        expect(
+        expect(() =>
           (service as any).parseCreateTarget(
             {
               userId: 'user-1',
@@ -294,13 +289,7 @@ describe('AttachmentsService', () => {
               validFrom: '2026-04-16',
             },
           ),
-        ).toMatchObject({
-          datasetCode: 'UNIDADES_CONSERVACAO',
-          featureId: 22857615n,
-          scope,
-          carKey: carKey ?? null,
-          appliesOrgId: null,
-        });
+        ).toThrow('Only platform admins can create platform attachment targets');
       },
     );
   });

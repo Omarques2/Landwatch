@@ -12,6 +12,8 @@ import {
 } from '@nestjs/common';
 import type { Response } from 'express';
 import type { AuthedRequest } from '../auth/authed-request.type';
+import { AccessService } from '../auth/access.service';
+import { ActorContextService } from '../auth/actor-context.service';
 import { CarsService } from './cars.service';
 import { BboxCarsQuery } from './dto/bbox-cars.query';
 import { ByKeyCarsQuery } from './dto/by-key-cars.query';
@@ -22,7 +24,11 @@ import { PointCarsQuery } from './dto/point-cars.query';
 
 @Controller('v1/cars')
 export class CarsController {
-  constructor(private readonly cars: CarsService) {}
+  constructor(
+    private readonly cars: CarsService,
+    private readonly actorContext: ActorContextService,
+    private readonly access: AccessService,
+  ) {}
 
   private subject(req: AuthedRequest) {
     const sub = req.user?.sub ? String(req.user.sub) : null;
@@ -35,33 +41,45 @@ export class CarsController {
     return sub;
   }
 
+  private async actor(req: AuthedRequest) {
+    const actor = await this.actorContext.fromRequest(req, { orgMode: 'tenant' });
+    await this.access.requireTenantFeature(actor, 'CAR_SEARCH');
+    return actor;
+  }
+
   @Get('lookup')
-  lookup(@Query() query: LookupCarsQuery) {
+  async lookup(@Req() req: AuthedRequest, @Query() query: LookupCarsQuery) {
+    await this.actor(req);
     return this.cars.lookupByPoint(query);
   }
 
   @Get('by-key')
-  getByKey(@Query() query: ByKeyCarsQuery) {
+  async getByKey(@Req() req: AuthedRequest, @Query() query: ByKeyCarsQuery) {
+    await this.actor(req);
     return this.cars.getByKey(query);
   }
 
   @Get('bbox')
-  bbox(@Query() query: BboxCarsQuery) {
+  async bbox(@Req() req: AuthedRequest, @Query() query: BboxCarsQuery) {
+    await this.actor(req);
     return this.cars.bbox(query);
   }
 
   @Get('nearby')
-  nearby(@Query() query: NearbyCarsQuery) {
+  async nearby(@Req() req: AuthedRequest, @Query() query: NearbyCarsQuery) {
+    await this.actor(req);
     return this.cars.nearby(query);
   }
 
   @Get('point')
-  point(@Query() query: PointCarsQuery) {
+  async point(@Req() req: AuthedRequest, @Query() query: PointCarsQuery) {
+    await this.actor(req);
     return this.cars.point(query);
   }
 
   @Post('map-searches')
-  createMapSearch(@Req() req: AuthedRequest, @Body() dto: CreateCarMapSearchDto) {
+  async createMapSearch(@Req() req: AuthedRequest, @Body() dto: CreateCarMapSearchDto) {
+    const actor = await this.actor(req);
     const forwardedProto =
       typeof req.headers['x-forwarded-proto'] === 'string'
         ? req.headers['x-forwarded-proto'].split(',')[0]?.trim()
@@ -73,7 +91,7 @@ export class CarsController {
         ? req.headers['x-forwarded-host'].split(',')[0]?.trim()
         : req.headers.host;
     const apiOrigin = host ? `${protocol}://${host}` : null;
-    return this.cars.createMapSearch(this.subject(req), dto, apiOrigin);
+    return this.cars.createMapSearchForActor(actor, dto, apiOrigin);
   }
 
   @Get('tiles/:searchId/:z/:x/:y.mvt')
@@ -98,8 +116,9 @@ export class CarsController {
         message: 'z, x and y must be integers',
       });
     }
-    const tile = await this.cars.getMapSearchTile(
-      this.subject(req),
+    const actor = await this.actor(req);
+    const tile = await this.cars.getMapSearchTileForActor(
+      actor,
       searchId,
       parsedZ,
       parsedX,

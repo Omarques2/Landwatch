@@ -1,13 +1,31 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { FarmsController } from './farms.controller';
 import { FarmsService } from './farms.service';
+import { ActorContextService } from '../auth/actor-context.service';
+import { AccessService } from '../auth/access.service';
 
 describe('FarmsController', () => {
+  function accessProviders() {
+    return [
+      {
+        provide: ActorContextService,
+        useValue: { fromRequest: jest.fn() },
+      },
+      {
+        provide: AccessService,
+        useValue: { requireTenantFeature: jest.fn() },
+      },
+    ];
+  }
+
   it('rejects create when user is missing', async () => {
     const farmsService = { create: jest.fn() };
     const module: TestingModule = await Test.createTestingModule({
       controllers: [FarmsController],
-      providers: [{ provide: FarmsService, useValue: farmsService }],
+      providers: [
+        { provide: FarmsService, useValue: farmsService },
+        ...accessProviders(),
+      ],
     }).compile();
 
     const controller = module.get(FarmsController);
@@ -22,7 +40,10 @@ describe('FarmsController', () => {
     const farmsService = { update: jest.fn() };
     const module: TestingModule = await Test.createTestingModule({
       controllers: [FarmsController],
-      providers: [{ provide: FarmsService, useValue: farmsService }],
+      providers: [
+        { provide: FarmsService, useValue: farmsService },
+        ...accessProviders(),
+      ],
     }).compile();
 
     const controller = module.get(FarmsController);

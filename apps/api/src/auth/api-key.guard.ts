@@ -10,7 +10,7 @@ import { createHmac } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { API_KEY_SCOPES_KEY } from './api-key-scopes.decorator';
 import type { AuthedRequest } from './authed-request.type';
-import type { ApiKeyScope } from '@prisma/client';
+import { ApiClientKind, type ApiKeyScope } from '@prisma/client';
 
 @Injectable()
 export class ApiKeyGuard implements CanActivate {
@@ -44,7 +44,13 @@ export class ApiKeyGuard implements CanActivate {
         expiresAt: true,
         revokedAt: true,
         client: {
-          select: { id: true, orgId: true, status: true },
+          select: {
+            id: true,
+            orgId: true,
+            kind: true,
+            status: true,
+            org: { select: { id: true, status: true } },
+          },
         },
       },
     });
@@ -53,6 +59,28 @@ export class ApiKeyGuard implements CanActivate {
       throw new ForbiddenException({
         code: 'API_KEY_INVALID',
         message: 'API key invalid',
+      });
+    }
+
+    if (record.client.kind === ApiClientKind.TENANT) {
+      if (!record.client.orgId || !record.client.org) {
+        throw new ForbiddenException({
+          code: 'API_CLIENT_ORG_REQUIRED',
+          message: 'Tenant API client requires organization',
+        });
+      }
+      if (record.client.org.status !== 'active') {
+        throw new ForbiddenException({
+          code: 'API_CLIENT_ORG_DISABLED',
+          message: 'Tenant API client organization disabled',
+        });
+      }
+    }
+
+    if (record.client.kind === ApiClientKind.PLATFORM && record.client.orgId) {
+      throw new ForbiddenException({
+        code: 'API_CLIENT_PLATFORM_ORG_FORBIDDEN',
+        message: 'Platform API client must not have organization',
       });
     }
 
@@ -98,6 +126,7 @@ export class ApiKeyGuard implements CanActivate {
       id: record.id,
       clientId: record.client.id,
       orgId: record.client.orgId ?? null,
+      kind: record.client.kind,
       scopes: record.scopes,
     };
 
