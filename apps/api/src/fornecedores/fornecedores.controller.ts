@@ -24,8 +24,10 @@ export class FornecedoresController {
   ) {}
 
   private async requirePlatform(req: AuthedRequest) {
-    const actor = await this.actorContext.fromRequest(req, { orgMode: 'platform' });
-    await this.access.requirePlatformAdmin(actor);
+    const actor = await this.actorContext.fromRequest(req, {
+      orgMode: 'platform',
+    });
+    this.access.requirePlatformAdmin(actor);
   }
 
   @Get('summary')

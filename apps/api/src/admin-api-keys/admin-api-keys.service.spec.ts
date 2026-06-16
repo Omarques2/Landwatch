@@ -6,7 +6,12 @@ function makePrismaMock() {
   return {
     org: { findUnique: jest.fn() },
     apiClient: { create: jest.fn() },
-    apiKey: { create: jest.fn(), findMany: jest.fn(), findUnique: jest.fn(), update: jest.fn() },
+    apiKey: {
+      create: jest.fn(),
+      findMany: jest.fn(),
+      findUnique: jest.fn(),
+      update: jest.fn(),
+    },
     $transaction: jest.fn(async (callback: any) =>
       callback({
         apiClient: {
@@ -60,7 +65,10 @@ describe('AdminApiKeysService', () => {
 
   it('rejects tenant api key creation for disabled org', async () => {
     const prisma = makePrismaMock();
-    prisma.org.findUnique.mockResolvedValue({ id: 'org-1', status: OrgStatus.disabled });
+    prisma.org.findUnique.mockResolvedValue({
+      id: 'org-1',
+      status: OrgStatus.disabled,
+    });
     const service = new AdminApiKeysService(prisma as any);
 
     await expect(

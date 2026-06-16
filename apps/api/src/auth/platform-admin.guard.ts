@@ -1,8 +1,4 @@
-import {
-  CanActivate,
-  ExecutionContext,
-  Injectable,
-} from '@nestjs/common';
+import { CanActivate, ExecutionContext, Injectable } from '@nestjs/common';
 import type { AuthedRequest } from './authed-request.type';
 import { ActorContextService } from './actor-context.service';
 import { AccessService } from './access.service';
@@ -16,8 +12,10 @@ export class PlatformAdminGuard implements CanActivate {
 
   async canActivate(ctx: ExecutionContext): Promise<boolean> {
     const req = ctx.switchToHttp().getRequest<AuthedRequest>();
-    const actor = await this.actorContext.fromRequest(req, { orgMode: 'platform' });
-    await this.access.requirePlatformAdmin(actor);
+    const actor = await this.actorContext.fromRequest(req, {
+      orgMode: 'platform',
+    });
+    this.access.requirePlatformAdmin(actor);
     return true;
   }
 }

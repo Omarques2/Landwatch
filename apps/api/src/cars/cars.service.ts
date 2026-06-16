@@ -386,8 +386,6 @@ export class CarsService {
     dto: CreateCarMapSearchDto,
     apiOrigin?: string | null,
   ) {
-    const schema = this.getSchema();
-    const categoryCode = this.getCategoryCode();
     const actorUserId = await this.requireActorUserId(subject);
     return this.createMapSearchForUser(actorUserId, null, dto, apiOrigin);
   }
@@ -397,7 +395,12 @@ export class CarsService {
     dto: CreateCarMapSearchDto,
     apiOrigin?: string | null,
   ) {
-    return this.createMapSearchForUser(actor.userId, actor.orgId, dto, apiOrigin);
+    return this.createMapSearchForUser(
+      actor.userId,
+      actor.orgId,
+      dto,
+      apiOrigin,
+    );
   }
 
   private async createMapSearchForUser(
@@ -483,7 +486,16 @@ export class CarsService {
     }
 
     const actorUserId = await this.requireActorUserId(subject);
-    return this.getMapSearchTileForUser(actorUserId, null, false, searchId, z, x, y, ifNoneMatchHeader);
+    return this.getMapSearchTileForUser(
+      actorUserId,
+      null,
+      false,
+      searchId,
+      z,
+      x,
+      y,
+      ifNoneMatchHeader,
+    );
   }
 
   async getMapSearchTileForActor(

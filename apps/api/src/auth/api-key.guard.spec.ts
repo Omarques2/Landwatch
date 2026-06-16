@@ -2,7 +2,12 @@ import 'reflect-metadata';
 import type { ExecutionContext } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { createHmac } from 'crypto';
-import { ApiClientKind, ApiClientStatus, ApiKeyScope, OrgStatus } from '@prisma/client';
+import {
+  ApiClientKind,
+  ApiClientStatus,
+  ApiKeyScope,
+  OrgStatus,
+} from '@prisma/client';
 import { ApiKeyGuard } from './api-key.guard';
 
 function makeContext(req: any): ExecutionContext {

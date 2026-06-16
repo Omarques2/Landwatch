@@ -32,12 +32,19 @@ function makeServiceMock() {
     }),
     createAttachment: jest.fn().mockResolvedValue({ id: 'att-1' }),
     getPmtilesArchive: jest.fn(),
+    listAnalysisAttachments: jest.fn().mockResolvedValue([{ id: 'att-1' }]),
+    downloadAnalysisAttachmentForActor: jest.fn().mockResolvedValue({
+      filename: 'doc.pdf',
+      contentType: 'application/pdf',
+      stream: new PassThrough(),
+    }),
   };
 }
 
 function makeAccessMock() {
   return {
-    requirePlatformAdmin: jest.fn().mockResolvedValue(undefined),
+    requirePlatformAdmin: jest.fn(),
+    assertCanReadAnalysis: jest.fn().mockResolvedValue(undefined),
   };
 }
 
@@ -224,9 +231,7 @@ describe('AttachmentsController', () => {
       headers: {},
       stream,
     });
-    pipelineMock.mockImplementation(
-      () => new Promise<void>(() => undefined),
-    );
+    pipelineMock.mockImplementation(() => new Promise<void>(() => undefined));
 
     const req = new EventEmitter() as any;
     req.user = { sub: 'sub-1' };
@@ -238,5 +243,86 @@ describe('AttachmentsController', () => {
     res.emit('close');
 
     expect(destroySpy).toHaveBeenCalled();
+  });
+
+  describe('analysis-scoped routes (tenant accessible)', () => {
+    it('lists analysis attachments for a tenant without requiring platform admin', async () => {
+      const service = makeServiceMock();
+      const access = makeAccessMock();
+      const controller = new AttachmentsController(
+        service as any,
+        access as any,
+      );
+
+      const result = await controller.listAnalysisAttachments(
+        { user: { sub: 'sub-1' }, headers: { 'x-org-id': 'org-1' } } as any,
+        'analysis-1',
+      );
+
+      expect(access.requirePlatformAdmin).not.toHaveBeenCalled();
+      expect(access.assertCanReadAnalysis).toHaveBeenCalledWith(
+        expect.objectContaining({ orgId: 'org-1' }),
+        'analysis-1',
+      );
+      expect(service.listAnalysisAttachments).toHaveBeenCalledWith(
+        expect.objectContaining({ orgId: 'org-1' }),
+        'analysis-1',
+      );
+      expect(result).toEqual([{ id: 'att-1' }]);
+    });
+
+    it('blocks listing when the analysis is not readable by the actor', async () => {
+      const service = makeServiceMock();
+      const access = makeAccessMock();
+      access.assertCanReadAnalysis.mockRejectedValue(
+        new BadRequestException({ code: 'RESOURCE_ORG_FORBIDDEN' }),
+      );
+      const controller = new AttachmentsController(
+        service as any,
+        access as any,
+      );
+
+      await expect(
+        controller.listAnalysisAttachments(
+          { user: { sub: 'sub-1' }, headers: { 'x-org-id': 'org-1' } } as any,
+          'analysis-other-org',
+        ),
+      ).rejects.toMatchObject({ response: { code: 'RESOURCE_ORG_FORBIDDEN' } });
+      expect(service.listAnalysisAttachments).not.toHaveBeenCalled();
+    });
+
+    it('downloads an analysis attachment via the contextual route', async () => {
+      const service = makeServiceMock();
+      const access = makeAccessMock();
+      const controller = new AttachmentsController(
+        service as any,
+        access as any,
+      );
+      const res = new MockResponse();
+
+      await controller.downloadAnalysisAttachment(
+        {
+          user: { sub: 'sub-1' },
+          headers: { 'x-org-id': 'org-1' },
+          ip: '1.1.1.1',
+        } as any,
+        'analysis-1',
+        'att-1',
+        res as any,
+      );
+
+      expect(access.requirePlatformAdmin).not.toHaveBeenCalled();
+      expect(access.assertCanReadAnalysis).toHaveBeenCalledWith(
+        expect.objectContaining({ orgId: 'org-1' }),
+        'analysis-1',
+      );
+      expect(service.downloadAnalysisAttachmentForActor).toHaveBeenCalledWith(
+        expect.objectContaining({ orgId: 'org-1' }),
+        'analysis-1',
+        'att-1',
+        '1.1.1.1',
+      );
+      expect(res.headers.get('Content-Disposition')).toContain('doc.pdf');
+    });
   });
 });

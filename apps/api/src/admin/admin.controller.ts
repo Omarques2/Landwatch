@@ -15,6 +15,7 @@ import { AdminService } from './admin.service';
 import { CreateOrgDto } from './dto/create-org.dto';
 import { ManageMembershipDto } from './dto/manage-membership.dto';
 import { UpdateOrgDto } from './dto/update-org.dto';
+import { UpdateOrgFeaturesDto } from './dto/update-org-features.dto';
 import { UpdateUserStatusDto } from './dto/update-user-status.dto';
 
 @Controller('v1/admin')
@@ -65,7 +66,7 @@ export class AdminController {
   updateOrgFeatures(
     @Req() req: AuthedRequest,
     @Param('orgId') orgId: string,
-    @Body() dto: { features: Array<{ feature: string; enabled: boolean }> },
+    @Body() dto: UpdateOrgFeaturesDto,
   ) {
     return this.admin.updateOrgFeatures(this.subject(req), orgId, dto);
   }

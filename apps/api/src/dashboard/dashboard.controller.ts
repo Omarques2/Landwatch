@@ -14,8 +14,10 @@ export class DashboardController {
 
   @Get('summary')
   async getSummary(@Req() req: AuthedRequest) {
-    const actor = await this.actorContext.fromRequest(req, { orgMode: 'platform' });
-    await this.access.requirePlatformAdmin(actor);
+    const actor = await this.actorContext.fromRequest(req, {
+      orgMode: 'platform',
+    });
+    this.access.requirePlatformAdmin(actor);
     return this.dashboard.getSummary();
   }
 }

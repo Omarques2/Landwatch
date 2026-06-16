@@ -15,9 +15,7 @@ describe('PublicAnalysesController', () => {
     };
     const module: TestingModule = await Test.createTestingModule({
       controllers: [PublicAnalysesController],
-      providers: [
-        { provide: AnalysesService, useValue: analysesService },
-      ],
+      providers: [{ provide: AnalysesService, useValue: analysesService }],
     }).compile();
 
     const controller = module.get(PublicAnalysesController);
@@ -46,9 +44,7 @@ describe('PublicAnalysesController', () => {
     };
     const module: TestingModule = await Test.createTestingModule({
       controllers: [PublicAnalysesController],
-      providers: [
-        { provide: AnalysesService, useValue: analysesService },
-      ],
+      providers: [{ provide: AnalysesService, useValue: analysesService }],
     }).compile();
 
     const controller = module.get(PublicAnalysesController);
@@ -87,9 +83,7 @@ describe('PublicAnalysesController', () => {
     };
     const module: TestingModule = await Test.createTestingModule({
       controllers: [PublicAnalysesController],
-      providers: [
-        { provide: AnalysesService, useValue: analysesService },
-      ],
+      providers: [{ provide: AnalysesService, useValue: analysesService }],
     }).compile();
 
     const controller = module.get(PublicAnalysesController);

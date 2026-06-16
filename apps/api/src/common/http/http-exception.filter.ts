@@ -37,7 +37,9 @@ function isValidationErrorResponse(
   );
 }
 
-function isDatabaseTimeoutError(exception: Prisma.PrismaClientKnownRequestError) {
+function isDatabaseTimeoutError(
+  exception: Prisma.PrismaClientKnownRequestError,
+) {
   if (exception.code !== 'P2010') return false;
   const meta = exception.meta as
     | { driverAdapterError?: { cause?: { kind?: string } } }

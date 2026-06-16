@@ -31,7 +31,9 @@ describe('SchedulesController', () => {
         },
         {
           provide: AccessService,
-          useValue: { requireTenantFeature: jest.fn().mockResolvedValue(undefined) },
+          useValue: {
+            requireTenantFeature: jest.fn().mockResolvedValue(undefined),
+          },
         },
       ],
     }).compile();
@@ -42,7 +44,10 @@ describe('SchedulesController', () => {
       'schedule-1',
     );
 
-    expect(schedulesService.runNowForActor).toHaveBeenCalledWith(actor, 'schedule-1');
+    expect(schedulesService.runNowForActor).toHaveBeenCalledWith(
+      actor,
+      'schedule-1',
+    );
     expect(result).toEqual({ scheduleId: 'schedule-1', created: 1 });
   });
 });

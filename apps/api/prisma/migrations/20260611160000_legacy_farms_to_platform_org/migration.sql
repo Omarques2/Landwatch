@@ -11,8 +11,7 @@ BEGIN
   LIMIT 1;
 
   IF platform_org_id IS NULL THEN
-    RAISE NOTICE 'No PLATFORM organization found; legacy farm ownership backfill skipped.';
-    RETURN;
+    RAISE EXCEPTION 'No PLATFORM organization found; legacy farm, analysis and schedule ownership backfill cannot continue.';
   END IF;
 
   SELECT count(*)

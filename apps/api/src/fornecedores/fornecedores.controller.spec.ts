@@ -9,11 +9,15 @@ describe('FornecedoresController', () => {
     return [
       {
         provide: ActorContextService,
-        useValue: { fromRequest: jest.fn().mockResolvedValue({ isPlatformAdmin: true }) },
+        useValue: {
+          fromRequest: jest.fn().mockResolvedValue({ isPlatformAdmin: true }),
+        },
       },
       {
         provide: AccessService,
-        useValue: { requirePlatformAdmin: jest.fn().mockResolvedValue(undefined) },
+        useValue: {
+          requirePlatformAdmin: jest.fn().mockResolvedValue(undefined),
+        },
       },
     ];
   }
@@ -32,7 +36,9 @@ describe('FornecedoresController', () => {
     }).compile();
 
     const controller = module.get(FornecedoresController);
-    await expect(controller.getSummary({ user: { sub: 'sub-1' } } as any)).resolves.toEqual({
+    await expect(
+      controller.getSummary({ user: { sub: 'sub-1' } } as any),
+    ).resolves.toEqual({
       totalFornecedores: 1,
     });
     expect(service.getSummary).toHaveBeenCalledTimes(1);
@@ -57,12 +63,15 @@ describe('FornecedoresController', () => {
     }).compile();
 
     const controller = module.get(FornecedoresController);
-    await controller.list({ user: { sub: 'sub-1' } } as any, {
-      page: 2,
-      pageSize: 10,
-      nome: 'Fornecedor X',
-      uf: 'MT',
-    } as any);
+    await controller.list(
+      { user: { sub: 'sub-1' } } as any,
+      {
+        page: 2,
+        pageSize: 10,
+        nome: 'Fornecedor X',
+        uf: 'MT',
+      } as any,
+    );
     expect(service.list).toHaveBeenCalledWith(
       expect.objectContaining({
         page: 2,

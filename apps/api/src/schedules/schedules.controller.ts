@@ -33,14 +33,18 @@ export class SchedulesController {
         message: 'Missing user claims',
       });
     }
-    const actor = await this.actorContext.fromRequest(req, { orgMode: 'tenant' });
+    const actor = await this.actorContext.fromRequest(req, {
+      orgMode: 'tenant',
+    });
     await this.access.requireTenantFeature(actor, 'SCHEDULES');
     return this.schedules.createForActor(actor, dto);
   }
 
   @Get()
   async list(@Req() req: AuthedRequest, @Query() query: ListSchedulesQuery) {
-    const actor = await this.actorContext.fromRequest(req, { orgMode: 'tenant' });
+    const actor = await this.actorContext.fromRequest(req, {
+      orgMode: 'tenant',
+    });
     await this.access.requireTenantFeature(actor, 'SCHEDULES');
     return this.schedules.listForActor(actor, {
       page: query.page ?? 1,
@@ -57,28 +61,36 @@ export class SchedulesController {
     @Param('id') id: string,
     @Body() dto: UpdateScheduleDto,
   ) {
-    const actor = await this.actorContext.fromRequest(req, { orgMode: 'tenant' });
+    const actor = await this.actorContext.fromRequest(req, {
+      orgMode: 'tenant',
+    });
     await this.access.requireTenantFeature(actor, 'SCHEDULES');
     return this.schedules.updateForActor(actor, id, dto);
   }
 
   @Post(':id/pause')
   async pause(@Req() req: AuthedRequest, @Param('id') id: string) {
-    const actor = await this.actorContext.fromRequest(req, { orgMode: 'tenant' });
+    const actor = await this.actorContext.fromRequest(req, {
+      orgMode: 'tenant',
+    });
     await this.access.requireTenantFeature(actor, 'SCHEDULES');
     return this.schedules.pauseForActor(actor, id);
   }
 
   @Post(':id/resume')
   async resume(@Req() req: AuthedRequest, @Param('id') id: string) {
-    const actor = await this.actorContext.fromRequest(req, { orgMode: 'tenant' });
+    const actor = await this.actorContext.fromRequest(req, {
+      orgMode: 'tenant',
+    });
     await this.access.requireTenantFeature(actor, 'SCHEDULES');
     return this.schedules.resumeForActor(actor, id);
   }
 
   @Post(':id/run-now')
   async runNow(@Req() req: AuthedRequest, @Param('id') id: string) {
-    const actor = await this.actorContext.fromRequest(req, { orgMode: 'tenant' });
+    const actor = await this.actorContext.fromRequest(req, {
+      orgMode: 'tenant',
+    });
     await this.access.requireTenantFeature(actor, 'SCHEDULES');
     return this.schedules.runNowForActor(actor, id);
   }

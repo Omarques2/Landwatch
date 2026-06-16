@@ -42,7 +42,9 @@ export class CarsController {
   }
 
   private async actor(req: AuthedRequest) {
-    const actor = await this.actorContext.fromRequest(req, { orgMode: 'tenant' });
+    const actor = await this.actorContext.fromRequest(req, {
+      orgMode: 'tenant',
+    });
     await this.access.requireTenantFeature(actor, 'CAR_SEARCH');
     return actor;
   }
@@ -78,7 +80,10 @@ export class CarsController {
   }
 
   @Post('map-searches')
-  async createMapSearch(@Req() req: AuthedRequest, @Body() dto: CreateCarMapSearchDto) {
+  async createMapSearch(
+    @Req() req: AuthedRequest,
+    @Body() dto: CreateCarMapSearchDto,
+  ) {
     const actor = await this.actor(req);
     const forwardedProto =
       typeof req.headers['x-forwarded-proto'] === 'string'

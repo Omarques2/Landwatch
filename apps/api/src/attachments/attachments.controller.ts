@@ -83,8 +83,27 @@ export class AttachmentsController {
       String(req.user.sub),
       req.headers['x-org-id'],
     );
-    await this.access.requirePlatformAdmin(actor as any);
+    this.access.requirePlatformAdmin(actor);
     return actor;
+  }
+
+  /**
+   * Resolver for analysis-scoped attachment routes. Resolves identity + org
+   * (via X-Org-Id) WITHOUT requiring platform admin — tenants must be able to
+   * view/download attachments of analyses they can read. Authorization for the
+   * specific analysis is enforced separately via `assertCanReadAnalysis`.
+   */
+  private async resolveAnalysisViewerActor(req: AuthedRequest) {
+    if (!req.user?.sub) {
+      throw new UnauthorizedException({
+        code: 'UNAUTHORIZED',
+        message: 'Missing user claims',
+      });
+    }
+    return this.attachments.resolveActorFromRequest(
+      String(req.user.sub),
+      req.headers['x-org-id'],
+    );
   }
 
   @Get('datasets')
@@ -357,7 +376,10 @@ export class AttachmentsController {
     @Req() req: AuthedRequest,
     @Param('analysisId') analysisId: string,
   ) {
-    const actor = await this.resolveActor(req);
+    // Analysis-scoped: accessible to any actor that can READ the analysis
+    // (tenant of the analysis' org or platform admin). NOT platform-admin only.
+    const actor = await this.resolveAnalysisViewerActor(req);
+    await this.access.assertCanReadAnalysis(actor, analysisId);
     return this.attachments.listAnalysisAttachments(actor, analysisId);
   }
 
@@ -367,7 +389,8 @@ export class AttachmentsController {
     @Param('analysisId') analysisId: string,
     @Res({ passthrough: true }) res: Response,
   ) {
-    const actor = await this.resolveActor(req);
+    const actor = await this.resolveAnalysisViewerActor(req);
+    await this.access.assertCanReadAnalysis(actor, analysisId);
     const zip = await this.attachments.downloadAnalysisZip(
       actor,
       analysisId,
@@ -380,6 +403,34 @@ export class AttachmentsController {
     return new StreamableFile(zip.buffer, {
       type: zip.contentType,
       disposition: `attachment; filename="${zip.filename}"`,
+    });
+  }
+
+  @Get('analysis/:analysisId/:attachmentId/download')
+  async downloadAnalysisAttachment(
+    @Req() req: AuthedRequest,
+    @Param('analysisId') analysisId: string,
+    @Param('attachmentId') attachmentId: string,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    // Contextual download: proves (a) the actor can read the analysis and
+    // (b) the attachment belongs to that analysis' effective snapshot within
+    // the actor's scope. The global `:id/download` stays platform-admin only.
+    const actor = await this.resolveAnalysisViewerActor(req);
+    await this.access.assertCanReadAnalysis(actor, analysisId);
+    const file = await this.attachments.downloadAnalysisAttachmentForActor(
+      actor,
+      analysisId,
+      attachmentId,
+      req.ip ?? null,
+    );
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${file.filename}"`,
+    );
+    return new StreamableFile(file.stream, {
+      type: file.contentType,
+      disposition: `attachment; filename="${file.filename}"`,
     });
   }
 

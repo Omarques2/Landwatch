@@ -15,8 +15,10 @@ export class AlertsController {
 
   @Get()
   async list(@Req() req: AuthedRequest, @Query() query: ListAlertsQuery) {
-    const actor = await this.actorContext.fromRequest(req, { orgMode: 'platform' });
-    await this.access.requirePlatformAdmin(actor);
+    const actor = await this.actorContext.fromRequest(req, {
+      orgMode: 'platform',
+    });
+    this.access.requirePlatformAdmin(actor);
     return this.alerts.list({
       status: query.status,
       limit: query.limit ?? 20,

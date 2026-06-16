@@ -600,7 +600,7 @@ describe('AnalysisPdfMapService', () => {
           init?.signal?.addEventListener('abort', () => {
             reject(new Error('aborted'));
           });
-        }) as Promise<Response>;
+        });
       });
     const service = new AnalysisPdfMapService();
 

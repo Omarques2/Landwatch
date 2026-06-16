@@ -405,7 +405,12 @@ export class AnalysisDetailService {
   async getMapById(id: string, tolerance?: number): Promise<AnalysisMapRow[]> {
     const analysis = await this.prisma.analysis.findUnique({
       where: { id },
-      select: { id: true, status: true, analysisDate: true, analysisKind: true },
+      select: {
+        id: true,
+        status: true,
+        analysisDate: true,
+        analysisKind: true,
+      },
     });
     if (!analysis) {
       throw new BadRequestException({
@@ -646,7 +651,8 @@ export class AnalysisDetailService {
             ? analysis.analysisDate.toISOString().slice(0, 10)
             : this.nowProvider().toISOString().slice(0, 10),
           analysisKind:
-            (analysis.analysisKind ?? AnalysisKind.STANDARD) === AnalysisKind.DETER
+            (analysis.analysisKind ?? AnalysisKind.STANDARD) ===
+            AnalysisKind.DETER
               ? 'DETER'
               : 'STANDARD',
           generatedAt: this.nowProvider().toISOString(),
@@ -878,71 +884,72 @@ export class AnalysisDetailService {
 
     const features = this.sortGeoJsonFeaturesForDrawOrder(
       rows
-      .map((row, idx): AnalysisGeoJsonFeature | null => {
-        if (!row.geom) return null;
-        const geometry = this.normalizeGeoJsonAreaGeometry(
-          JSON.parse(row.geom) as GeoJsonGeometryLike,
-        );
-        const featureId =
-          this.normalizeFeatureId(row.feature_id)?.toString() ?? null;
-        const sicarAreaM2 = this.toNumber(row.sicar_area_m2);
-        const featureAreaM2 = this.toNumber(row.feature_area_m2);
-        const overlapAreaM2 = this.toNumber(row.overlap_area_m2);
-        const overlapPctOfSicar = this.toNumber(row.overlap_pct_of_sicar);
-        const featureAreaHa =
-          featureAreaM2 !== null
-            ? Number((featureAreaM2 / 10000).toFixed(6))
-            : null;
-        const overlapAreaHa =
-          overlapAreaM2 !== null
-            ? Number((overlapAreaM2 / 10000).toFixed(6))
-            : null;
-        const isSicar = (row.category_code ?? '').toUpperCase() === 'SICAR';
-        const hasIntersection =
-          !isSicar &&
-          ((overlapAreaM2 ?? 0) > 0 ||
-            this.isFastStandardCurrentIntersection({
-              analysisKind,
-              analysisDate,
+        .map((row, idx): AnalysisGeoJsonFeature | null => {
+          if (!row.geom) return null;
+          const geometry = this.normalizeGeoJsonAreaGeometry(
+            JSON.parse(row.geom) as GeoJsonGeometryLike,
+          );
+          const featureId =
+            this.normalizeFeatureId(row.feature_id)?.toString() ?? null;
+          const sicarAreaM2 = this.toNumber(row.sicar_area_m2);
+          const featureAreaM2 = this.toNumber(row.feature_area_m2);
+          const overlapAreaM2 = this.toNumber(row.overlap_area_m2);
+          const overlapPctOfSicar = this.toNumber(row.overlap_pct_of_sicar);
+          const featureAreaHa =
+            featureAreaM2 !== null
+              ? Number((featureAreaM2 / 10000).toFixed(6))
+              : null;
+          const overlapAreaHa =
+            overlapAreaM2 !== null
+              ? Number((overlapAreaM2 / 10000).toFixed(6))
+              : null;
+          const isSicar = (row.category_code ?? '').toUpperCase() === 'SICAR';
+          const hasIntersection =
+            !isSicar &&
+            ((overlapAreaM2 ?? 0) > 0 ||
+              this.isFastStandardCurrentIntersection({
+                analysisKind,
+                analysisDate,
+                isSicar,
+                featureAreaM2,
+                overlapAreaM2,
+              }));
+
+          return {
+            type: 'Feature',
+            id: featureId
+              ? `${row.dataset_code}:${featureId}`
+              : `${row.dataset_code}:${idx}`,
+            geometry,
+            properties: {
+              analysisResultId: row.analysis_result_id,
+              categoryCode: row.category_code,
+              datasetCode: row.dataset_code,
+              datasetLabel: row.dataset_label ?? row.dataset_code,
+              snapshotDate: row.snapshot_date
+                ? new Date(row.snapshot_date).toISOString().slice(0, 10)
+                : null,
               isSicar,
+              featureId,
+              featureKey: row.feature_key ?? null,
+              naturalId: row.natural_id ?? null,
+              naturalIdKey: row.natural_id_key ?? null,
+              displayName: row.display_name ?? row.feature_key ?? null,
+              displayNameKey:
+                row.display_name_key ??
+                (row.feature_key ? 'feature_key' : null),
+              ucsCategoria: row.ucs_categoria ?? null,
+              sicarAreaM2,
               featureAreaM2,
               overlapAreaM2,
-            }));
-
-        return {
-          type: 'Feature',
-          id: featureId
-            ? `${row.dataset_code}:${featureId}`
-            : `${row.dataset_code}:${idx}`,
-          geometry,
-          properties: {
-            analysisResultId: row.analysis_result_id,
-            categoryCode: row.category_code,
-            datasetCode: row.dataset_code,
-            datasetLabel: row.dataset_label ?? row.dataset_code,
-            snapshotDate: row.snapshot_date
-              ? new Date(row.snapshot_date).toISOString().slice(0, 10)
-              : null,
-            isSicar,
-            featureId,
-            featureKey: row.feature_key ?? null,
-            naturalId: row.natural_id ?? null,
-            naturalIdKey: row.natural_id_key ?? null,
-            displayName: row.display_name ?? row.feature_key ?? null,
-            displayNameKey:
-              row.display_name_key ?? (row.feature_key ? 'feature_key' : null),
-            ucsCategoria: row.ucs_categoria ?? null,
-            sicarAreaM2,
-            featureAreaM2,
-            overlapAreaM2,
-            overlapPctOfSicar,
-            featureAreaHa,
-            overlapAreaHa,
-            hasIntersection,
-          },
-        };
-      })
-      .filter((value): value is AnalysisGeoJsonFeature => Boolean(value)),
+              overlapPctOfSicar,
+              featureAreaHa,
+              overlapAreaHa,
+              hasIntersection,
+            },
+          };
+        })
+        .filter((value): value is AnalysisGeoJsonFeature => Boolean(value)),
     );
 
     const overlapAreaM2Total = Number(
@@ -1272,9 +1279,8 @@ export class AnalysisDetailService {
           ] as const;
         })
         .filter(
-          (
-            value,
-          ): value is readonly [string, JustificationCoverage] => value !== null,
+          (value): value is readonly [string, JustificationCoverage] =>
+            value !== null,
         ),
     );
   }
@@ -1367,10 +1373,7 @@ export class AnalysisDetailService {
         polygonCoords.push(child.coordinates);
         continue;
       }
-      if (
-        child.type === 'MultiPolygon' &&
-        Array.isArray(child.coordinates)
-      ) {
+      if (child.type === 'MultiPolygon' && Array.isArray(child.coordinates)) {
         polygonCoords.push(...child.coordinates);
       }
     }

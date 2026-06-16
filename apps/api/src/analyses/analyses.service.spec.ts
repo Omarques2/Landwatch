@@ -2,6 +2,19 @@ import { AnalysesService } from './analyses.service';
 import { AnalysisKind } from '@prisma/client';
 import { ANALYSIS_CACHE_VERSION } from './analysis-cache.constants';
 
+// Org-scoped tenant actor used by create tests (analysis creation is always
+// org-scoped now). Farm mocks carry the same orgId so the cross-org guard
+// passes and the public-farm copy path is not triggered.
+const tenantActor = {
+  userId: 'user-1',
+  subject: 'entra-1',
+  orgId: 'org-1',
+  orgRole: 'member',
+  isPlatformAdmin: false,
+  isPlatformOrgAdmin: false,
+  source: 'user',
+} as any;
+
 function makePrismaMock() {
   const prisma: any = {
     user: {
@@ -77,7 +90,7 @@ describe('AnalysesService', () => {
   it('creates a pending analysis and enqueues async processing', async () => {
     const prisma = makePrismaMock();
     prisma.$queryRaw.mockResolvedValueOnce([{ ok: 1 }]);
-    prisma.farm.findFirst.mockResolvedValue({ id: 'farm-1' });
+    prisma.farm.findFirst.mockResolvedValue({ id: 'farm-1', orgId: 'org-1' });
     const deps = makeDeps();
 
     const service = new AnalysesService(
@@ -91,7 +104,7 @@ describe('AnalysesService', () => {
       deps.landwatchStatus as any,
       () => now,
     );
-    const result = await service.create({ sub: 'entra-1' } as any, {
+    const result = await service.createForActor(tenantActor, {
       carKey: 'CAR-1',
       documents: ['52998224725', '04252011000110'],
     });
@@ -142,7 +155,11 @@ describe('AnalysesService', () => {
   it('does not update farm when requested name matches current name after trim', async () => {
     const prisma = makePrismaMock();
     prisma.$queryRaw.mockResolvedValueOnce([{ ok: 1 }]);
-    prisma.farm.findFirst.mockResolvedValue({ id: 'farm-1', name: 'Fazenda Atual' });
+    prisma.farm.findFirst.mockResolvedValue({
+      id: 'farm-1',
+      orgId: 'org-1',
+      name: 'Fazenda Atual',
+    });
     const deps = makeDeps();
 
     const service = new AnalysesService(
@@ -156,7 +173,7 @@ describe('AnalysesService', () => {
       deps.landwatchStatus as any,
       () => now,
     );
-    await service.create({ sub: 'entra-1' } as any, {
+    await service.createForActor(tenantActor, {
       carKey: 'CAR-1',
       farmName: '  Fazenda Atual  ',
     });
@@ -174,8 +191,15 @@ describe('AnalysesService', () => {
   it('updates farm name when edited and stores updated snapshot in new analysis', async () => {
     const prisma = makePrismaMock();
     prisma.$queryRaw.mockResolvedValueOnce([{ ok: 1 }]);
-    prisma.farm.findFirst.mockResolvedValue({ id: 'farm-1', name: 'Fazenda Antiga' });
-    prisma.farm.update.mockResolvedValue({ id: 'farm-1', name: 'Fazenda Nova' });
+    prisma.farm.findFirst.mockResolvedValue({
+      id: 'farm-1',
+      orgId: 'org-1',
+      name: 'Fazenda Antiga',
+    });
+    prisma.farm.update.mockResolvedValue({
+      id: 'farm-1',
+      name: 'Fazenda Nova',
+    });
     const deps = makeDeps();
 
     const service = new AnalysesService(
@@ -189,7 +213,7 @@ describe('AnalysesService', () => {
       deps.landwatchStatus as any,
       () => now,
     );
-    await service.create({ sub: 'entra-1' } as any, {
+    await service.createForActor(tenantActor, {
       carKey: 'CAR-1',
       farmName: '  Fazenda Nova  ',
     });
@@ -220,7 +244,11 @@ describe('AnalysesService', () => {
   it('rejects existing-farm create when requested farmName is blank after trim', async () => {
     const prisma = makePrismaMock();
     prisma.$queryRaw.mockResolvedValueOnce([{ ok: 1 }]);
-    prisma.farm.findFirst.mockResolvedValue({ id: 'farm-1', name: 'Fazenda Antiga' });
+    prisma.farm.findFirst.mockResolvedValue({
+      id: 'farm-1',
+      orgId: 'org-1',
+      name: 'Fazenda Antiga',
+    });
     const deps = makeDeps();
 
     const service = new AnalysesService(
@@ -236,7 +264,7 @@ describe('AnalysesService', () => {
     );
 
     await expect(
-      service.create({ sub: 'entra-1' } as any, {
+      service.createForActor(tenantActor, {
         carKey: 'CAR-1',
         farmName: '   ',
       }),
@@ -250,7 +278,7 @@ describe('AnalysesService', () => {
   it('persists DETER analysis kind and skips docs for DETER analyses', async () => {
     const prisma = makePrismaMock();
     prisma.$queryRaw.mockResolvedValueOnce([{ ok: 1 }]);
-    prisma.farm.findFirst.mockResolvedValue({ id: 'farm-1' });
+    prisma.farm.findFirst.mockResolvedValue({ id: 'farm-1', orgId: 'org-1' });
     const deps = makeDeps();
 
     const service = new AnalysesService(
@@ -264,7 +292,7 @@ describe('AnalysesService', () => {
       deps.landwatchStatus as any,
       () => now,
     );
-    await service.create({ sub: 'entra-1' } as any, {
+    await service.createForActor(tenantActor, {
       carKey: 'CAR-1',
       documents: ['04252011000110'],
       analysisKind: AnalysisKind.DETER,
@@ -281,10 +309,10 @@ describe('AnalysesService', () => {
     expect(deps.postprocess.enqueue).not.toHaveBeenCalled();
   });
 
-  it('creates analysis using api key actor and propagates orgId', async () => {
+  it('creates analysis for an org-scoped actor and propagates orgId', async () => {
     const prisma = makePrismaMock();
     prisma.$queryRaw.mockResolvedValueOnce([{ ok: 1 }]);
-    prisma.farm.findFirst.mockResolvedValue({ id: 'farm-1' });
+    prisma.farm.findFirst.mockResolvedValue({ id: 'farm-1', orgId: 'org-1' });
     const deps = makeDeps();
 
     const service = new AnalysesService(
@@ -298,23 +326,21 @@ describe('AnalysesService', () => {
       deps.landwatchStatus as any,
       () => now,
     );
-    await service.createForApiKey(
+    await service.createForActor(
       {
-        id: 'key-1',
-        clientId: 'client-1',
+        userId: 'm2m-user-1',
+        subject: 'm2m:client-1',
         orgId: 'org-1',
-        scopes: ['analysis_write'],
+        orgRole: null,
+        isPlatformAdmin: false,
+        isPlatformOrgAdmin: false,
+        source: 'apiKey',
       } as any,
       {
         carKey: 'CAR-1',
       },
     );
 
-    expect(prisma.user.upsert).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { entraSub: 'm2m:client-1' },
-      }),
-    );
     expect(prisma.analysis.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
@@ -326,9 +352,40 @@ describe('AnalysesService', () => {
     expect(deps.runner.enqueue).toHaveBeenCalledWith('analysis-1');
   });
 
+  it('rejects analysis creation without a resolved org', async () => {
+    const prisma = makePrismaMock();
+    const deps = makeDeps();
+    const service = new AnalysesService(
+      prisma,
+      deps.runner as any,
+      deps.detail as any,
+      deps.cache as any,
+      deps.vectorMap as any,
+      deps.postprocess as any,
+      deps.pdf as any,
+      deps.landwatchStatus as any,
+      () => now,
+    );
+
+    await expect(
+      service.createForActor(
+        {
+          userId: 'm2m-user-1',
+          subject: 'm2m:client-1',
+          orgId: null,
+          orgRole: null,
+          isPlatformAdmin: true,
+          isPlatformOrgAdmin: false,
+          source: 'apiKey',
+        } as any,
+        { carKey: 'CAR-1' },
+      ),
+    ).rejects.toMatchObject({ response: { code: 'ORG_REQUIRED' } });
+  });
+
   it('does not inject farm documents when input does not provide documents', async () => {
     const prisma = makePrismaMock();
-    prisma.farm.findFirst.mockResolvedValue({ id: 'farm-1' });
+    prisma.farm.findFirst.mockResolvedValue({ id: 'farm-1', orgId: 'org-1' });
     prisma.$queryRaw.mockResolvedValueOnce([{ ok: 1 }]);
     const deps = makeDeps();
 
@@ -343,7 +400,7 @@ describe('AnalysesService', () => {
       deps.landwatchStatus as any,
       () => now,
     );
-    await service.create({ sub: 'entra-1' } as any, { carKey: 'CAR-1' });
+    await service.createForActor(tenantActor, { carKey: 'CAR-1' });
 
     expect(prisma.analysis.create).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -374,7 +431,7 @@ describe('AnalysesService', () => {
     );
 
     await expect(
-      service.create({ sub: 'entra-1' } as any, {
+      service.createForActor(tenantActor, {
         carKey: 'CAR-1',
         documents: ['52998224724'],
       }),
@@ -401,7 +458,7 @@ describe('AnalysesService', () => {
     );
 
     await expect(
-      service.create({ sub: 'entra-1' } as any, { carKey: 'CAR-404' }),
+      service.createForActor(tenantActor, { carKey: 'CAR-404' }),
     ).rejects.toMatchObject({
       response: {
         code: 'CAR_NOT_FOUND',
@@ -432,7 +489,7 @@ describe('AnalysesService', () => {
     );
 
     await expect(
-      service.create({ sub: 'entra-1' } as any, {
+      service.createForActor(tenantActor, {
         carKey: 'CAR-1',
       }),
     ).rejects.toMatchObject({
@@ -636,11 +693,11 @@ describe('AnalysesService', () => {
       () => now,
     );
 
-    await service.list({
+    await service.list({ isPlatformAdmin: true } as any, {
       page: 1,
       pageSize: 10,
       farmId: 'farm-1',
-    } as any);
+    });
 
     expect(prisma.analysis.count).toHaveBeenCalledWith({
       where: { farmId: 'farm-1' },
@@ -669,12 +726,12 @@ describe('AnalysesService', () => {
       () => now,
     );
 
-    await service.list({
+    await service.list({ isPlatformAdmin: true } as any, {
       page: 1,
       pageSize: 10,
       startDate: '2026-02-01',
       endDate: '2026-02-10',
-    } as any);
+    });
 
     expect(prisma.analysis.count).toHaveBeenCalledWith({
       where: {
@@ -696,4 +753,3 @@ describe('AnalysesService', () => {
     );
   });
 });
-

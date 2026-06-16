@@ -1,8 +1,25 @@
+import { ForbiddenException } from '@nestjs/common';
 import { AttachmentsService } from './attachments.service';
 import { BlobServiceClient } from '@azure/storage-blob';
 import { mkdir, writeFile } from 'fs/promises';
 import path from 'path';
 import { Readable } from 'stream';
+
+function makeActorContextMock() {
+  return {
+    fromSubject: jest.fn().mockResolvedValue({
+      userId: 'user-1',
+      subject: 'sub-1',
+      orgId: null,
+      orgRole: null,
+      isPlatformAdmin: false,
+      isPlatformOrgAdmin: false,
+      source: 'user',
+    }),
+    isPlatformAdminSubject: jest.fn().mockResolvedValue(false),
+    fromApiKey: jest.fn(),
+  };
+}
 
 function makePrismaMock() {
   const tx = {
@@ -162,7 +179,8 @@ describe('AttachmentsService', () => {
     process.env.ATTACHMENTS_MVT_DIAGNOSTIC_LOG_ENABLED = 'false';
     process.env.API_KEY_PEPPER = 'test-pepper';
     process.env.ATTACHMENTS_LOCAL_DIR = `${process.cwd()}/.tmp-test-attachments`;
-    process.env.ATTACHMENTS_BLOB_CONNECTION_STRING = 'UseDevelopmentStorage=true';
+    process.env.ATTACHMENTS_BLOB_CONNECTION_STRING =
+      'UseDevelopmentStorage=true';
     jest
       .spyOn(BlobServiceClient, 'fromConnectionString')
       .mockReturnValue(makeBlobServiceMock().client as any);
@@ -170,11 +188,14 @@ describe('AttachmentsService', () => {
 
   it('requires X-Org-Id for non-admin user', async () => {
     const prisma = makePrismaMock();
-    prisma.user.findFirst.mockResolvedValue({
-      id: 'user-1',
-      status: 'active',
-    });
-    const service = new AttachmentsService(prisma as any);
+    const actorContext = makeActorContextMock();
+    actorContext.fromSubject.mockRejectedValue(
+      new ForbiddenException({
+        code: 'ORG_REQUIRED',
+        message: 'X-Org-Id is required',
+      }),
+    );
+    const service = new AttachmentsService(prisma as any, actorContext as any);
 
     await expect(
       service.resolveActorFromRequest('sub-1', null),
@@ -186,14 +207,18 @@ describe('AttachmentsService', () => {
   it('returns reviewer capabilities when ATTACHMENT_REVIEW exists for org user', async () => {
     const orgId = '00000000-0000-4000-8000-000000000001';
     const prisma = makePrismaMock();
-    prisma.user.findFirst.mockResolvedValue({
-      id: 'user-1',
-      status: 'active',
+    const actorContext = makeActorContextMock();
+    actorContext.fromSubject.mockResolvedValue({
+      userId: 'user-1',
+      subject: 'sub-1',
+      orgId,
+      orgRole: 'member',
+      isPlatformAdmin: false,
+      isPlatformOrgAdmin: false,
+      source: 'user',
     });
-    prisma.org.findUnique.mockResolvedValue({ id: orgId });
-    prisma.orgMembership.findUnique.mockResolvedValue({ id: 'membership-1' });
     prisma.orgUserPermission.findUnique.mockResolvedValue({ id: 'perm-1' });
-    const service = new AttachmentsService(prisma as any);
+    const service = new AttachmentsService(prisma as any, actorContext as any);
 
     const actor = await service.resolveActorFromRequest('sub-1', orgId);
     const capabilities = await service.getCapabilities(actor);
@@ -209,13 +234,18 @@ describe('AttachmentsService', () => {
   });
 
   it('returns admin capabilities with platform scopes', async () => {
-    process.env.PLATFORM_ADMIN_SUBS = 'sub-admin';
     const prisma = makePrismaMock();
-    prisma.user.findFirst.mockResolvedValue({
-      id: 'user-1',
-      status: 'active',
+    const actorContext = makeActorContextMock();
+    actorContext.fromSubject.mockResolvedValue({
+      userId: 'user-1',
+      subject: 'sub-admin',
+      orgId: null,
+      orgRole: null,
+      isPlatformAdmin: true,
+      isPlatformOrgAdmin: true,
+      source: 'user',
     });
-    const service = new AttachmentsService(prisma as any);
+    const service = new AttachmentsService(prisma as any, actorContext as any);
 
     const actor = await service.resolveActorFromRequest('sub-admin', null);
     const capabilities = await service.getCapabilities(actor);
@@ -243,7 +273,10 @@ describe('AttachmentsService', () => {
       status: 'active',
     });
     prisma.org.findUnique.mockResolvedValue({ id: orgId });
-    const service = new AttachmentsService(prisma as any);
+    const service = new AttachmentsService(
+      prisma as any,
+      makeActorContextMock() as any,
+    );
 
     const actor = await service.resolveActorFromApiKey({
       clientId: 'client-1',
@@ -271,7 +304,10 @@ describe('AttachmentsService', () => {
     ] as const)(
       'rejects regular organization users creating %s targets',
       (scope, carKey) => {
-        const service = new AttachmentsService(makePrismaMock() as any);
+        const service = new AttachmentsService(
+          makePrismaMock() as any,
+          makeActorContextMock() as any,
+        );
 
         expect(() =>
           (service as any).parseCreateTarget(
@@ -289,7 +325,9 @@ describe('AttachmentsService', () => {
               validFrom: '2026-04-16',
             },
           ),
-        ).toThrow('Only platform admins can create platform attachment targets');
+        ).toThrow(
+          'Only platform admins can create platform attachment targets',
+        );
       },
     );
   });
@@ -297,7 +335,10 @@ describe('AttachmentsService', () => {
   it('lets platform admin grant and list attachment reviewers in the active org', async () => {
     const orgId = '00000000-0000-4000-8000-000000000001';
     const prisma = makePrismaMock();
-    const service = new AttachmentsService(prisma as any);
+    const service = new AttachmentsService(
+      prisma as any,
+      makeActorContextMock() as any,
+    );
     const actor = {
       userId: 'admin-1',
       orgId,
@@ -358,7 +399,10 @@ describe('AttachmentsService', () => {
   it('lists my attachments with status counts and serialized targets', async () => {
     const orgId = '00000000-0000-4000-8000-000000000001';
     const prisma = makePrismaMock();
-    const service = new AttachmentsService(prisma as any);
+    const service = new AttachmentsService(
+      prisma as any,
+      makeActorContextMock() as any,
+    );
     const actor = {
       userId: 'user-1',
       orgId,
@@ -447,7 +491,10 @@ describe('AttachmentsService', () => {
   it('lists pending targets only for reviewers', async () => {
     const orgId = '00000000-0000-4000-8000-000000000001';
     const prisma = makePrismaMock();
-    const service = new AttachmentsService(prisma as any);
+    const service = new AttachmentsService(
+      prisma as any,
+      makeActorContextMock() as any,
+    );
     const actor = {
       userId: 'reviewer-1',
       orgId,
@@ -513,7 +560,10 @@ describe('AttachmentsService', () => {
 
   it('lists global attachment events only for platform admins', async () => {
     const prisma = makePrismaMock();
-    const service = new AttachmentsService(prisma as any);
+    const service = new AttachmentsService(
+      prisma as any,
+      makeActorContextMock() as any,
+    );
     const actor = {
       userId: 'admin-1',
       orgId: null,
@@ -559,7 +609,10 @@ describe('AttachmentsService', () => {
   it('lists feature attachments filtered by org scope and optional carKey', async () => {
     const prisma = makePrismaMock();
     const orgId = '00000000-0000-4000-8000-000000000001';
-    const service = new AttachmentsService(prisma as any);
+    const service = new AttachmentsService(
+      prisma as any,
+      makeActorContextMock() as any,
+    );
     const actor = {
       userId: 'user-1',
       orgId,
@@ -812,7 +865,10 @@ describe('AttachmentsService', () => {
 
   it('forces justification categories to require approval and public default', async () => {
     const prisma = makePrismaMock();
-    const service = new AttachmentsService(prisma as any);
+    const service = new AttachmentsService(
+      prisma as any,
+      makeActorContextMock() as any,
+    );
     const actor = {
       userId: 'user-1',
       orgId: null,
@@ -872,7 +928,10 @@ describe('AttachmentsService', () => {
       },
     ]);
 
-    const service = new AttachmentsService(prisma as any);
+    const service = new AttachmentsService(
+      prisma as any,
+      makeActorContextMock() as any,
+    );
     await expect(
       service.listPublicAnalysisAttachments('analysis-1', '127.0.0.1'),
     ).resolves.toEqual([
@@ -889,7 +948,8 @@ describe('AttachmentsService', () => {
   });
 
   it('streams private attachment download from Azure Blob', async () => {
-    process.env.ATTACHMENTS_BLOB_CONNECTION_STRING = 'UseDevelopmentStorage=true';
+    process.env.ATTACHMENTS_BLOB_CONNECTION_STRING =
+      'UseDevelopmentStorage=true';
     const prisma = makePrismaMock();
     const blobMock = makeBlobServiceMock({
       download: jest.fn().mockResolvedValue({
@@ -899,7 +959,10 @@ describe('AttachmentsService', () => {
     jest
       .spyOn(BlobServiceClient, 'fromConnectionString')
       .mockReturnValue(blobMock.client as any);
-    const service = new AttachmentsService(prisma as any);
+    const service = new AttachmentsService(
+      prisma as any,
+      makeActorContextMock() as any,
+    );
     jest.spyOn(service as any, 'ensureCanAccessAttachment').mockResolvedValue({
       id: 'att-1',
       originalFilename: 'arquivo.pdf',
@@ -927,7 +990,10 @@ describe('AttachmentsService', () => {
 
   it('keeps legacy local attachment download working', async () => {
     const prisma = makePrismaMock();
-    const service = new AttachmentsService(prisma as any);
+    const service = new AttachmentsService(
+      prisma as any,
+      makeActorContextMock() as any,
+    );
     const legacyPath = path.join(
       process.env.ATTACHMENTS_LOCAL_DIR!,
       '2026',
@@ -964,7 +1030,8 @@ describe('AttachmentsService', () => {
   });
 
   it('builds private analysis zip from Azure Blob attachments', async () => {
-    process.env.ATTACHMENTS_BLOB_CONNECTION_STRING = 'UseDevelopmentStorage=true';
+    process.env.ATTACHMENTS_BLOB_CONNECTION_STRING =
+      'UseDevelopmentStorage=true';
     const prisma = makePrismaMock();
     prisma.analysisAttachmentEffective.findMany.mockResolvedValue([
       {
@@ -984,7 +1051,10 @@ describe('AttachmentsService', () => {
     jest
       .spyOn(BlobServiceClient, 'fromConnectionString')
       .mockReturnValue(blobMock.client as any);
-    const service = new AttachmentsService(prisma as any);
+    const service = new AttachmentsService(
+      prisma as any,
+      makeActorContextMock() as any,
+    );
 
     const result = await service.downloadAnalysisZip(
       {
@@ -1003,7 +1073,8 @@ describe('AttachmentsService', () => {
   });
 
   it('streams public attachment download from Azure Blob and builds public zip', async () => {
-    process.env.ATTACHMENTS_BLOB_CONNECTION_STRING = 'UseDevelopmentStorage=true';
+    process.env.ATTACHMENTS_BLOB_CONNECTION_STRING =
+      'UseDevelopmentStorage=true';
     const prisma = makePrismaMock();
     const snapshot = {
       attachmentId: 'att-1',
@@ -1033,7 +1104,10 @@ describe('AttachmentsService', () => {
     jest
       .spyOn(BlobServiceClient, 'fromConnectionString')
       .mockReturnValue(blobMock.client as any);
-    const service = new AttachmentsService(prisma as any);
+    const service = new AttachmentsService(
+      prisma as any,
+      makeActorContextMock() as any,
+    );
 
     const download = await service.downloadPublicAnalysisAttachment(
       'analysis-1',
@@ -1052,6 +1126,75 @@ describe('AttachmentsService', () => {
     expect(blobMock.downloadToBuffer).toHaveBeenCalled();
   });
 
+  it('streams analysis attachment download scoped to the actor and logs the event', async () => {
+    process.env.ATTACHMENTS_BLOB_CONNECTION_STRING =
+      'UseDevelopmentStorage=true';
+    const prisma = makePrismaMock();
+    const snapshot = {
+      attachmentId: 'att-1',
+      attachment: {
+        id: 'att-1',
+        originalFilename: 'anexo.pdf',
+        contentType: 'application/pdf',
+        blobProvider: 'AZURE_BLOB',
+        blobContainer: 'attachments',
+        blobPath: '2026/06/anexo.pdf',
+      },
+    };
+    prisma.analysisAttachmentEffective.findFirst.mockResolvedValue(snapshot);
+    const blobMock = makeBlobServiceMock({
+      download: jest.fn().mockResolvedValue({
+        readableStreamBody: Readable.from([Buffer.from('tenant-download')]),
+      }),
+    });
+    jest
+      .spyOn(BlobServiceClient, 'fromConnectionString')
+      .mockReturnValue(blobMock.client as any);
+    const service = new AttachmentsService(
+      prisma as any,
+      makeActorContextMock() as any,
+    );
+
+    const download = await service.downloadAnalysisAttachmentForActor(
+      {
+        userId: 'user-1',
+        orgId: 'org-1',
+        isPlatformAdmin: false,
+        subject: 'sub-1',
+      } as any,
+      'analysis-1',
+      'att-1',
+      '127.0.0.1',
+    );
+
+    expect(download.filename).toBe('anexo.pdf');
+    expect(download.stream).toBeInstanceOf(Readable);
+    expect(prisma.attachmentEvent.create).toHaveBeenCalled();
+  });
+
+  it('rejects analysis attachment download when not in snapshot/scope', async () => {
+    const prisma = makePrismaMock();
+    prisma.analysisAttachmentEffective.findFirst.mockResolvedValue(null);
+    const service = new AttachmentsService(
+      prisma as any,
+      makeActorContextMock() as any,
+    );
+
+    await expect(
+      service.downloadAnalysisAttachmentForActor(
+        {
+          userId: 'user-1',
+          orgId: 'org-1',
+          isPlatformAdmin: false,
+          subject: 'sub-1',
+        } as any,
+        'analysis-1',
+        'att-missing',
+        null,
+      ),
+    ).rejects.toMatchObject({ response: { code: 'ATTACHMENT_NOT_FOUND' } });
+  });
+
   it('rejects unsupported upload mime type', async () => {
     const prisma = makePrismaMock();
     prisma.attachmentCategory.findFirst.mockResolvedValue({
@@ -1061,7 +1204,10 @@ describe('AttachmentsService', () => {
       requiresApproval: false,
       isPublicDefault: true,
     });
-    const service = new AttachmentsService(prisma as any);
+    const service = new AttachmentsService(
+      prisma as any,
+      makeActorContextMock() as any,
+    );
     const actor = {
       userId: 'user-1',
       orgId: 'org-1',
@@ -1098,7 +1244,8 @@ describe('AttachmentsService', () => {
   });
 
   it('uploads new attachments to Azure Blob and persists blob metadata', async () => {
-    process.env.ATTACHMENTS_BLOB_CONNECTION_STRING = 'UseDevelopmentStorage=true';
+    process.env.ATTACHMENTS_BLOB_CONNECTION_STRING =
+      'UseDevelopmentStorage=true';
     process.env.ATTACHMENTS_BLOB_CONTAINER = 'attachments-test';
     const prisma = makePrismaMock();
     prisma.attachmentCategory.findFirst.mockResolvedValue({
@@ -1178,7 +1325,10 @@ describe('AttachmentsService', () => {
       .spyOn(BlobServiceClient, 'fromConnectionString')
       .mockReturnValue(blobMock.client as any);
 
-    const service = new AttachmentsService(prisma as any);
+    const service = new AttachmentsService(
+      prisma as any,
+      makeActorContextMock() as any,
+    );
     const actor = {
       userId: 'user-1',
       orgId: 'org-1',
@@ -1209,7 +1359,9 @@ describe('AttachmentsService', () => {
       '127.0.0.1',
     );
 
-    expect(blobMock.getContainerClient).toHaveBeenCalledWith('attachments-test');
+    expect(blobMock.getContainerClient).toHaveBeenCalledWith(
+      'attachments-test',
+    );
     expect(blobMock.uploadData).toHaveBeenCalledWith(
       Buffer.from('pdf'),
       expect.objectContaining({
@@ -1238,7 +1390,10 @@ describe('AttachmentsService', () => {
       requiresApproval: false,
       isPublicDefault: true,
     });
-    const service = new AttachmentsService(prisma as any);
+    const service = new AttachmentsService(
+      prisma as any,
+      makeActorContextMock() as any,
+    );
     const actor = {
       userId: 'user-1',
       orgId: 'org-1',
@@ -1276,7 +1431,8 @@ describe('AttachmentsService', () => {
   });
 
   it('does not create attachment row when Azure Blob upload fails', async () => {
-    process.env.ATTACHMENTS_BLOB_CONNECTION_STRING = 'UseDevelopmentStorage=true';
+    process.env.ATTACHMENTS_BLOB_CONNECTION_STRING =
+      'UseDevelopmentStorage=true';
     const prisma = makePrismaMock();
     prisma.attachmentCategory.findFirst.mockResolvedValue({
       id: 'cat-1',
@@ -1291,7 +1447,10 @@ describe('AttachmentsService', () => {
     jest
       .spyOn(BlobServiceClient, 'fromConnectionString')
       .mockReturnValue(blobMock.client as any);
-    const service = new AttachmentsService(prisma as any);
+    const service = new AttachmentsService(
+      prisma as any,
+      makeActorContextMock() as any,
+    );
     const actor = {
       userId: 'user-1',
       orgId: 'org-1',
@@ -1330,7 +1489,10 @@ describe('AttachmentsService', () => {
 
   it('rejects attachment uploads with more than 20 targets before persisting files', async () => {
     const prisma = makePrismaMock();
-    const service = new AttachmentsService(prisma as any);
+    const service = new AttachmentsService(
+      prisma as any,
+      makeActorContextMock() as any,
+    );
     const actor = {
       userId: 'user-1',
       orgId: 'org-1',
@@ -1367,7 +1529,10 @@ describe('AttachmentsService', () => {
 
   it('rejects adding targets when the final attachment target count would exceed 20', async () => {
     const prisma = makePrismaMock();
-    const service = new AttachmentsService(prisma as any);
+    const service = new AttachmentsService(
+      prisma as any,
+      makeActorContextMock() as any,
+    );
     const actor = {
       userId: 'user-1',
       orgId: 'org-1',
@@ -1415,7 +1580,10 @@ describe('AttachmentsService', () => {
 
   it('returns filtered target candidates with overflow detection', async () => {
     const prisma = makePrismaMock();
-    const service = new AttachmentsService(prisma as any);
+    const service = new AttachmentsService(
+      prisma as any,
+      makeActorContextMock() as any,
+    );
     prisma.$queryRaw.mockResolvedValue(
       Array.from({ length: 21 }, (_, index) => ({
         dataset_id: 1,
@@ -1441,7 +1609,10 @@ describe('AttachmentsService', () => {
 
   it('does not enqueue retroactive recapture when a target is approved', async () => {
     const prisma = makePrismaMock();
-    const service = new AttachmentsService(prisma as any);
+    const service = new AttachmentsService(
+      prisma as any,
+      makeActorContextMock() as any,
+    );
     const actor = {
       userId: 'reviewer-1',
       orgId: 'org-1',
@@ -1462,20 +1633,17 @@ describe('AttachmentsService', () => {
       .spyOn(service as any, 'refreshAttachmentStatus')
       .mockResolvedValue('APPROVED');
 
-    await service.approveTarget(
-      actor,
-      'att-1',
-      'target-1',
-      'ok',
-      '127.0.0.1',
-    );
+    await service.approveTarget(actor, 'att-1', 'target-1', 'ok', '127.0.0.1');
 
     expect(prisma.analysisPostprocessJob.create).not.toHaveBeenCalled();
   });
 
   it('does not enqueue retroactive recapture when an attachment is revoked', async () => {
     const prisma = makePrismaMock();
-    const service = new AttachmentsService(prisma as any);
+    const service = new AttachmentsService(
+      prisma as any,
+      makeActorContextMock() as any,
+    );
     const actor = {
       userId: 'reviewer-1',
       orgId: 'org-1',
@@ -1516,7 +1684,10 @@ describe('AttachmentsService', () => {
         captured_is_justification: true,
       },
     ]);
-    const service = new AttachmentsService(prisma as any);
+    const service = new AttachmentsService(
+      prisma as any,
+      makeActorContextMock() as any,
+    );
 
     const inserted = await service.captureEffectiveSnapshotForAnalysisTx(
       prisma.__tx as any,
@@ -1531,10 +1702,12 @@ describe('AttachmentsService', () => {
     );
 
     expect(inserted).toBe(1);
-    expect(prisma.__tx.analysisAttachmentEffective.deleteMany).toHaveBeenCalledWith(
-      { where: { analysisId: 'analysis-1' } },
-    );
-    expect(prisma.__tx.analysisAttachmentEffective.createMany).toHaveBeenCalledWith(
+    expect(
+      prisma.__tx.analysisAttachmentEffective.deleteMany,
+    ).toHaveBeenCalledWith({ where: { analysisId: 'analysis-1' } });
+    expect(
+      prisma.__tx.analysisAttachmentEffective.createMany,
+    ).toHaveBeenCalledWith(
       expect.objectContaining({
         data: [
           expect.objectContaining({
@@ -1552,7 +1725,9 @@ describe('AttachmentsService', () => {
     expect(sqlArg?.sql ?? '').toContain('"app"."analysis_result"');
     expect(sqlArg?.sql ?? '').toContain('t.created_at <=');
     expect(sqlArg?.sql ?? '').toContain('t.reviewed_at <=');
-    expect(sqlArg?.sql ?? '').toContain('a.revoked_at IS NULL OR a.revoked_at >');
+    expect(sqlArg?.sql ?? '').toContain(
+      'a.revoked_at IS NULL OR a.revoked_at >',
+    );
   });
 
   it('casts justification intersection candidate feature_id to bigint', async () => {
@@ -1563,7 +1738,10 @@ describe('AttachmentsService', () => {
         feature_id: 7426006n,
       },
     ]);
-    const service = new AttachmentsService(prisma as any);
+    const service = new AttachmentsService(
+      prisma as any,
+      makeActorContextMock() as any,
+    );
 
     const result = await service.findApprovedJustifiedIntersectionKeys({
       analysisDate: '2026-01-31',
@@ -1619,7 +1797,10 @@ describe('AttachmentsService', () => {
       targets: [{ id: 'target-1', status: 'APPROVED' }],
     });
 
-    const service = new AttachmentsService(prisma as any);
+    const service = new AttachmentsService(
+      prisma as any,
+      makeActorContextMock() as any,
+    );
     const actor = {
       userId: 'user-1',
       orgId: 'org-1',
@@ -1734,7 +1915,10 @@ describe('AttachmentsService', () => {
       ],
     });
 
-    const service = new AttachmentsService(prisma as any);
+    const service = new AttachmentsService(
+      prisma as any,
+      makeActorContextMock() as any,
+    );
     const actor = {
       userId: 'user-1',
       orgId: null,
@@ -1816,7 +2000,10 @@ describe('AttachmentsService', () => {
       targets: [{ id: 'target-1', featureId: BigInt(1), status: 'APPROVED' }],
     });
 
-    const service = new AttachmentsService(prisma as any);
+    const service = new AttachmentsService(
+      prisma as any,
+      makeActorContextMock() as any,
+    );
     const actor = {
       userId: 'user-1',
       orgId: null,
@@ -1860,7 +2047,10 @@ describe('AttachmentsService', () => {
 
   it('creates map filter grant with canonical hash and source contract', async () => {
     const prisma = makePrismaMock();
-    const service = new AttachmentsService(prisma as any);
+    const service = new AttachmentsService(
+      prisma as any,
+      makeActorContextMock() as any,
+    );
     const actor = {
       userId: 'user-1',
       orgId: 'org-1',
@@ -1934,7 +2124,10 @@ describe('AttachmentsService', () => {
         center_zoom: 4,
       },
     ]);
-    const service = new AttachmentsService(prisma as any);
+    const service = new AttachmentsService(
+      prisma as any,
+      makeActorContextMock() as any,
+    );
     const actor = {
       userId: 'user-1',
       orgId: 'org-1',
@@ -1995,7 +2188,10 @@ describe('AttachmentsService', () => {
         },
       ])
       .mockResolvedValueOnce([{ total: 394 }]);
-    const service = new AttachmentsService(prisma as any);
+    const service = new AttachmentsService(
+      prisma as any,
+      makeActorContextMock() as any,
+    );
     const actor = {
       userId: 'user-1',
       orgId: 'org-1',
@@ -2019,7 +2215,10 @@ describe('AttachmentsService', () => {
     process.env.ATTACHMENTS_PMTILES_ENABLED = 'true';
     const prisma = makePrismaMock();
     prisma.$queryRaw.mockResolvedValue([{ total: 12 }]);
-    const service = new AttachmentsService(prisma as any);
+    const service = new AttachmentsService(
+      prisma as any,
+      makeActorContextMock() as any,
+    );
     const actor = {
       userId: 'user-1',
       orgId: 'org-1',
@@ -2043,7 +2242,10 @@ describe('AttachmentsService', () => {
   it('uses CAR-first strategy for map filter count when intersectsCarOnly is true', async () => {
     const prisma = makePrismaMock();
     prisma.$queryRaw.mockResolvedValue([{ total: 3 }]);
-    const service = new AttachmentsService(prisma as any);
+    const service = new AttachmentsService(
+      prisma as any,
+      makeActorContextMock() as any,
+    );
     const actor = {
       userId: 'user-1',
       orgId: 'org-1',
@@ -2061,7 +2263,7 @@ describe('AttachmentsService', () => {
       'http://localhost:3001',
     );
 
-    const sqlArg = prisma.$queryRaw.mock.calls[0][0] as any;
+    const sqlArg = prisma.$queryRaw.mock.calls[0][0];
     const sqlText = Array.isArray(sqlArg?.strings)
       ? sqlArg.strings.join(' ')
       : String(sqlArg);
@@ -2073,7 +2275,10 @@ describe('AttachmentsService', () => {
   it('locks map bounds only when ATTACHMENTS_MVT_MAP_LOCK_BOUNDS=true', async () => {
     process.env.ATTACHMENTS_MVT_MAP_LOCK_BOUNDS = 'true';
     const prisma = makePrismaMock();
-    const service = new AttachmentsService(prisma as any);
+    const service = new AttachmentsService(
+      prisma as any,
+      makeActorContextMock() as any,
+    );
     const actor = {
       userId: 'user-1',
       orgId: 'org-1',
@@ -2097,7 +2302,10 @@ describe('AttachmentsService', () => {
 
   it('maps zoom to tile geometry profile', () => {
     const prisma = makePrismaMock();
-    const service = new AttachmentsService(prisma as any);
+    const service = new AttachmentsService(
+      prisma as any,
+      makeActorContextMock() as any,
+    );
     const getProfile = (z: number) =>
       (service as any).getTileGeomProfileForZoom(z);
 
@@ -2113,7 +2321,10 @@ describe('AttachmentsService', () => {
 
   it('uses stronger simplify tolerance for low zoom levels', () => {
     const prisma = makePrismaMock();
-    const service = new AttachmentsService(prisma as any);
+    const service = new AttachmentsService(
+      prisma as any,
+      makeActorContextMock() as any,
+    );
     const getTolerance = (z: number) =>
       (service as any).getMvtSimplifyToleranceMeters(z);
 
@@ -2131,7 +2342,10 @@ describe('AttachmentsService', () => {
 
   it('uses conservative small-area threshold for centroid fallback by default', () => {
     const prisma = makePrismaMock();
-    const service = new AttachmentsService(prisma as any);
+    const service = new AttachmentsService(
+      prisma as any,
+      makeActorContextMock() as any,
+    );
     const getThreshold = () =>
       (service as any).getMvtCentroidSmallTileAreaThreshold();
 
@@ -2141,7 +2355,10 @@ describe('AttachmentsService', () => {
   it('returns tile cache-control tuned for client reuse by default', async () => {
     process.env.ATTACHMENTS_MVT_USE_PREPROCESSED_MV = 'true';
     const prisma = makePrismaMock();
-    const service = new AttachmentsService(prisma as any);
+    const service = new AttachmentsService(
+      prisma as any,
+      makeActorContextMock() as any,
+    );
     const actor = {
       userId: 'user-1',
       orgId: 'org-1',
@@ -2167,14 +2384,20 @@ describe('AttachmentsService', () => {
   it('enables preprocessed MV path by default when env is unset', () => {
     delete process.env.ATTACHMENTS_MVT_USE_PREPROCESSED_MV;
     const prisma = makePrismaMock();
-    const service = new AttachmentsService(prisma as any);
+    const service = new AttachmentsService(
+      prisma as any,
+      makeActorContextMock() as any,
+    );
     expect((service as any).isMvtPreprocessedMvEnabled()).toBe(true);
   });
 
   it('uses preprocessed tile MV when feature flag is enabled', async () => {
     process.env.ATTACHMENTS_MVT_USE_PREPROCESSED_MV = 'true';
     const prisma = makePrismaMock();
-    const service = new AttachmentsService(prisma as any);
+    const service = new AttachmentsService(
+      prisma as any,
+      makeActorContextMock() as any,
+    );
     const actor = {
       userId: 'user-1',
       orgId: 'org-1',
@@ -2194,7 +2417,7 @@ describe('AttachmentsService', () => {
 
     await service.getVectorTile(actor, 'a'.repeat(64), 4, 4, 8);
 
-    const sqlArg = prisma.$queryRaw.mock.calls[1][0] as any;
+    const sqlArg = prisma.$queryRaw.mock.calls[1][0];
     const sqlText = Array.isArray(sqlArg?.strings)
       ? sqlArg.strings.join(' ')
       : String(sqlArg);
@@ -2217,7 +2440,10 @@ describe('AttachmentsService', () => {
   it('uses raw geometry predicate for intersectsCarOnly in preprocessed path', async () => {
     process.env.ATTACHMENTS_MVT_USE_PREPROCESSED_MV = 'true';
     const prisma = makePrismaMock();
-    const service = new AttachmentsService(prisma as any);
+    const service = new AttachmentsService(
+      prisma as any,
+      makeActorContextMock() as any,
+    );
     const actor = {
       userId: 'user-1',
       orgId: 'org-1',
@@ -2238,7 +2464,7 @@ describe('AttachmentsService', () => {
 
     await service.getVectorTile(actor, 'd'.repeat(64), 4, 4, 8);
 
-    const sqlArg = prisma.$queryRaw.mock.calls[1][0] as any;
+    const sqlArg = prisma.$queryRaw.mock.calls[1][0];
     const sqlText = Array.isArray(sqlArg?.strings)
       ? sqlArg.strings.join(' ')
       : String(sqlArg);
@@ -2251,7 +2477,10 @@ describe('AttachmentsService', () => {
   it('uses runtime simplify path when preprocessed feature flag is disabled', async () => {
     process.env.ATTACHMENTS_MVT_USE_PREPROCESSED_MV = 'false';
     const prisma = makePrismaMock();
-    const service = new AttachmentsService(prisma as any);
+    const service = new AttachmentsService(
+      prisma as any,
+      makeActorContextMock() as any,
+    );
     const actor = {
       userId: 'user-1',
       orgId: 'org-1',
@@ -2271,7 +2500,7 @@ describe('AttachmentsService', () => {
 
     await service.getVectorTile(actor, 'b'.repeat(64), 4, 4, 8);
 
-    const sqlArg = prisma.$queryRaw.mock.calls[1][0] as any;
+    const sqlArg = prisma.$queryRaw.mock.calls[1][0];
     const sqlText = Array.isArray(sqlArg?.strings)
       ? sqlArg.strings.join(' ')
       : String(sqlArg);
@@ -2290,7 +2519,8 @@ describe('AttachmentsService', () => {
   });
 
   it('serves PMTiles proxy HEAD responses from registry metadata', async () => {
-    process.env.ATTACHMENTS_PMTILES_BLOB_CONNECTION_STRING = 'UseDevelopmentStorage=true';
+    process.env.ATTACHMENTS_PMTILES_BLOB_CONNECTION_STRING =
+      'UseDevelopmentStorage=true';
     const prisma = makePrismaMock();
     prisma.$queryRaw.mockResolvedValue([
       {
@@ -2317,7 +2547,10 @@ describe('AttachmentsService', () => {
         center_zoom: 4,
       },
     ]);
-    const service = new AttachmentsService(prisma as any);
+    const service = new AttachmentsService(
+      prisma as any,
+      makeActorContextMock() as any,
+    );
 
     const result = await service.getPmtilesArchive('11', 'HEAD', {});
 
@@ -2329,7 +2562,8 @@ describe('AttachmentsService', () => {
   });
 
   it('returns 304 for PMTiles proxy when If-None-Match matches registry etag', async () => {
-    process.env.ATTACHMENTS_PMTILES_BLOB_CONNECTION_STRING = 'UseDevelopmentStorage=true';
+    process.env.ATTACHMENTS_PMTILES_BLOB_CONNECTION_STRING =
+      'UseDevelopmentStorage=true';
     const prisma = makePrismaMock();
     prisma.$queryRaw.mockResolvedValue([
       {
@@ -2356,7 +2590,10 @@ describe('AttachmentsService', () => {
         center_zoom: 4,
       },
     ]);
-    const service = new AttachmentsService(prisma as any);
+    const service = new AttachmentsService(
+      prisma as any,
+      makeActorContextMock() as any,
+    );
 
     const result = await service.getPmtilesArchive('11', 'GET', {
       ifNoneMatch: '"etag-1"',
@@ -2367,7 +2604,8 @@ describe('AttachmentsService', () => {
   });
 
   it('serves PMTiles proxy range requests through blob download', async () => {
-    process.env.ATTACHMENTS_PMTILES_BLOB_CONNECTION_STRING = 'UseDevelopmentStorage=true';
+    process.env.ATTACHMENTS_PMTILES_BLOB_CONNECTION_STRING =
+      'UseDevelopmentStorage=true';
     const prisma = makePrismaMock();
     prisma.$queryRaw.mockResolvedValue([
       {
@@ -2399,7 +2637,10 @@ describe('AttachmentsService', () => {
     });
     const getBlobClient = jest.fn().mockReturnValue({ download });
     const getContainerClient = jest.fn().mockReturnValue({ getBlobClient });
-    const service = new AttachmentsService(prisma as any);
+    const service = new AttachmentsService(
+      prisma as any,
+      makeActorContextMock() as any,
+    );
     jest
       .spyOn(service as any, 'getPmtilesBlobServiceClient')
       .mockReturnValue({ getContainerClient });
@@ -2415,7 +2656,8 @@ describe('AttachmentsService', () => {
   });
 
   it('returns 416 for invalid PMTiles range requests', async () => {
-    process.env.ATTACHMENTS_PMTILES_BLOB_CONNECTION_STRING = 'UseDevelopmentStorage=true';
+    process.env.ATTACHMENTS_PMTILES_BLOB_CONNECTION_STRING =
+      'UseDevelopmentStorage=true';
     const prisma = makePrismaMock();
     prisma.$queryRaw.mockResolvedValue([
       {
@@ -2442,7 +2684,10 @@ describe('AttachmentsService', () => {
         center_zoom: 4,
       },
     ]);
-    const service = new AttachmentsService(prisma as any);
+    const service = new AttachmentsService(
+      prisma as any,
+      makeActorContextMock() as any,
+    );
 
     const result = await service.getPmtilesArchive('11', 'GET', {
       range: 'bytes=9999-10000',

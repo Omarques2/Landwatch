@@ -25,6 +25,7 @@ import path from 'path';
 import JSZip from 'jszip';
 import { Readable } from 'stream';
 import { PrismaService } from '../prisma/prisma.service';
+import { ActorContextService } from '../auth/actor-context.service';
 import { CreateAttachmentCategoryDto } from './dto/create-attachment-category.dto';
 import { UpdateAttachmentCategoryDto } from './dto/update-attachment-category.dto';
 import { SearchFeaturesDto } from './dto/search-features.dto';
@@ -243,7 +244,10 @@ export class AttachmentsService {
     'image/webp',
   ]);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly actorContext: ActorContextService,
+  ) {}
 
   private getStorageRoot() {
     return process.env.ATTACHMENTS_LOCAL_DIR?.trim()
@@ -292,7 +296,10 @@ export class AttachmentsService {
     return this.attachmentsBlobServiceClient;
   }
 
-  private getAttachmentBlobClient(relativePath: string, container?: string | null) {
+  private getAttachmentBlobClient(
+    relativePath: string,
+    container?: string | null,
+  ) {
     const blobService = this.getAttachmentsBlobServiceClient();
     return blobService
       .getContainerClient(container?.trim() || this.getBlobContainerName())
@@ -376,10 +383,7 @@ export class AttachmentsService {
     }
   }
 
-  private async readBlobBuffer(
-    blobContainer: string | null,
-    blobPath: string,
-  ) {
+  private async readBlobBuffer(blobContainer: string | null, blobPath: string) {
     try {
       const blobClient = this.getAttachmentBlobClient(blobPath, blobContainer);
       return await blobClient.downloadToBuffer();
@@ -435,15 +439,6 @@ export class AttachmentsService {
     `;
   }
 
-  private isPlatformAdminSubject(sub: string) {
-    const allowlist = (process.env.PLATFORM_ADMIN_SUBS ?? '')
-      .split(',')
-      .map((item) => item.trim())
-      .filter(Boolean);
-    if (!allowlist.length) return false;
-    return new Set(allowlist).has(sub);
-  }
-
   private normalizeOrgHeader(input?: string | string[] | null) {
     if (!input) return null;
     if (Array.isArray(input)) {
@@ -481,7 +476,9 @@ export class AttachmentsService {
   }
 
   private getPmtilesBlobConnectionString() {
-    return process.env.ATTACHMENTS_PMTILES_BLOB_CONNECTION_STRING?.trim() || null;
+    return (
+      process.env.ATTACHMENTS_PMTILES_BLOB_CONNECTION_STRING?.trim() || null
+    );
   }
 
   private getPmtilesBlobContainerFallback() {
@@ -599,9 +596,10 @@ export class AttachmentsService {
   private getMvtVectorMaxZoom() {
     const raw = process.env.ATTACHMENTS_MVT_VECTOR_MAX_ZOOM;
     const parsed = raw ? Number(raw) : 8;
-    const configured = Number.isFinite(parsed) && parsed >= 0 && parsed <= 22
-      ? Math.floor(parsed)
-      : 8;
+    const configured =
+      Number.isFinite(parsed) && parsed >= 0 && parsed <= 22
+        ? Math.floor(parsed)
+        : 8;
     const minRequired = Math.min(22, this.getMvtCentroidMaxZoom() + 1);
     return Math.max(configured, minRequired);
   }
@@ -644,7 +642,10 @@ export class AttachmentsService {
         ? Math.floor(parsed)
         : fallback;
     const minAllowed = Math.min(22, this.getMvtCentroidMaxZoom() + 1);
-    return Math.max(minAllowed, Math.min(normalized, this.getMvtVectorMaxZoom()));
+    return Math.max(
+      minAllowed,
+      Math.min(normalized, this.getMvtVectorMaxZoom()),
+    );
   }
 
   private getMvtPrefetchMaxVisibleCentroids() {
@@ -748,7 +749,9 @@ export class AttachmentsService {
     return 'geom_3857_raw';
   }
 
-  private normalizeCountValue(value: bigint | number | string | null | undefined) {
+  private normalizeCountValue(
+    value: bigint | number | string | null | undefined,
+  ) {
     if (value === null || value === undefined) return 0;
     if (typeof value === 'bigint') return Number(value);
     if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
@@ -756,7 +759,9 @@ export class AttachmentsService {
     return Number.isFinite(parsed) ? parsed : 0;
   }
 
-  private normalizePmtilesAssetRow(row: PmtilesAssetRow): NormalizedPmtilesAsset {
+  private normalizePmtilesAssetRow(
+    row: PmtilesAssetRow,
+  ): NormalizedPmtilesAsset {
     const snapshotDate =
       row.snapshot_date instanceof Date
         ? row.snapshot_date.toISOString().slice(0, 10)
@@ -861,10 +866,7 @@ export class AttachmentsService {
   private parseSingleRangeHeader(
     rangeHeader: string | string[] | undefined,
     size: number,
-  ):
-    | { start: number; end: number; length: number }
-    | 'invalid'
-    | null {
+  ): { start: number; end: number; length: number } | 'invalid' | null {
     const raw = Array.isArray(rangeHeader)
       ? rangeHeader.join(',')
       : (rangeHeader ?? '').trim();
@@ -1247,76 +1249,25 @@ export class AttachmentsService {
     subject: string,
     orgHeader?: string | string[] | null,
   ) {
-    const user = await this.prisma.user.findFirst({
-      where: isUuid(subject)
-        ? { OR: [{ identityUserId: subject }, { entraSub: subject }] }
-        : { entraSub: subject },
-      select: { id: true, status: true },
-    });
-    if (!user) {
-      throw new ForbiddenException({
-        code: 'USER_NOT_FOUND',
-        message: 'User not found',
-      });
-    }
-    if (user.status !== UserStatus.active) {
-      throw new ForbiddenException({
-        code: 'USER_NOT_ACTIVE',
-        message: 'User not active',
-      });
-    }
-
     const requestedOrg = this.normalizeOrgHeader(orgHeader);
-    if (
-      requestedOrg &&
-      !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-        requestedOrg,
-      )
-    ) {
+    if (requestedOrg && !isUuid(requestedOrg)) {
       throw new BadRequestException({
         code: 'ORG_INVALID',
         message: 'X-Org-Id must be a valid UUID',
       });
     }
-    const isPlatformAdmin = this.isPlatformAdminSubject(subject);
-    if (!isPlatformAdmin && !requestedOrg) {
-      throw new BadRequestException({
-        code: 'ORG_REQUIRED',
-        message: 'X-Org-Id header is required',
-      });
-    }
-
-    if (requestedOrg) {
-      const org = await this.prisma.org.findUnique({
-        where: { id: requestedOrg },
-        select: { id: true },
-      });
-      if (!org) {
-        throw new NotFoundException({
-          code: 'ORG_NOT_FOUND',
-          message: 'Organization not found',
-        });
-      }
-    }
-
-    if (!isPlatformAdmin && requestedOrg) {
-      const membership = await this.prisma.orgMembership.findUnique({
-        where: { orgId_userId: { orgId: requestedOrg, userId: user.id } },
-        select: { id: true },
-      });
-      if (!membership) {
-        throw new ForbiddenException({
-          code: 'ORG_ACCESS_DENIED',
-          message: 'User is not a member of this organization',
-        });
-      }
-    }
-
-    return {
-      userId: user.id,
+    // Delegate identity, env/dev-bypass, PLATFORM membership, org-active and
+    // tenant-membership checks to the single source of truth. The controller
+    // still enforces platform-admin-only access for attachment routes.
+    const actor = await this.actorContext.fromSubject(subject, {
+      orgMode: 'tenant',
       orgId: requestedOrg,
-      isPlatformAdmin,
-      subject,
+    });
+    return {
+      userId: actor.userId,
+      orgId: actor.orgId,
+      isPlatformAdmin: actor.isPlatformAdmin,
+      subject: actor.subject,
     } satisfies ActorContext;
   }
 
@@ -1406,7 +1357,10 @@ export class AttachmentsService {
     return Math.min(Math.floor(input), max);
   }
 
-  private ensureAttachmentTargetLimit(currentCount: number, addedCount: number) {
+  private ensureAttachmentTargetLimit(
+    currentCount: number,
+    addedCount: number,
+  ) {
     if (currentCount + addedCount > MAX_ATTACHMENT_TARGETS_PER_ATTACHMENT) {
       throw new BadRequestException({
         code: 'ATTACHMENT_TARGET_LIMIT_EXCEEDED',
@@ -2051,7 +2005,9 @@ export class AttachmentsService {
     };
     const status = query.status?.trim().toUpperCase();
     if (status && status !== 'ALL' && status !== 'EXPIRED') {
-      if (!Object.values(AttachmentStatus).includes(status as AttachmentStatus)) {
+      if (
+        !Object.values(AttachmentStatus).includes(status as AttachmentStatus)
+      ) {
         throw new BadRequestException({
           code: 'INVALID_ATTACHMENT_STATUS',
           message: 'status is invalid',
@@ -2087,10 +2043,26 @@ export class AttachmentsService {
             { originalFilename: { contains: q, mode: 'insensitive' } },
             { category: { name: { contains: q, mode: 'insensitive' } } },
             { category: { code: { contains: q, mode: 'insensitive' } } },
-            { targets: { some: { datasetCode: { contains: q, mode: 'insensitive' } } } },
-            { targets: { some: { featureKey: { contains: q, mode: 'insensitive' } } } },
-            { targets: { some: { naturalId: { contains: q, mode: 'insensitive' } } } },
-            { targets: { some: { carKey: { contains: q, mode: 'insensitive' } } } },
+            {
+              targets: {
+                some: { datasetCode: { contains: q, mode: 'insensitive' } },
+              },
+            },
+            {
+              targets: {
+                some: { featureKey: { contains: q, mode: 'insensitive' } },
+              },
+            },
+            {
+              targets: {
+                some: { naturalId: { contains: q, mode: 'insensitive' } },
+              },
+            },
+            {
+              targets: {
+                some: { carKey: { contains: q, mode: 'insensitive' } },
+              },
+            },
           ],
         },
       ];
@@ -2501,7 +2473,9 @@ export class AttachmentsService {
     }
 
     if (this.isPmtilesEnabled() && this.isPmtilesEligibleFilter(filter)) {
-      const pmtilesAssets = await this.listActivePmtilesAssets(filter.datasetCodes);
+      const pmtilesAssets = await this.listActivePmtilesAssets(
+        filter.datasetCodes,
+      );
       if (pmtilesAssets.length === filter.datasetCodes.length) {
         const totalFeatures = pmtilesAssets.reduce(
           (sum, asset) => sum + asset.featureCount,
@@ -2519,7 +2493,10 @@ export class AttachmentsService {
             assetId: asset.assetId,
             datasetCode: asset.datasetCode,
             categoryCode: asset.categoryCode,
-            archiveUrl: this.buildPmtilesArchiveUrl(asset.assetId, normalizedOrigin),
+            archiveUrl: this.buildPmtilesArchiveUrl(
+              asset.assetId,
+              normalizedOrigin,
+            ),
             bounds: asset.bounds,
             minzoom: asset.minzoom,
             maxzoom: asset.maxzoom,
@@ -2623,7 +2600,11 @@ export class AttachmentsService {
     const etag = this.normalizePmtilesEtag(asset.blobEtag);
     const cacheControl = this.buildPmtilesCacheControlHeader();
 
-    if (!headers.range && etag && this.isEtagMatched(headers.ifNoneMatch, etag)) {
+    if (
+      !headers.range &&
+      etag &&
+      this.isEtagMatched(headers.ifNoneMatch, etag)
+    ) {
       return {
         statusCode: 304,
         headers: {
@@ -2666,7 +2647,9 @@ export class AttachmentsService {
         'Content-Type': 'application/octet-stream',
         'Accept-Ranges': 'bytes',
         'Cache-Control': cacheControl,
-        'Content-Length': String(parsedRange ? parsedRange.length : asset.blobSizeBytes),
+        'Content-Length': String(
+          parsedRange ? parsedRange.length : asset.blobSizeBytes,
+        ),
         ...(etag ? { ETag: etag } : {}),
         ...(parsedRange
           ? {
@@ -2677,7 +2660,8 @@ export class AttachmentsService {
       stream:
         method === 'HEAD'
           ? null
-          : (download?.readableStreamBody as NodeJS.ReadableStream | null) ?? null,
+          : ((download?.readableStreamBody as NodeJS.ReadableStream | null) ??
+            null),
     };
   }
 
@@ -2840,7 +2824,9 @@ export class AttachmentsService {
         )`
       : Prisma.sql``;
     const queryStart = process.hrtime.bigint();
-    const datasetIdRows = await this.prisma.$queryRaw<Array<{ dataset_id: number }>>(
+    const datasetIdRows = await this.prisma.$queryRaw<
+      Array<{ dataset_id: number }>
+    >(
       Prisma.sql`
         SELECT d.dataset_id
         FROM ${Prisma.raw(`"${schema}"."lw_dataset"`)} d
@@ -2861,7 +2847,10 @@ export class AttachmentsService {
       });
       return Buffer.alloc(0);
     }
-    let rows: Array<{ tile: Buffer | Uint8Array | null; feature_count: number }>;
+    let rows: Array<{
+      tile: Buffer | Uint8Array | null;
+      feature_count: number;
+    }>;
     if (usePreprocessedMv) {
       const geomProfileSql = Prisma.raw(`g."${geomProfile}"`);
       const carCteSql = filter.intersectsCarOnly
@@ -4229,9 +4218,7 @@ export class AttachmentsService {
     `);
 
     return new Set(
-      rows.map(
-        (row) => `${row.dataset_code}:${String(row.feature_id ?? '')}`,
-      ),
+      rows.map((row) => `${row.dataset_code}:${String(row.feature_id ?? '')}`),
     );
   }
 
@@ -4722,6 +4709,39 @@ export class AttachmentsService {
     }));
   }
 
+  async downloadAnalysisAttachmentForActor(
+    actor: ActorContext,
+    analysisId: string,
+    attachmentId: string,
+    actorIp: string | null,
+  ) {
+    await this.ensureAnalysisEffectiveSnapshot(analysisId);
+    // The attachment must belong to this analysis' effective snapshot AND be
+    // visible within the actor's scope (PLATFORM/PUBLIC or own-org). The
+    // controller has already proven the actor can read the analysis.
+    const snapshot = await this.prisma.analysisAttachmentEffective.findFirst({
+      where: {
+        analysisId,
+        attachmentId,
+        capturedTargetStatus: AttachmentTargetStatus.APPROVED,
+        ...this.scopeFilterForActor(actor),
+      },
+      include: { attachment: true },
+    });
+    if (!snapshot) {
+      throw new NotFoundException({
+        code: 'ATTACHMENT_NOT_FOUND',
+        message: 'Attachment not found for this analysis',
+      });
+    }
+    await this.appendDownloadEvent(snapshot.attachmentId, actor, actorIp, false);
+    return {
+      filename: snapshot.attachment.originalFilename,
+      contentType: snapshot.attachment.contentType,
+      stream: await this.openAttachmentReadStream(snapshot.attachment),
+    };
+  }
+
   async downloadAnalysisZip(
     actor: ActorContext,
     analysisId: string,
@@ -4769,10 +4789,7 @@ export class AttachmentsService {
     };
   }
 
-  async listPublicAnalysisAttachments(
-    analysisId: string,
-    ip: string | null,
-  ) {
+  async listPublicAnalysisAttachments(analysisId: string, ip: string | null) {
     await this.assertPublicAnalysisExists(analysisId);
     await this.ensureAnalysisEffectiveSnapshot(analysisId);
     const rows = await this.prisma.analysisAttachmentEffective.findMany({
@@ -4827,10 +4844,7 @@ export class AttachmentsService {
     };
   }
 
-  async downloadPublicAnalysisZip(
-    analysisId: string,
-    ip: string | null,
-  ) {
+  async downloadPublicAnalysisZip(analysisId: string, ip: string | null) {
     await this.assertPublicAnalysisExists(analysisId);
     await this.ensureAnalysisEffectiveSnapshot(analysisId);
     const rows = await this.prisma.analysisAttachmentEffective.findMany({
@@ -4889,10 +4903,8 @@ export class AttachmentsService {
     }
 
     const analysisDate = analysis.analysisDate.toISOString().slice(0, 10);
-    const cutoffAt =
-      analysis.attachmentsSnapshotCutoffAt ?? analysis.createdAt;
-    const capturedAt =
-      analysis.attachmentsSnapshotCapturedAt ?? new Date();
+    const cutoffAt = analysis.attachmentsSnapshotCutoffAt ?? analysis.createdAt;
+    const capturedAt = analysis.attachmentsSnapshotCapturedAt ?? new Date();
     const currentCount = await this.prisma.analysisAttachmentEffective.count({
       where: { analysisId: analysis.id },
     });

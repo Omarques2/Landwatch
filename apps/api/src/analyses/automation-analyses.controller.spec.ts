@@ -27,13 +27,15 @@ describe('AutomationAnalysesController', () => {
       },
       {
         provide: AccessService,
-        useValue: { assertCanReadAnalysis: jest.fn().mockResolvedValue(undefined) },
+        useValue: {
+          assertCanReadAnalysis: jest.fn().mockResolvedValue(undefined),
+        },
       },
     ];
   }
 
   it('rejects create when api key context is missing', async () => {
-    const analysesService = { createForApiKey: jest.fn() };
+    const analysesService = { createForActor: jest.fn() };
     const module: TestingModule = await Test.createTestingModule({
       controllers: [AutomationAnalysesController],
       providers: [
@@ -52,9 +54,7 @@ describe('AutomationAnalysesController', () => {
 
   it('forwards create to service with api key context', async () => {
     const analysesService = {
-      createForActor: jest
-        .fn()
-        .mockResolvedValue({ analysisId: 'analysis-1' }),
+      createForActor: jest.fn().mockResolvedValue({ analysisId: 'analysis-1' }),
     };
     const module: TestingModule = await Test.createTestingModule({
       controllers: [AutomationAnalysesController],
@@ -78,10 +78,41 @@ describe('AutomationAnalysesController', () => {
 
     const result = await controller.create(req as any, dto as any);
     expect(result).toEqual({ analysisId: 'analysis-1' });
-    expect(analysesService.createForActor).toHaveBeenCalledWith(
-      actor,
-      dto,
-    );
+    expect(analysesService.createForActor).toHaveBeenCalledWith(actor, dto);
+  });
+
+  it('passes X-Org-Id as the target org when a platform key creates analysis', async () => {
+    const fromApiKey = jest.fn().mockResolvedValue(actor);
+    const analysesService = {
+      createForActor: jest.fn().mockResolvedValue({ analysisId: 'analysis-1' }),
+    };
+    const module: TestingModule = await Test.createTestingModule({
+      controllers: [AutomationAnalysesController],
+      providers: [
+        { provide: AnalysesService, useValue: analysesService },
+        { provide: ActorContextService, useValue: { fromApiKey } },
+        {
+          provide: AccessService,
+          useValue: {
+            assertCanReadAnalysis: jest.fn().mockResolvedValue(undefined),
+          },
+        },
+      ],
+    }).compile();
+
+    const controller = module.get(AutomationAnalysesController);
+    const req = {
+      apiKey: {
+        id: 'key-1',
+        clientId: 'client-1',
+        orgId: null,
+        kind: 'PLATFORM',
+      },
+      headers: { 'x-org-id': 'org-9' },
+    };
+
+    await controller.create(req as any, { carKey: 'CAR-1' } as any);
+    expect(fromApiKey).toHaveBeenCalledWith(req.apiKey, { orgId: 'org-9' });
   });
 
   it('forwards map detail to service when api key context is present', async () => {

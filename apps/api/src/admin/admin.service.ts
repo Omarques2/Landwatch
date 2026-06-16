@@ -1,8 +1,7 @@
 import {
   BadRequestException,
-  ForbiddenException,
   Injectable,
-  Optional,
+  NotFoundException,
 } from '@nestjs/common';
 import {
   AppFeature,
@@ -19,79 +18,26 @@ import { CreateOrgDto } from './dto/create-org.dto';
 import { ManageMembershipDto } from './dto/manage-membership.dto';
 import { UpdateOrgDto } from './dto/update-org.dto';
 import { UpdateUserStatusDto } from './dto/update-user-status.dto';
-
-const TENANT_ADMIN_FEATURES: AppFeature[] = [
-  AppFeature.FARMS,
-  AppFeature.ANALYSES,
-  AppFeature.ANALYSIS_CREATE,
-  AppFeature.CAR_SEARCH,
-  AppFeature.SCHEDULES,
-];
-
-type UpdateOrgFeaturesDto = {
-  features: Array<{ feature: AppFeature | string; enabled: boolean }>;
-};
+import {
+  TENANT_ADMIN_FEATURES,
+  UpdateOrgFeaturesDto,
+} from './dto/update-org-features.dto';
 
 @Injectable()
 export class AdminService {
   constructor(
     private readonly prisma: PrismaService,
-    @Optional() private readonly actorContext?: ActorContextService,
-    @Optional() private readonly access?: AccessService,
+    private readonly actorContext: ActorContextService,
+    private readonly access: AccessService,
   ) {}
 
-  private platformAdminSubjects() {
-    return new Set(
-      (process.env.PLATFORM_ADMIN_SUBS ?? '')
-        .split(',')
-        .map((value) => value.trim())
-        .filter(Boolean),
-    );
-  }
-
-  private isDevBypassAdmin(subject: string) {
-    const nodeEnv = process.env.NODE_ENV ?? 'development';
-    if (nodeEnv === 'production' || nodeEnv === 'staging') return false;
-    if ((process.env.AUTH_BYPASS_LOCALHOST ?? '').trim().toLowerCase() !== 'true') {
-      return false;
-    }
-    const configured = process.env.VITE_DEV_USER_SUB?.trim();
-    return subject === (configured || '00000000-0000-4000-8000-000000000001');
-  }
-
   async assertAdmin(subject: string) {
-    if (this.actorContext && this.access) {
-      const actor = await this.actorContext.fromSubject(subject, {
-        orgMode: 'platform',
-      });
-      await this.access.requirePlatformAdmin(actor);
-      return;
-    }
-    if (this.platformAdminSubjects().has(subject) || this.isDevBypassAdmin(subject)) {
-      return;
-    }
-    const user = await this.prisma.user.findFirst({
-      where: { OR: [{ identityUserId: subject }, { entraSub: subject }] },
-      select: {
-        id: true,
-        status: true,
-        memberships: {
-          where: {
-            role: { in: [OrgRole.owner, OrgRole.admin] },
-            org: { kind: OrgKind.PLATFORM, status: OrgStatus.active },
-          },
-          select: { id: true },
-          take: 1,
-        },
-      },
+    // Single source of truth for the platform-admin definition: env allowlist,
+    // dev bypass, or owner/admin of an active PLATFORM org (see ActorContext).
+    const actor = await this.actorContext.fromSubject(subject, {
+      orgMode: 'platform',
     });
-    if (user?.status === UserStatus.active && user.memberships.length > 0) {
-      return;
-    }
-    throw new ForbiddenException({
-      code: 'ADMIN_ONLY',
-      message: 'Only platform admins can manage organizations',
-    });
+    this.access.requirePlatformAdmin(actor);
   }
 
   async getCapabilities(subject: string) {
@@ -156,7 +102,7 @@ export class AdminService {
       lastLoginAt:
         row.lastLoginAt instanceof Date
           ? row.lastLoginAt.toISOString()
-          : row.lastLoginAt ?? null,
+          : (row.lastLoginAt ?? null),
       memberships: Array.isArray(row.memberships)
         ? row.memberships.map((membership: any) => ({
             orgId: membership.orgId,
@@ -223,7 +169,7 @@ export class AdminService {
       data.status = dto.status as OrgStatus;
     }
     if (dto.kind !== undefined) {
-      data.kind = dto.kind as OrgKind;
+      data.kind = dto.kind;
     }
     return this.prisma.org.update({ where: { id: orgId }, data });
   }
@@ -231,7 +177,7 @@ export class AdminService {
   async listOrgFeatures(subject: string, orgId: string) {
     await this.assertAdmin(subject);
     const rows = await this.prisma.orgFeatureAccess.findMany({
-      where: { orgId, feature: { in: TENANT_ADMIN_FEATURES } },
+      where: { orgId, feature: { in: [...TENANT_ADMIN_FEATURES] } },
       select: { feature: true, enabled: true },
     });
     const byFeature = new Map(rows.map((row) => [row.feature, row.enabled]));
@@ -247,9 +193,26 @@ export class AdminService {
     dto: UpdateOrgFeaturesDto,
   ) {
     await this.assertAdmin(subject);
+    const org = await this.prisma.org.findUnique({
+      where: { id: orgId },
+      select: { id: true, kind: true },
+    });
+    if (!org) {
+      throw new NotFoundException({
+        code: 'ORG_NOT_FOUND',
+        message: 'Organization not found',
+      });
+    }
+    if (org.kind !== OrgKind.TENANT) {
+      throw new BadRequestException({
+        code: 'ORG_FEATURES_TENANT_ONLY',
+        message:
+          'Feature access can only be configured for tenant organizations',
+      });
+    }
     const allowed = new Set<AppFeature>(TENANT_ADMIN_FEATURES);
     for (const item of dto.features ?? []) {
-      if (!allowed.has(item.feature as AppFeature)) {
+      if (!allowed.has(item.feature)) {
         throw new BadRequestException({
           code: 'ORG_FEATURE_NOT_ALLOWED',
           message: 'Feature cannot be configured for tenant organizations',
@@ -260,11 +223,11 @@ export class AdminService {
       for (const item of dto.features) {
         await tx.orgFeatureAccess.upsert({
           where: {
-            orgId_feature: { orgId, feature: item.feature as AppFeature },
+            orgId_feature: { orgId, feature: item.feature },
           },
           create: {
             orgId,
-            feature: item.feature as AppFeature,
+            feature: item.feature,
             enabled: Boolean(item.enabled),
           },
           update: { enabled: Boolean(item.enabled) },
@@ -273,7 +236,7 @@ export class AdminService {
       await tx.orgFeatureAccess.updateMany({
         where: {
           orgId,
-          feature: { notIn: TENANT_ADMIN_FEATURES },
+          feature: { notIn: [...TENANT_ADMIN_FEATURES] },
         },
         data: { enabled: false },
       });

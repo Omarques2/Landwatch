@@ -20,7 +20,11 @@ describe('AnalysisPostprocessService', () => {
       { createAlertForNovelIntersections: jest.fn() } as any,
       { captureEffectiveForAnalysis: jest.fn() } as any,
       { invalidate: jest.fn(), set: jest.fn() } as any,
-      { getById: jest.fn(), getMapById: jest.fn(), getGeoJsonById: jest.fn() } as any,
+      {
+        getById: jest.fn(),
+        getMapById: jest.fn(),
+        getGeoJsonById: jest.fn(),
+      } as any,
       { getVectorMapMetadataById: jest.fn() } as any,
     );
 
@@ -62,10 +66,16 @@ describe('AnalysisPostprocessService', () => {
       { createAlertForNovelIntersections: jest.fn() } as any,
       attachments as any,
       cache as any,
-      { getById: jest.fn(), getMapById: jest.fn(), getGeoJsonById: jest.fn() } as any,
+      {
+        getById: jest.fn(),
+        getMapById: jest.fn(),
+        getGeoJsonById: jest.fn(),
+      } as any,
       { getVectorMapMetadataById: jest.fn() } as any,
     );
-    const enqueueSpy = jest.spyOn(service, 'enqueue').mockResolvedValue(undefined);
+    const enqueueSpy = jest
+      .spyOn(service, 'enqueue')
+      .mockResolvedValue(undefined);
 
     await (service as any).runAttachmentsCapture({
       id: 'job-1',
@@ -108,10 +118,16 @@ describe('AnalysisPostprocessService', () => {
       { createAlertForNovelIntersections: jest.fn() } as any,
       attachments as any,
       cache as any,
-      { getById: jest.fn(), getMapById: jest.fn(), getGeoJsonById: jest.fn() } as any,
+      {
+        getById: jest.fn(),
+        getMapById: jest.fn(),
+        getGeoJsonById: jest.fn(),
+      } as any,
       { getVectorMapMetadataById: jest.fn() } as any,
     );
-    const enqueueSpy = jest.spyOn(service, 'enqueue').mockResolvedValue(undefined);
+    const enqueueSpy = jest
+      .spyOn(service, 'enqueue')
+      .mockResolvedValue(undefined);
 
     await (service as any).runAttachmentsCapture({
       id: 'job-1',
@@ -143,7 +159,11 @@ describe('AnalysisPostprocessService', () => {
       { createAlertForNovelIntersections: jest.fn() } as any,
       { refreshAnalysisEffectiveSnapshot: jest.fn() } as any,
       { invalidate: jest.fn(), set: jest.fn() } as any,
-      { getById: jest.fn(), getMapById: jest.fn(), getGeoJsonById: jest.fn() } as any,
+      {
+        getById: jest.fn(),
+        getMapById: jest.fn(),
+        getGeoJsonById: jest.fn(),
+      } as any,
       { getVectorMapMetadataById: jest.fn() } as any,
     );
     const loggerSpy = jest

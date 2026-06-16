@@ -66,6 +66,35 @@ describe('SchedulesService', () => {
     );
   });
 
+  it('does not allow tenant schedule creation for a public (null-org) farm', async () => {
+    const prisma = makePrismaMock();
+    prisma.farm.findUnique.mockResolvedValue({
+      id: 'farm-public',
+      orgId: null,
+    });
+    const analyses = { createScheduled: jest.fn() };
+    const service = new SchedulesService(prisma, analyses as any, () => now);
+
+    const tenantActor = {
+      userId: 'user-1',
+      subject: 'entra-sub',
+      orgId: 'org-1',
+      orgRole: 'member',
+      isPlatformAdmin: false,
+      isPlatformOrgAdmin: false,
+      source: 'user',
+    } as any;
+
+    await expect(
+      service.createForActor(tenantActor, {
+        farmId: 'farm-public',
+        analysisKind: AnalysisKind.STANDARD,
+        frequency: ScheduleFrequency.WEEKLY,
+      }),
+    ).rejects.toMatchObject({ response: { code: 'FARM_NOT_FOUND' } });
+    expect(prisma.analysisSchedule.create).not.toHaveBeenCalled();
+  });
+
   it('runs due schedules and creates analyses', async () => {
     const prisma = makePrismaMock();
     prisma.analysisSchedule.findMany.mockResolvedValue([

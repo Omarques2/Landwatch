@@ -32,7 +32,10 @@ describe('AccessService', () => {
 
   it('allows reading analysis in same org and rejects different org', async () => {
     const prisma = makePrismaMock();
-    prisma.analysis.findUnique.mockResolvedValue({ id: 'analysis-1', orgId: 'org-2' });
+    prisma.analysis.findUnique.mockResolvedValue({
+      id: 'analysis-1',
+      orgId: 'org-2',
+    });
     const service = new AccessService(prisma as any);
 
     await expect(
@@ -53,7 +56,10 @@ describe('AccessService', () => {
 
   it('looks up farm by active org before public farm', async () => {
     const prisma = makePrismaMock();
-    prisma.farm.findFirst.mockResolvedValueOnce({ id: 'org-farm', orgId: 'org-1' });
+    prisma.farm.findFirst.mockResolvedValueOnce({
+      id: 'org-farm',
+      orgId: 'org-1',
+    });
     const service = new AccessService(prisma as any);
 
     const farm = await service.farmScopedLookup(

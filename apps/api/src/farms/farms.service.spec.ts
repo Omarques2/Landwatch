@@ -9,6 +9,8 @@ describe('FarmsService', () => {
       farm: {
         create: jest.fn(),
         findUnique: jest.fn(),
+        findFirst: jest.fn(),
+        findMany: jest.fn(),
         update: jest.fn(),
       },
       farmDocument: {
@@ -78,5 +80,72 @@ describe('FarmsService', () => {
     expect(prisma.farm.update).toHaveBeenCalledWith(
       expect.objectContaining({ where: { id: 'farm-1' } }),
     );
+  });
+
+  describe('findByCarKeyForActor (scoped lookup)', () => {
+    const tenantActor = {
+      userId: 'user-1',
+      subject: 'sub-1',
+      orgId: 'org-1',
+      orgRole: 'member',
+      isPlatformAdmin: false,
+      isPlatformOrgAdmin: false,
+      source: 'user',
+    } as any;
+
+    it('returns null when CAR is not found in the actor scope (no 404)', async () => {
+      const prisma = makePrismaMock();
+      prisma.farm.findFirst.mockResolvedValue(null); // not in org nor public
+      const service = new FarmsService(prisma);
+
+      const result = await service.findByCarKeyForActor(
+        tenantActor,
+        'CAR-PLATFORM',
+      );
+
+      expect(result).toBeNull();
+    });
+
+    it('returns the farm when found in the actor org', async () => {
+      const prisma = makePrismaMock();
+      prisma.farm.findFirst.mockResolvedValueOnce({
+        id: 'farm-1',
+        name: 'Fazenda',
+        carKey: 'CAR-1',
+        orgId: 'org-1',
+      });
+      const service = new FarmsService(prisma);
+
+      const result = await service.findByCarKeyForActor(tenantActor, 'CAR-1');
+
+      expect(result).toMatchObject({
+        id: 'farm-1',
+        orgId: 'org-1',
+        isPublic: false,
+      });
+    });
+
+    it('still throws 400 on ambiguous CAR for platform admin without org', async () => {
+      const prisma = makePrismaMock();
+      prisma.farm.findMany.mockResolvedValue([{ id: 'a' }, { id: 'b' }]);
+      const service = new FarmsService(prisma);
+
+      await expect(
+        service.findByCarKeyForActor(
+          { isPlatformAdmin: true, orgId: null } as any,
+          'CAR-DUP',
+        ),
+      ).rejects.toMatchObject({ response: { code: 'FARM_CAR_KEY_AMBIGUOUS' } });
+    });
+
+    it('getByCarKeyForActor still throws 404 when not found', async () => {
+      const prisma = makePrismaMock();
+      prisma.farm.findFirst.mockResolvedValue(null);
+      const service = new FarmsService(prisma);
+
+      await expect(
+        service.getByCarKeyForActor(tenantActor, 'CAR-MISSING'),
+      ).rejects.toMatchObject({ response: { code: 'FARM_NOT_FOUND' } });
+    });
   });
 });

@@ -5,7 +5,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import type { ApiClientKind, OrgRole } from '@prisma/client';
-import { OrgStatus, UserStatus } from '@prisma/client';
+import { OrgKind, OrgStatus, UserStatus } from '@prisma/client';
 import type { AuthedRequest, ApiKeyPrincipal } from './authed-request.type';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -44,7 +44,9 @@ export class ActorContextService {
   private isDevBypassAdmin(subject: string) {
     const nodeEnv = process.env.NODE_ENV ?? 'development';
     if (nodeEnv === 'production' || nodeEnv === 'staging') return false;
-    if ((process.env.AUTH_BYPASS_LOCALHOST ?? '').trim().toLowerCase() !== 'true') {
+    if (
+      (process.env.AUTH_BYPASS_LOCALHOST ?? '').trim().toLowerCase() !== 'true'
+    ) {
       return false;
     }
     const configured = process.env.VITE_DEV_USER_SUB?.trim();
@@ -64,9 +66,17 @@ export class ActorContextService {
     return normalized;
   }
 
+  private userLookupWhere(subject: string) {
+    // `User.identityUserId` is a `@db.Uuid` column; querying it with a
+    // non-UUID subject (e.g. an ops allowlist entry) throws at the DB level.
+    return UUID_REGEX.test(subject)
+      ? { OR: [{ identityUserId: subject }, { entraSub: subject }] }
+      : { entraSub: subject };
+  }
+
   private async resolveUser(subject: string) {
     const user = await this.prisma.user.findFirst({
-      where: { OR: [{ identityUserId: subject }, { entraSub: subject }] },
+      where: this.userLookupWhere(subject),
       select: { id: true, status: true },
     });
     if (!user) {
@@ -82,6 +92,41 @@ export class ActorContextService {
       });
     }
     return user;
+  }
+
+  /**
+   * Platform admins configured via env (`PLATFORM_ADMIN_SUBS`) or the local
+   * dev bypass are trusted by environment configuration. They may not yet have
+   * a `user` row (no prior login), so provision one on demand instead of
+   * locking them out. Mirrors the M2M provisioning in `fromApiKey`.
+   */
+  private async resolveOrProvisionPlatformUser(subject: string) {
+    const existing = await this.prisma.user.findFirst({
+      where: this.userLookupWhere(subject),
+      select: { id: true, status: true },
+    });
+    if (existing) {
+      // An explicitly disabled admin stays disabled — do not silently revive.
+      if (existing.status !== UserStatus.active) {
+        throw new ForbiddenException({
+          code: 'USER_NOT_ACTIVE',
+          message: 'User not active',
+        });
+      }
+      return existing;
+    }
+    const isUuidSubject = UUID_REGEX.test(subject);
+    return this.prisma.user.upsert({
+      where: { entraSub: subject },
+      create: {
+        entraSub: subject,
+        identityUserId: isUuidSubject ? subject : undefined,
+        displayName: `Platform admin ${subject}`,
+        status: UserStatus.active,
+      },
+      update: {},
+      select: { id: true, status: true },
+    });
   }
 
   private async platformMembership(userId: string) {
@@ -119,9 +164,12 @@ export class ActorContextService {
     subject: string,
     options: { orgMode: OrgMode; orgId?: string | null },
   ): Promise<ActorContext> {
-    const user = await this.resolveUser(subject);
     const platformByEnv =
-      this.platformAdminSubjects().has(subject) || this.isDevBypassAdmin(subject);
+      this.platformAdminSubjects().has(subject) ||
+      this.isDevBypassAdmin(subject);
+    const user = platformByEnv
+      ? await this.resolveOrProvisionPlatformUser(subject)
+      : await this.resolveUser(subject);
     const platformMembership = await this.platformMembership(user.id);
     const isPlatformOrgAdmin = Boolean(platformMembership);
     const isPlatformAdmin = platformByEnv || isPlatformOrgAdmin;
@@ -173,6 +221,14 @@ export class ActorContextService {
         message: 'Organization disabled',
       });
     }
+    // A non-admin member of the PLATFORM org must never get tenant-scoped
+    // access to legacy data backfilled into the platform org.
+    if (org.kind === OrgKind.PLATFORM && !isPlatformAdmin) {
+      throw new ForbiddenException({
+        code: 'ORG_ACCESS_DENIED',
+        message: 'User cannot use platform organization as tenant context',
+      });
+    }
 
     const membership = await this.prisma.orgMembership.findUnique({
       where: { orgId_userId: { orgId: requestedOrg, userId: user.id } },
@@ -196,7 +252,20 @@ export class ActorContextService {
     };
   }
 
-  async fromApiKey(apiKey: ApiKeyPrincipal): Promise<ActorContext> {
+  /**
+   * Central platform-admin check reused by modules that only need the boolean
+   * (e.g. attachments). Honors env allowlist, dev bypass and PLATFORM org
+   * membership through the single `fromSubject` rule.
+   */
+  async isPlatformAdminSubject(subject: string): Promise<boolean> {
+    const actor = await this.fromSubject(subject, { orgMode: 'platform' });
+    return actor.isPlatformAdmin;
+  }
+
+  async fromApiKey(
+    apiKey: ApiKeyPrincipal,
+    options: { orgId?: string | null } = {},
+  ): Promise<ActorContext> {
     if (apiKey.kind === 'TENANT' && !apiKey.orgId) {
       throw new ForbiddenException({
         code: 'API_CLIENT_ORG_REQUIRED',
@@ -209,6 +278,48 @@ export class ActorContextService {
         message: 'Platform API client must not have organization',
       });
     }
+
+    const requestedOrg = options.orgId ?? null;
+    // A TENANT key is pinned to its own org; it may not target another.
+    if (
+      apiKey.kind === 'TENANT' &&
+      requestedOrg &&
+      requestedOrg !== apiKey.orgId
+    ) {
+      throw new ForbiddenException({
+        code: 'API_CLIENT_ORG_FORBIDDEN',
+        message: 'Tenant API client cannot target another organization',
+      });
+    }
+    // A PLATFORM key carries no org of its own; the target org (if any) comes
+    // from the request and must be an active TENANT org.
+    const effectiveOrgId =
+      apiKey.kind === 'PLATFORM' ? requestedOrg : apiKey.orgId;
+    if (apiKey.kind === 'PLATFORM' && requestedOrg) {
+      const org = await this.prisma.org.findUnique({
+        where: { id: requestedOrg },
+        select: { id: true, status: true, kind: true },
+      });
+      if (!org) {
+        throw new ForbiddenException({
+          code: 'ORG_NOT_FOUND',
+          message: 'Organization not found',
+        });
+      }
+      if (org.status !== OrgStatus.active) {
+        throw new ForbiddenException({
+          code: 'ORG_DISABLED',
+          message: 'Organization disabled',
+        });
+      }
+      if (org.kind !== OrgKind.TENANT) {
+        throw new ForbiddenException({
+          code: 'ORG_TARGET_INVALID',
+          message: 'Platform API client must target a tenant organization',
+        });
+      }
+    }
+
     const subject = `m2m:${apiKey.clientId}`;
     const user = await this.prisma.user.upsert({
       where: { entraSub: subject },
@@ -229,7 +340,7 @@ export class ActorContextService {
     return {
       userId: user.id,
       subject,
-      orgId: apiKey.orgId,
+      orgId: effectiveOrgId,
       orgRole: null,
       isPlatformAdmin: apiKey.kind === 'PLATFORM',
       isPlatformOrgAdmin: false,

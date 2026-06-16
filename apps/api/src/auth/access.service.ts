@@ -11,7 +11,11 @@ import type { ActorContext } from './actor-context.service';
 export class AccessService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async requirePlatformAdmin(actor: ActorContext) {
+  // Narrow param: any actor-like object that exposes `isPlatformAdmin`
+  // satisfies this (auth ActorContext and the attachments-local actor alike),
+  // so callers no longer need an `as any` cast. Synchronous: it only checks a
+  // boolean and throws.
+  requirePlatformAdmin(actor: Pick<ActorContext, 'isPlatformAdmin'>): void {
     if (actor.isPlatformAdmin) return;
     throw new ForbiddenException({
       code: 'PLATFORM_ADMIN_REQUIRED',
@@ -40,7 +44,12 @@ export class AccessService {
     }
   }
 
-  requireSameOrgOrPlatform(actor: ActorContext, resourceOrgId: string | null) {
+  // Narrow param: only `isPlatformAdmin`/`orgId` are read, so both the auth
+  // ActorContext and the attachments-local actor satisfy it (no `as any`).
+  requireSameOrgOrPlatform(
+    actor: Pick<ActorContext, 'isPlatformAdmin' | 'orgId'>,
+    resourceOrgId: string | null,
+  ) {
     if (actor.isPlatformAdmin) return;
     if (!actor.orgId || resourceOrgId !== actor.orgId) {
       throw new ForbiddenException({
@@ -50,7 +59,10 @@ export class AccessService {
     }
   }
 
-  async assertCanReadAnalysis(actor: ActorContext, analysisId: string) {
+  async assertCanReadAnalysis(
+    actor: Pick<ActorContext, 'isPlatformAdmin' | 'orgId'>,
+    analysisId: string,
+  ) {
     const analysis = await this.prisma.analysis.findUnique({
       where: { id: analysisId },
       select: { id: true, orgId: true },
@@ -96,7 +108,10 @@ export class AccessService {
   async farmScopedLookup(
     actor: ActorContext,
     carKey: string,
-    options?: { select?: Record<string, unknown>; include?: Record<string, unknown> },
+    options?: {
+      select?: Record<string, unknown>;
+      include?: Record<string, unknown>;
+    },
   ) {
     if (!actor.isPlatformAdmin && actor.orgId) {
       const orgFarm = await this.prisma.farm.findFirst({

@@ -25,13 +25,17 @@ describe('DashboardController', () => {
         },
         {
           provide: AccessService,
-          useValue: { requirePlatformAdmin: jest.fn().mockResolvedValue(undefined) },
+          useValue: {
+            requirePlatformAdmin: jest.fn().mockResolvedValue(undefined),
+          },
         },
       ],
     }).compile();
 
     const controller = module.get(DashboardController);
-    await expect(controller.getSummary({ user: { sub: 'sub-1' } } as any)).resolves.toEqual(summary);
+    await expect(
+      controller.getSummary({ user: { sub: 'sub-1' } } as any),
+    ).resolves.toEqual(summary);
     expect(dashboardService.getSummary).toHaveBeenCalledTimes(1);
   });
 });

@@ -147,7 +147,13 @@ export class AdminApiKeysService {
         lastUsedAt: true,
         createdAt: true,
         client: {
-          select: { id: true, name: true, orgId: true, kind: true, status: true },
+          select: {
+            id: true,
+            name: true,
+            orgId: true,
+            kind: true,
+            status: true,
+          },
         },
       },
     });

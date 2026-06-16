@@ -103,7 +103,9 @@ export class AnalysisPostprocessService
     scheduleId: string | null;
     cnpjDocs?: string[];
   }) {
-    const cnpjDocs = Array.from(new Set((input.cnpjDocs ?? []).filter(Boolean)));
+    const cnpjDocs = Array.from(
+      new Set((input.cnpjDocs ?? []).filter(Boolean)),
+    );
 
     await Promise.all([
       ...cnpjDocs.map((docNormalized) =>
@@ -340,7 +342,11 @@ export class AnalysisPostprocessService
       return value;
     }
     if (typeof value !== 'string') return null;
-    return value === AnalysisKind.DETER ? AnalysisKind.DETER : value === AnalysisKind.STANDARD ? AnalysisKind.STANDARD : null;
+    return value === AnalysisKind.DETER
+      ? AnalysisKind.DETER
+      : value === AnalysisKind.STANDARD
+        ? AnalysisKind.STANDARD
+        : null;
   }
 
   private isDedupeConflict(error: unknown) {

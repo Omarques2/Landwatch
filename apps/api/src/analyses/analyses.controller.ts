@@ -35,14 +35,18 @@ export class AnalysesController {
         message: 'Missing user claims',
       });
     }
-    const actor = await this.actorContext.fromRequest(req, { orgMode: 'tenant' });
+    const actor = await this.actorContext.fromRequest(req, {
+      orgMode: 'tenant',
+    });
     await this.access.requireTenantFeature(actor, 'ANALYSIS_CREATE');
     return this.analyses.createForActor(actor, dto);
   }
 
   @Get()
   async list(@Req() req: AuthedRequest, @Query() query: ListAnalysesQuery) {
-    const actor = await this.actorContext.fromRequest(req, { orgMode: 'tenant' });
+    const actor = await this.actorContext.fromRequest(req, {
+      orgMode: 'tenant',
+    });
     await this.access.requireTenantFeature(actor, 'ANALYSES');
     const page = query.page ?? 1;
     const pageSize = query.pageSize ?? 20;
@@ -63,7 +67,9 @@ export class AnalysesController {
 
   @Get(':id')
   async get(@Req() req: AuthedRequest, @Param('id') id: string) {
-    const actor = await this.actorContext.fromRequest(req, { orgMode: 'tenant' });
+    const actor = await this.actorContext.fromRequest(req, {
+      orgMode: 'tenant',
+    });
     await this.access.requireTenantFeature(actor, 'ANALYSES');
     await this.access.assertCanReadAnalysis(actor, id);
     return this.analyses.getById(id);
@@ -71,7 +77,9 @@ export class AnalysesController {
 
   @Get(':id/status')
   async getStatus(@Req() req: AuthedRequest, @Param('id') id: string) {
-    const actor = await this.actorContext.fromRequest(req, { orgMode: 'tenant' });
+    const actor = await this.actorContext.fromRequest(req, {
+      orgMode: 'tenant',
+    });
     await this.access.requireTenantFeature(actor, 'ANALYSES');
     await this.access.assertCanReadAnalysis(actor, id);
     return this.analyses.getStatusById(id);
@@ -83,7 +91,9 @@ export class AnalysesController {
     @Param('id') id: string,
     @Query('tolerance') tolerance?: string,
   ) {
-    const actor = await this.actorContext.fromRequest(req, { orgMode: 'tenant' });
+    const actor = await this.actorContext.fromRequest(req, {
+      orgMode: 'tenant',
+    });
     await this.access.requireTenantFeature(actor, 'ANALYSES');
     await this.access.assertCanReadAnalysis(actor, id);
     const parsed = tolerance ? Number(tolerance) : undefined;
@@ -96,7 +106,9 @@ export class AnalysesController {
     @Param('id') id: string,
     @Query('tolerance') tolerance?: string,
   ) {
-    const actor = await this.actorContext.fromRequest(req, { orgMode: 'tenant' });
+    const actor = await this.actorContext.fromRequest(req, {
+      orgMode: 'tenant',
+    });
     await this.access.requireTenantFeature(actor, 'ANALYSES');
     await this.access.assertCanReadAnalysis(actor, id);
     const parsed = tolerance ? Number(tolerance) : undefined;
@@ -105,7 +117,9 @@ export class AnalysesController {
 
   @Get(':id/vector-map')
   async getVectorMap(@Req() req: AuthedRequest, @Param('id') id: string) {
-    const actor = await this.actorContext.fromRequest(req, { orgMode: 'tenant' });
+    const actor = await this.actorContext.fromRequest(req, {
+      orgMode: 'tenant',
+    });
     await this.access.requireTenantFeature(actor, 'ANALYSES');
     await this.access.assertCanReadAnalysis(actor, id);
     const apiOrigin = resolveApiOrigin(req);
@@ -127,7 +141,9 @@ export class AnalysesController {
     const parsedZ = Number(z);
     const parsedX = Number(x);
     const parsedY = Number(y);
-    const actor = await this.actorContext.fromRequest(req, { orgMode: 'tenant' });
+    const actor = await this.actorContext.fromRequest(req, {
+      orgMode: 'tenant',
+    });
     await this.access.requireTenantFeature(actor, 'ANALYSES');
     await this.access.assertCanReadAnalysis(actor, id);
     const tile = await this.analyses.getVectorTileById(
@@ -161,7 +177,9 @@ export class AnalysesController {
         message: 'Missing user claims',
       });
     }
-    const actor = await this.actorContext.fromRequest(req, { orgMode: 'tenant' });
+    const actor = await this.actorContext.fromRequest(req, {
+      orgMode: 'tenant',
+    });
     await this.access.requireTenantFeature(actor, 'ANALYSES');
     await this.access.assertCanReadAnalysis(actor, id);
     const pdf = await this.analyses.getPdfById(id, {

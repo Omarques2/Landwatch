@@ -83,10 +83,7 @@ export class PublicAnalysesController {
   }
 
   @Get(':id/vector-map')
-  async getVectorMap(
-    @Req() req: AuthedRequest,
-    @Param('id') id: string,
-  ) {
+  async getVectorMap(@Req() req: AuthedRequest, @Param('id') id: string) {
     const apiOrigin = resolveApiOrigin(req);
     const tileBasePath = apiOrigin
       ? `${apiOrigin}/v1/public/analyses/${id}/tiles`

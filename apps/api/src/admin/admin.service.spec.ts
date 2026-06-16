@@ -5,6 +5,7 @@ function makePrismaMock() {
   const prisma = {
     org: {
       findMany: jest.fn(),
+      findUnique: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
     },
@@ -23,12 +24,46 @@ function makePrismaMock() {
       findMany: jest.fn(),
       upsert: jest.fn(),
       updateMany: jest.fn(),
+      createMany: jest.fn(),
     },
   };
   return {
     ...prisma,
     $transaction: jest.fn(async (callback: any) => callback(prisma)),
   };
+}
+
+// assertAdmin now delegates to ActorContextService + AccessService. The detailed
+// platform-admin resolution rules are covered by actor-context.service.spec.
+function makeDeps(isPlatformAdmin = true) {
+  const actorContext = {
+    fromSubject: jest.fn().mockResolvedValue({
+      userId: 'admin-1',
+      subject: 'admin-sub',
+      orgId: null,
+      orgRole: null,
+      isPlatformAdmin,
+      isPlatformOrgAdmin: isPlatformAdmin,
+      source: 'user',
+    }),
+  };
+  const access = {
+    requirePlatformAdmin: jest.fn((actor: { isPlatformAdmin?: boolean }) => {
+      if (!actor?.isPlatformAdmin) {
+        throw new ForbiddenException({
+          code: 'PLATFORM_ADMIN_REQUIRED',
+          message: 'Platform admin required',
+        });
+      }
+    }),
+  };
+  return { actorContext, access };
+}
+
+function makeAdminService(prisma: any, isPlatformAdmin = true) {
+  const { actorContext, access } = makeDeps(isPlatformAdmin);
+  const service = new AdminService(prisma, actorContext as any, access as any);
+  return { service, actorContext, access };
 }
 
 describe('AdminService', () => {
@@ -39,60 +74,37 @@ describe('AdminService', () => {
   });
 
   it('rejects non-admin subjects', async () => {
-    const service = new AdminService(makePrismaMock() as any);
+    const { service } = makeAdminService(makePrismaMock(), false);
 
     await expect(service.assertAdmin('user-sub')).rejects.toBeInstanceOf(
       ForbiddenException,
     );
   });
 
-  it('allows platform admin subjects from allowlist', async () => {
-    process.env.PLATFORM_ADMIN_SUBS = 'admin-sub';
-    const service = new AdminService(makePrismaMock() as any);
+  it('allows platform admin subjects', async () => {
+    const { service } = makeAdminService(makePrismaMock(), true);
 
     await expect(service.assertAdmin('admin-sub')).resolves.toBeUndefined();
   });
 
-  it('allows owner/admin members of platform orgs', async () => {
-    const prisma = makePrismaMock();
-    prisma.user.findFirst.mockResolvedValue({
-      id: 'user-1',
-      status: 'active',
-      memberships: [{ id: 'membership-1' }],
-    });
-    const service = new AdminService(prisma as any);
-
-    await expect(service.assertAdmin('platform-owner-sub')).resolves.toBeUndefined();
-    expect(prisma.user.findFirst).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: {
-          OR: [
-            { identityUserId: 'platform-owner-sub' },
-            { entraSub: 'platform-owner-sub' },
-          ],
-        },
-      }),
-    );
-  });
-
   it('returns capabilities without throwing for non-admin subjects', async () => {
-    const service = new AdminService(makePrismaMock() as any);
+    const { service } = makeAdminService(makePrismaMock(), false);
 
     await expect(service.getCapabilities('user-sub')).resolves.toEqual({
       canAccessAdmin: false,
     });
   });
 
-  it('creates organization slugs consistently', async () => {
-    process.env.PLATFORM_ADMIN_SUBS = 'admin-sub';
+  it('creates organization slugs consistently and seeds no features (opt-in)', async () => {
     const prisma = makePrismaMock();
     prisma.org.create.mockResolvedValue({
       id: 'org-1',
       name: 'São José Farm',
       slug: 'sao-jose-farm',
       status: 'active',
+      kind: 'TENANT',
     });
-    const service = new AdminService(prisma as any);
+    const { service } = makeAdminService(prisma);
 
     const result = await service.createOrg('admin-sub', {
       name: 'São José Farm',
@@ -101,19 +113,23 @@ describe('AdminService', () => {
     expect(prisma.org.create).toHaveBeenCalledWith({
       data: { name: 'São José Farm', slug: 'sao-jose-farm', kind: 'TENANT' },
     });
+    // Org starts empty: no features enabled until an admin opts in.
+    expect(prisma.orgFeatureAccess.createMany).not.toHaveBeenCalled();
+    expect(prisma.orgFeatureAccess.upsert).not.toHaveBeenCalled();
     expect(result.slug).toBe('sao-jose-farm');
   });
 
   it('lists tenant feature access for an organization', async () => {
-    process.env.PLATFORM_ADMIN_SUBS = 'admin-sub';
     const prisma = makePrismaMock();
     prisma.orgFeatureAccess.findMany.mockResolvedValue([
       { feature: 'FARMS', enabled: true },
       { feature: 'ANALYSES', enabled: false },
     ]);
-    const service = new AdminService(prisma as any);
+    const { service } = makeAdminService(prisma);
 
-    await expect(service.listOrgFeatures('admin-sub', 'org-1')).resolves.toEqual([
+    await expect(
+      service.listOrgFeatures('admin-sub', 'org-1'),
+    ).resolves.toEqual([
       { feature: 'FARMS', enabled: true },
       { feature: 'ANALYSES', enabled: false },
       { feature: 'ANALYSIS_CREATE', enabled: false },
@@ -123,18 +139,63 @@ describe('AdminService', () => {
   });
 
   it('rejects attachment features in organization access updates', async () => {
-    process.env.PLATFORM_ADMIN_SUBS = 'admin-sub';
-    const service = new AdminService(makePrismaMock() as any);
+    const prisma = makePrismaMock();
+    prisma.org.findUnique.mockResolvedValue({ id: 'org-1', kind: 'TENANT' });
+    const { service } = makeAdminService(prisma);
 
     await expect(
       service.updateOrgFeatures('admin-sub', 'org-1', {
-        features: [{ feature: 'ATTACHMENTS', enabled: true }],
+        features: [{ feature: 'ATTACHMENTS', enabled: true } as any],
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
+  it('returns not found when updating features for missing org', async () => {
+    const prisma = makePrismaMock();
+    prisma.org.findUnique.mockResolvedValue(null);
+    const { service } = makeAdminService(prisma);
+
+    await expect(
+      service.updateOrgFeatures('admin-sub', 'missing-org', {
+        features: [{ feature: 'FARMS', enabled: true } as any],
+      }),
+    ).rejects.toMatchObject({ response: { code: 'ORG_NOT_FOUND' } });
+  });
+
+  it('rejects feature updates for non-tenant organizations', async () => {
+    const prisma = makePrismaMock();
+    prisma.org.findUnique.mockResolvedValue({ id: 'org-p', kind: 'PLATFORM' });
+    const { service } = makeAdminService(prisma);
+
+    await expect(
+      service.updateOrgFeatures('admin-sub', 'org-p', {
+        features: [{ feature: 'FARMS', enabled: true } as any],
+      }),
+    ).rejects.toMatchObject({ response: { code: 'ORG_FEATURES_TENANT_ONLY' } });
+  });
+
+  it('upserts allowed feature toggles for a tenant org', async () => {
+    const prisma = makePrismaMock();
+    prisma.org.findUnique.mockResolvedValue({ id: 'org-1', kind: 'TENANT' });
+    prisma.orgFeatureAccess.findMany.mockResolvedValue([
+      { feature: 'FARMS', enabled: true },
+    ]);
+    const { service } = makeAdminService(prisma);
+
+    await service.updateOrgFeatures('admin-sub', 'org-1', {
+      features: [{ feature: 'FARMS', enabled: true } as any],
+    });
+
+    expect(prisma.orgFeatureAccess.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { orgId_feature: { orgId: 'org-1', feature: 'FARMS' } },
+        create: { orgId: 'org-1', feature: 'FARMS', enabled: true },
+        update: { enabled: true },
+      }),
+    );
+  });
+
   it('adds users to organizations with the requested role', async () => {
-    process.env.PLATFORM_ADMIN_SUBS = 'admin-sub';
     const prisma = makePrismaMock();
     prisma.orgMembership.upsert.mockResolvedValue({
       id: 'membership-1',
@@ -144,7 +205,7 @@ describe('AdminService', () => {
       user: { id: 'user-1', email: 'user@example.com', displayName: 'User' },
       org: { id: 'org-1', name: 'Org', slug: 'org' },
     });
-    const service = new AdminService(prisma as any);
+    const { service } = makeAdminService(prisma);
 
     const result = await service.addMembership('admin-sub', 'org-1', {
       userId: 'user-1',
@@ -161,7 +222,6 @@ describe('AdminService', () => {
   });
 
   it('activates pending users with membership in selected org', async () => {
-    process.env.PLATFORM_ADMIN_SUBS = 'admin-sub';
     const prisma = makePrismaMock();
     prisma.orgMembership.upsert.mockResolvedValue({
       id: 'membership-1',
@@ -185,7 +245,7 @@ describe('AdminService', () => {
         },
       ],
     });
-    const service = new AdminService(prisma as any);
+    const { service } = makeAdminService(prisma);
 
     const result = await service.updateUserStatus('admin-sub', 'user-1', {
       status: 'active',
@@ -213,7 +273,6 @@ describe('AdminService', () => {
   });
 
   it('disables active users without changing memberships', async () => {
-    process.env.PLATFORM_ADMIN_SUBS = 'admin-sub';
     const prisma = makePrismaMock();
     prisma.user.update.mockResolvedValue({
       id: 'user-1',
@@ -225,7 +284,7 @@ describe('AdminService', () => {
       lastLoginAt: null,
       memberships: [],
     });
-    const service = new AdminService(prisma as any);
+    const { service } = makeAdminService(prisma);
 
     const result = await service.updateUserStatus('admin-sub', 'user-1', {
       status: 'disabled',
@@ -242,8 +301,7 @@ describe('AdminService', () => {
   });
 
   it('rejects activation without org and role', async () => {
-    process.env.PLATFORM_ADMIN_SUBS = 'admin-sub';
-    const service = new AdminService(makePrismaMock() as any);
+    const { service } = makeAdminService(makePrismaMock());
 
     await expect(
       service.updateUserStatus('admin-sub', 'user-1', {

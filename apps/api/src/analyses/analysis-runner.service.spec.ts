@@ -173,7 +173,9 @@ describe('AnalysisRunnerService', () => {
         }),
       }),
     );
-    expect(deps.attachments.captureEffectiveSnapshotForAnalysisTx).toHaveBeenCalledWith(
+    expect(
+      deps.attachments.captureEffectiveSnapshotForAnalysisTx,
+    ).toHaveBeenCalledWith(
       expect.objectContaining({
         analysisResult: prisma.analysisResult,
         analysisAttachmentEffective: prisma.analysisAttachmentEffective,
@@ -399,7 +401,9 @@ describe('AnalysisRunnerService', () => {
         }),
       }),
     );
-    expect(deps.attachments.captureEffectiveSnapshotForAnalysisTx).toHaveBeenCalledWith(
+    expect(
+      deps.attachments.captureEffectiveSnapshotForAnalysisTx,
+    ).toHaveBeenCalledWith(
       expect.objectContaining({
         analysisResult: prisma.analysisResult,
         analysisAttachmentEffective: prisma.analysisAttachmentEffective,
@@ -509,7 +513,9 @@ describe('AnalysisRunnerService', () => {
       }),
     );
     expect(warnSpy).not.toHaveBeenCalledWith(
-      expect.stringContaining('analysis.intersections.justification_lookup.failed'),
+      expect.stringContaining(
+        'analysis.intersections.justification_lookup.failed',
+      ),
     );
   });
 
@@ -562,7 +568,9 @@ describe('AnalysisRunnerService', () => {
         }),
       }),
     );
-    expect(deps.postprocess.enqueueAnalysisCompletionJobs).not.toHaveBeenCalled();
+    expect(
+      deps.postprocess.enqueueAnalysisCompletionJobs,
+    ).not.toHaveBeenCalled();
   });
 
   it('logs a structured completion event', async () => {
@@ -1021,4 +1029,3 @@ describe('AnalysisRunnerService', () => {
     expect(sqlText).toContain('"fn_intersections_asof_area_legacy"');
   });
 });
-

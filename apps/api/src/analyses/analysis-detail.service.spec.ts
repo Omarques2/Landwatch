@@ -50,10 +50,16 @@ describe('AnalysisDetailService', () => {
         'INDIGENAS_DECLARADA',
         { totalHits: 2, justifiedHits: 0, justificationStatus: 'none' },
       ],
-      ['LDI_SEMAS', { totalHits: 4, justifiedHits: 4, justificationStatus: 'full' }],
+      [
+        'LDI_SEMAS',
+        { totalHits: 4, justifiedHits: 4, justificationStatus: 'full' },
+      ],
     ]);
 
-    const result = (service as any).applyJustificationCoverage(groups, coverage);
+    const result = (service as any).applyJustificationCoverage(
+      groups,
+      coverage,
+    );
     const items = result[0].items;
 
     expect(items[0]).toEqual(
@@ -1027,5 +1033,4 @@ describe('AnalysisDetailService', () => {
       ]),
     );
   });
-
 });

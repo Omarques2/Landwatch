@@ -30,20 +30,31 @@ export class AutomationAnalysesController {
     private readonly access: AccessService,
   ) {}
 
-  private async actor(req: AuthedRequest) {
+  private async actor(
+    req: AuthedRequest,
+    options: { orgId?: string | null } = {},
+  ) {
     if (!req.apiKey) {
       throw new UnauthorizedException({
         code: 'UNAUTHORIZED',
         message: 'Missing API key context',
       });
     }
-    return this.actorContext.fromApiKey(req.apiKey);
+    return this.actorContext.fromApiKey(req.apiKey, options);
+  }
+
+  private orgHeader(req: AuthedRequest): string | null {
+    const raw = req.headers?.['x-org-id'];
+    const value = Array.isArray(raw) ? raw[0] : raw;
+    return value?.trim() || null;
   }
 
   @Post()
   @ApiKeyScopes(ApiKeyScope.analysis_write)
   async create(@Req() req: AuthedRequest, @Body() dto: CreateAnalysisDto) {
-    const actor = await this.actor(req);
+    // Create is always org-scoped: a PLATFORM key must specify the target org
+    // via X-Org-Id (a TENANT key may only target its own org).
+    const actor = await this.actor(req, { orgId: this.orgHeader(req) });
     return this.analyses.createForActor(actor, dto);
   }
 

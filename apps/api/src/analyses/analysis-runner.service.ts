@@ -200,8 +200,7 @@ export class AnalysisRunnerService implements OnModuleInit, OnModuleDestroy {
         return;
       }
 
-      const analysisResultRows = intersections.map(
-        (row: IntersectionRow) => ({
+      const analysisResultRows = intersections.map((row: IntersectionRow) => ({
         analysisId,
         categoryCode: row.category_code,
         datasetCode: row.dataset_code,
@@ -213,8 +212,7 @@ export class AnalysisRunnerService implements OnModuleInit, OnModuleDestroy {
         featureAreaM2: row.feature_area_m2 ?? null,
         overlapAreaM2: row.overlap_area_m2 ?? null,
         overlapPctOfSicar: row.overlap_pct_of_sicar ?? null,
-        }),
-      );
+      }));
 
       const intersectionRows = analysisResultRows.filter((row) =>
         this.isIntersectionRow(

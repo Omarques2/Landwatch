@@ -12,8 +12,6 @@ import {
   FarmDocType,
   Prisma,
 } from '@prisma/client';
-import type { Claims } from '../auth/claims.type';
-import type { ApiKeyPrincipal } from '../auth/authed-request.type';
 import type { ActorContext } from '../auth/actor-context.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { AnalysisRunnerService, NOW_PROVIDER } from './analysis-runner.service';
@@ -221,65 +219,20 @@ export class AnalysesService {
     }
   }
 
-  private async resolveUserId(claims: Claims): Promise<string> {
-    const identityUserId = String(claims.sub);
-    const user = await this.prisma.user.findUnique({
-      where: { identityUserId },
-      select: { id: true },
-    });
-    if (!user) {
-      throw new ForbiddenException({
-        code: 'USER_NOT_FOUND',
-        message: 'User not found',
-      });
-    }
-    return user.id;
-  }
-
-  private m2mSubject(clientId: string): string {
-    return `m2m:${clientId}`;
-  }
-
-  private async resolveApiKeyActorUserId(apiKey: ApiKeyPrincipal) {
-    const subject = this.m2mSubject(apiKey.clientId);
-    const user = await this.prisma.user.upsert({
-      where: { entraSub: subject },
-      create: {
-        entraSub: subject,
-        displayName: `M2M ${apiKey.clientId}`,
-        status: 'active',
-      },
-      update: {},
-      select: { id: true, status: true },
-    });
-
-    if (user.status === 'disabled') {
-      throw new ForbiddenException({
-        code: 'USER_DISABLED',
-        message: 'User disabled',
-      });
-    }
-
-    return user.id;
-  }
-
-  private async resolveActorFromClaims(claims: Claims): Promise<CreateActor> {
-    const userId = await this.resolveUserId(claims);
-    return { userId, orgId: null };
-  }
-
-  private async resolveActorFromApiKey(
-    apiKey: ApiKeyPrincipal,
-  ): Promise<CreateActor> {
-    const userId = await this.resolveApiKeyActorUserId(apiKey);
-    return { userId, orgId: apiKey.orgId };
-  }
-
   private async createWithActor(
     actor: CreateActor,
     input: CreateAnalysisInput,
   ) {
     const { userId, orgId } = actor;
+    // Every analysis is org-scoped (no null-org rows). Tenant requests always
+    // carry an org; platform admins / platform API keys must resolve a target
+    // org (X-Org-Id) before creating.
+    if (!orgId) {
+      throw new ForbiddenException({
+        code: 'ORG_REQUIRED',
+        message: 'Organization context required to create analysis',
+      });
+    }
     const carKey = this.normalizeCarKey(input.carKey);
     const analysisDate = this.normalizeDate(input.analysisDate);
     const analysisKind = this.normalizeAnalysisKind(input.analysisKind);
@@ -319,12 +272,10 @@ export class AnalysesService {
       });
     }
 
-    if (
-      farm &&
-      !actor.isPlatformAdmin &&
-      (farm.orgId ?? null) !== null &&
-      farm.orgId !== orgId
-    ) {
+    // Cross-org guard applies to ALL actors (including platform admins): an
+    // analysis created in org X must not reference a farm owned by org Y.
+    // Public (null-org) farms are allowed and get copied into the target org.
+    if (farm && (farm.orgId ?? null) !== null && farm.orgId !== orgId) {
       throw new ForbiddenException({
         code: 'FARM_ORG_FORBIDDEN',
         message: 'Farm belongs to another organization',
@@ -361,7 +312,8 @@ export class AnalysesService {
       }
 
       if (farm && !shouldCopyPublicFarm && requestedFarmName) {
-        const currentFarmName = this.normalizeFarmNameInput(farm.name) ?? farm.name;
+        const currentFarmName =
+          this.normalizeFarmNameInput(farm.name) ?? farm.name;
         if (requestedFarmName !== currentFarmName) {
           await tx.analysis.updateMany({
             where: {
@@ -446,25 +398,15 @@ export class AnalysesService {
     };
   }
 
-  async create(claims: Claims, input: CreateAnalysisInput) {
-    const actor = await this.resolveActorFromClaims(claims);
-    return this.createWithActor(actor, input);
-  }
-
   async createForActor(actor: ActorContext, input: CreateAnalysisInput) {
     return this.createWithActor(
       {
         userId: actor.userId,
-        orgId: actor.isPlatformAdmin ? actor.orgId : actor.orgId,
+        orgId: actor.orgId,
         isPlatformAdmin: actor.isPlatformAdmin,
       },
       input,
     );
-  }
-
-  async createForApiKey(apiKey: ApiKeyPrincipal, input: CreateAnalysisInput) {
-    const actor = await this.resolveActorFromApiKey(apiKey);
-    return this.createWithActor(actor, input);
   }
 
   private async findScopedFarm(actor: CreateActor, carKey: string) {
@@ -542,31 +484,24 @@ export class AnalysesService {
   }
 
   async list(
-    actorOrParams:
-      | ActorContext
-      | {
-          carKey?: string;
-          farmId?: string;
-          startDate?: string;
-          endDate?: string;
-          page: number;
-          pageSize: number;
-        },
-    maybeParams?: {
-    carKey?: string;
-    farmId?: string;
-    startDate?: string;
-    endDate?: string;
-    page: number;
-    pageSize: number;
-  },
+    actor: ActorContext,
+    params: {
+      carKey?: string;
+      farmId?: string;
+      startDate?: string;
+      endDate?: string;
+      page: number;
+      pageSize: number;
+    },
   ) {
-    const actor = maybeParams ? (actorOrParams as ActorContext) : null;
-    const params = maybeParams ?? (actorOrParams as NonNullable<typeof maybeParams>);
     const { carKey, farmId, startDate, endDate, page, pageSize } = params;
-    const where: Prisma.AnalysisWhereInput = actor?.isPlatformAdmin
+    // Org scoping is mandatory. Platform admins see everything; everyone else
+    // is restricted to their org. In tenant mode the controller guarantees a
+    // resolved org, so a null orgId here only matches (now non-existent) public
+    // analyses rather than leaking cross-org data.
+    const where: Prisma.AnalysisWhereInput = actor.isPlatformAdmin
       ? {}
-      : { orgId: actor?.orgId ?? undefined };
+      : { orgId: actor.orgId };
     if (carKey) where.carKey = carKey;
     if (farmId) where.farmId = farmId;
     const dateRange = this.buildDateRange(startDate, endDate);

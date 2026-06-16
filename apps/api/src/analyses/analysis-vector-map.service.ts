@@ -127,7 +127,9 @@ export class AnalysisVectorMapService {
     };
   }
 
-  async getVectorMapMetadataById(id: string): Promise<AnalysisVectorMapMetadata> {
+  async getVectorMapMetadataById(
+    id: string,
+  ): Promise<AnalysisVectorMapMetadata> {
     const analysis = await this.prisma.analysis.findUnique({
       where: { id },
       select: {
@@ -227,7 +229,9 @@ export class AnalysisVectorMapService {
     const analysisDate = analysis.analysisDate.toISOString().slice(0, 10);
     const analysisKind = analysis.analysisKind ?? AnalysisKind.STANDARD;
     const whereByKind = this.buildResultWhereByKind(analysisKind);
-    const rows = await this.prisma.$queryRaw<Array<{ tile: Uint8Array | Buffer | null }>>(
+    const rows = await this.prisma.$queryRaw<
+      Array<{ tile: Uint8Array | Buffer | null }>
+    >(
       Prisma.sql`
         WITH feature_rows AS (
           SELECT
@@ -406,10 +410,18 @@ export class AnalysisVectorMapService {
       FROM extent
     `);
     const row = rows[0];
-    if (!row || [row.west, row.south, row.east, row.north].some((value) => value === null)) {
+    if (
+      !row ||
+      [row.west, row.south, row.east, row.north].some((value) => value === null)
+    ) {
       return null;
     }
-    return [row.west!, row.south!, row.east!, row.north!] as [number, number, number, number];
+    return [row.west!, row.south!, row.east!, row.north!] as [
+      number,
+      number,
+      number,
+      number,
+    ];
   }
 
   private async fetchCarBounds(
@@ -453,13 +465,24 @@ export class AnalysisVectorMapService {
       FROM extent
     `);
     const row = rows[0];
-    if (!row || [row.west, row.south, row.east, row.north].some((value) => value === null)) {
+    if (
+      !row ||
+      [row.west, row.south, row.east, row.north].some((value) => value === null)
+    ) {
       return null;
     }
-    return [row.west!, row.south!, row.east!, row.north!] as [number, number, number, number];
+    return [row.west!, row.south!, row.east!, row.north!] as [
+      number,
+      number,
+      number,
+      number,
+    ];
   }
 
-  private isIndigenaDataset(categoryCode?: string | null, datasetCode?: string | null) {
+  private isIndigenaDataset(
+    categoryCode?: string | null,
+    datasetCode?: string | null,
+  ) {
     const category = (categoryCode ?? '').toUpperCase();
     const code = (datasetCode ?? '').toUpperCase();
     if (category === 'TI') return true;
@@ -471,7 +494,10 @@ export class AnalysisVectorMapService {
     return false;
   }
 
-  private isUcsDataset(categoryCode?: string | null, datasetCode?: string | null) {
+  private isUcsDataset(
+    categoryCode?: string | null,
+    datasetCode?: string | null,
+  ) {
     const category = (categoryCode ?? '').toUpperCase();
     const code = (datasetCode ?? '').toUpperCase();
     if (category.includes('UCS') || category.includes('CONSERVAC')) return true;

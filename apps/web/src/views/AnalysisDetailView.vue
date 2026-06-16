@@ -925,9 +925,16 @@ async function openAttachmentsModal() {
 }
 
 async function downloadAnalysisAttachment(attachmentId: string, filename: string) {
-  const res = await http.get(`/v1/attachments/${attachmentId}/download`, {
-    responseType: "blob",
-  });
+  const id = analysis.value?.id;
+  if (!id) return;
+  // Analysis-scoped route: tenants can download attachments of analyses they
+  // can read without platform-admin access (the global :id/download is admin).
+  const res = await http.get(
+    `/v1/attachments/analysis/${id}/${attachmentId}/download`,
+    {
+      responseType: "blob",
+    },
+  );
   saveBlobAsFile(res.data as Blob, filename);
 }
 

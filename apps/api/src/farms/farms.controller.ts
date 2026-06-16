@@ -28,7 +28,9 @@ export class FarmsController {
 
   @Get()
   async list(@Req() req: AuthedRequest, @Query() query: ListFarmsQuery) {
-    const actor = await this.actorContext.fromRequest(req, { orgMode: 'tenant' });
+    const actor = await this.actorContext.fromRequest(req, {
+      orgMode: 'tenant',
+    });
     await this.access.requireTenantFeature(actor, 'FARMS');
     const page = query.page ?? 1;
     const pageSize = query.pageSize ?? 20;
@@ -42,14 +44,21 @@ export class FarmsController {
 
   @Get('by-car')
   async getByCar(@Req() req: AuthedRequest, @Query() query: FarmByCarQuery) {
-    const actor = await this.actorContext.fromRequest(req, { orgMode: 'tenant' });
+    const actor = await this.actorContext.fromRequest(req, {
+      orgMode: 'tenant',
+    });
     await this.access.requireTenantFeature(actor, 'FARMS');
-    return this.farms.getByCarKeyForActor(actor, query.carKey);
+    // Lookup de conveniência (autofill): retorna o valor cru (farm | null).
+    // O EnvelopeInterceptor global embrulha em { data }; "não encontrado no
+    // escopo" vira 200 { data: null }, sem ruído de 404.
+    return this.farms.findByCarKeyForActor(actor, query.carKey);
   }
 
   @Get(':id')
   async get(@Req() req: AuthedRequest, @Param('id') id: string) {
-    const actor = await this.actorContext.fromRequest(req, { orgMode: 'tenant' });
+    const actor = await this.actorContext.fromRequest(req, {
+      orgMode: 'tenant',
+    });
     await this.access.requireTenantFeature(actor, 'FARMS');
     return this.farms.getByIdForActor(actor, id);
   }
@@ -62,7 +71,9 @@ export class FarmsController {
         message: 'Missing user claims',
       });
     }
-    const actor = await this.actorContext.fromRequest(req, { orgMode: 'tenant' });
+    const actor = await this.actorContext.fromRequest(req, {
+      orgMode: 'tenant',
+    });
     await this.access.requireTenantFeature(actor, 'FARMS');
     return this.farms.createForActor(actor, dto);
   }
@@ -79,7 +90,9 @@ export class FarmsController {
         message: 'Missing user claims',
       });
     }
-    const actor = await this.actorContext.fromRequest(req, { orgMode: 'tenant' });
+    const actor = await this.actorContext.fromRequest(req, {
+      orgMode: 'tenant',
+    });
     await this.access.requireTenantFeature(actor, 'FARMS');
     return this.farms.updateForActor(actor, id, dto);
   }

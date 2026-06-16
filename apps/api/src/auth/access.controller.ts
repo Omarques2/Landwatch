@@ -21,12 +21,20 @@ export class AccessController {
 
   @Get('me')
   async me(@Req() req: AuthedRequest) {
-    const actor = await this.actorContext.fromRequest(req, { orgMode: 'optional' });
+    const actor = await this.actorContext.fromRequest(req, {
+      orgMode: 'optional',
+    });
     const [activeOrg, orgFeatures, orgPermissions] = await Promise.all([
       actor.orgId
         ? this.prisma.org.findUnique({
             where: { id: actor.orgId },
-            select: { id: true, name: true, slug: true, status: true, kind: true },
+            select: {
+              id: true,
+              name: true,
+              slug: true,
+              status: true,
+              kind: true,
+            },
           })
         : null,
       actor.orgId && !actor.isPlatformAdmin
@@ -34,13 +42,13 @@ export class AccessController {
             where: { orgId: actor.orgId, enabled: true },
             select: { feature: true },
           })
-        : Promise.resolve([]),
+        : Promise.resolve([] as { feature: AppFeature }[]),
       actor.orgId && !actor.isPlatformAdmin
         ? this.prisma.orgUserPermission.findMany({
             where: { orgId: actor.orgId, userId: actor.userId },
             select: { permission: true },
           })
-        : Promise.resolve([]),
+        : Promise.resolve([] as { permission: OrgPermission }[]),
     ]);
 
     return {

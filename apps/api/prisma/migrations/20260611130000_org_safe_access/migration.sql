@@ -17,11 +17,20 @@ CREATE UNIQUE INDEX IF NOT EXISTS org_single_platform_kind_idx
   ON app.org ((kind))
   WHERE kind = 'PLATFORM';
 
+-- Ensure exactly one PLATFORM org exists so the legacy backfill (migration
+-- 20260611160000) has a deterministic target. Idempotent.
+INSERT INTO app.org (name, slug, kind, status)
+SELECT 'LandWatch Platform', 'landwatch-platform', 'PLATFORM', 'active'
+WHERE NOT EXISTS (
+  SELECT 1 FROM app.org WHERE kind = 'PLATFORM'
+)
+ON CONFLICT (slug) DO NOTHING;
+
 CREATE TABLE IF NOT EXISTS app.org_feature_access (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   org_id uuid NOT NULL REFERENCES app.org(id) ON DELETE CASCADE,
   feature app.app_feature NOT NULL,
-  enabled boolean NOT NULL DEFAULT true,
+  enabled boolean NOT NULL DEFAULT false,
   created_at timestamptz(6) NOT NULL DEFAULT now(),
   updated_at timestamptz(6) NOT NULL DEFAULT now(),
   CONSTRAINT org_feature_access_org_feature_key UNIQUE (org_id, feature)
@@ -30,6 +39,9 @@ CREATE TABLE IF NOT EXISTS app.org_feature_access (
 CREATE INDEX IF NOT EXISTS org_feature_access_org_idx
   ON app.org_feature_access(org_id);
 
+-- One-time backfill: existing TENANT orgs keep the MVP features enabled so
+-- they are not broken by the new opt-in default. PLATFORM orgs are excluded;
+-- new TENANT orgs start with no features (opt-in via admin API).
 INSERT INTO app.org_feature_access (org_id, feature, enabled)
 SELECT o.id, f.feature::app.app_feature, true
 FROM app.org o
@@ -41,6 +53,7 @@ CROSS JOIN (
     ('CAR_SEARCH'),
     ('SCHEDULES')
 ) AS f(feature)
+WHERE o.kind = 'TENANT'
 ON CONFLICT (org_id, feature) DO NOTHING;
 
 ALTER TABLE app.analysis_schedule
@@ -68,8 +81,12 @@ WHERE a.farm_id = f.id
 ALTER TABLE app.api_client
   ADD COLUMN IF NOT EXISTS kind app.api_client_kind NOT NULL DEFAULT 'TENANT';
 
+-- Legacy clients without an org satisfy the PLATFORM constraint but must NOT
+-- silently gain platform-admin power. Disable them; an operator re-enables
+-- only after intentional classification (see deploy runbook audit query).
 UPDATE app.api_client
-SET kind = 'PLATFORM'
+SET kind = 'PLATFORM',
+    status = 'disabled'
 WHERE org_id IS NULL;
 
 ALTER TABLE app.api_client
@@ -83,6 +100,10 @@ ALTER TABLE app.api_client DROP CONSTRAINT IF EXISTS api_client_org_id_fkey;
 ALTER TABLE app.api_client
   ADD CONSTRAINT api_client_org_id_fkey
   FOREIGN KEY (org_id) REFERENCES app.org(id) ON DELETE RESTRICT;
+
+-- The data rewrite above makes all rows compliant; validate now so bad data
+-- surfaces during migration instead of leaving a permanently NOT VALID check.
+ALTER TABLE app.api_client VALIDATE CONSTRAINT api_client_kind_org_check;
 
 ALTER TABLE app.farm DROP CONSTRAINT IF EXISTS farm_org_id_fkey;
 ALTER TABLE app.farm

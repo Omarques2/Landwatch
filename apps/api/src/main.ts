@@ -4,9 +4,7 @@ import { ValidationPipe } from '@nestjs/common';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { parseBoolean, parseCsv, parseNumber } from './common/config/env';
-import {
-  attachCorrelationId,
-} from './common/http/request-context';
+import { attachCorrelationId } from './common/http/request-context';
 import { requestLogger } from './common/http/request-logger';
 import { EnvelopeInterceptor } from './common/http/envelope.interceptor';
 import { HttpExceptionFilter } from './common/http/http-exception.filter';

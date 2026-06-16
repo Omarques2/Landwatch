@@ -68,7 +68,6 @@ export class SchedulesService {
       isActive?: boolean;
     },
   ) {
-
     const now = this.nowProvider();
     const schedule = await this.prisma.analysisSchedule.create({
       data: {
@@ -448,7 +447,10 @@ export class SchedulesService {
     return schedule;
   }
 
-  private assertCanUseSchedule(actor: ActorContext | null, orgId: string | null) {
+  private assertCanUseSchedule(
+    actor: ActorContext | null,
+    orgId: string | null,
+  ) {
     if (!actor || actor.isPlatformAdmin) return;
     if (!actor.orgId || orgId !== actor.orgId) {
       throw new NotFoundException({

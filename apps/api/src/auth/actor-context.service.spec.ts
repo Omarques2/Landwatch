@@ -3,7 +3,7 @@ import { ActorContextService } from './actor-context.service';
 
 function makePrismaMock() {
   return {
-    user: { findFirst: jest.fn() },
+    user: { findFirst: jest.fn(), upsert: jest.fn() },
     org: { findUnique: jest.fn(), findFirst: jest.fn() },
     orgMembership: { findUnique: jest.fn(), findFirst: jest.fn() },
   };
@@ -53,10 +53,9 @@ describe('ActorContextService', () => {
     const service = new ActorContextService(prisma as any);
 
     await expect(
-      service.fromRequest(
-        { user: { sub: 'subject-1' }, headers: {} } as any,
-        { orgMode: 'tenant' },
-      ),
+      service.fromRequest({ user: { sub: 'subject-1' }, headers: {} } as any, {
+        orgMode: 'tenant',
+      }),
     ).rejects.toMatchObject({
       response: { code: 'ORG_REQUIRED' },
     });
@@ -81,6 +80,73 @@ describe('ActorContextService', () => {
       isPlatformOrgAdmin: true,
       orgId: null,
     });
+  });
+
+  it('treats env allowlist subject as platform admin even without pre-existing user row', async () => {
+    process.env.PLATFORM_ADMIN_SUBS = 'env-admin-sub';
+    const prisma = makePrismaMock();
+    prisma.user.findFirst.mockResolvedValue(null);
+    prisma.user.upsert.mockResolvedValue({ id: 'prov-1', status: 'active' });
+    prisma.orgMembership.findFirst.mockResolvedValue(null);
+
+    const service = new ActorContextService(prisma as any);
+    const actor = await service.fromSubject('env-admin-sub', {
+      orgMode: 'platform',
+    });
+
+    expect(actor.isPlatformAdmin).toBe(true);
+    expect(prisma.user.upsert).toHaveBeenCalled();
+  });
+
+  it('provisions non-uuid env allowlist subject using entraSub only', async () => {
+    process.env.PLATFORM_ADMIN_SUBS = 'ops-admin';
+    const prisma = makePrismaMock();
+    prisma.user.findFirst.mockResolvedValue(null);
+    prisma.user.upsert.mockResolvedValue({ id: 'prov-2', status: 'active' });
+    prisma.orgMembership.findFirst.mockResolvedValue(null);
+
+    const service = new ActorContextService(prisma as any);
+    await service.fromSubject('ops-admin', { orgMode: 'platform' });
+
+    expect(prisma.user.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { entraSub: 'ops-admin' },
+        create: expect.objectContaining({
+          entraSub: 'ops-admin',
+          identityUserId: undefined,
+        }),
+      }),
+    );
+  });
+
+  it('still rejects non-admin subject without user row', async () => {
+    delete process.env.PLATFORM_ADMIN_SUBS;
+    const prisma = makePrismaMock();
+    prisma.user.findFirst.mockResolvedValue(null);
+
+    const service = new ActorContextService(prisma as any);
+    await expect(
+      service.fromSubject('ghost-sub', { orgMode: 'platform' }),
+    ).rejects.toMatchObject({ response: { code: 'USER_NOT_FOUND' } });
+  });
+
+  it('rejects non-admin member using PLATFORM org as tenant context', async () => {
+    const prisma = makePrismaMock();
+    prisma.user.findFirst.mockResolvedValue({ id: 'user-1', status: 'active' });
+    prisma.orgMembership.findFirst.mockResolvedValue(null);
+    prisma.org.findUnique.mockResolvedValue({
+      id: 'org-platform',
+      status: 'active',
+      kind: 'PLATFORM',
+    });
+
+    const service = new ActorContextService(prisma as any);
+    await expect(
+      service.fromSubject('subject-1', {
+        orgMode: 'tenant',
+        orgId: 'org-platform',
+      }),
+    ).rejects.toMatchObject({ response: { code: 'ORG_ACCESS_DENIED' } });
   });
 
   it('rejects tenant api keys without org id', async () => {

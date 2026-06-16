@@ -160,18 +160,19 @@ export class FarmsService {
     });
   }
 
-  async list(actorOrParams: ActorContext | ListParams, maybeParams?: ListParams) {
-    const actor = maybeParams ? (actorOrParams as ActorContext) : null;
-    const params = maybeParams ?? (actorOrParams as ListParams);
+  async list(actor: ActorContext, params: ListParams) {
     const { q, page, pageSize, includeDocs } = params;
     const skip = (page - 1) * pageSize;
     const digits = q ? q.replace(/\D/g, '') : '';
 
-    const scopedWhere = actor?.isPlatformAdmin
+    // Org scoping is mandatory: platform admins see everything, tenants see
+    // their own org plus public farms, and an org-less non-admin sees only
+    // public farms. There is no unscoped path.
+    const scopedWhere = actor.isPlatformAdmin
       ? {}
-      : actor?.orgId
+      : actor.orgId
         ? { OR: [{ orgId: actor.orgId }, { orgId: null }] }
-        : {};
+        : { orgId: null };
 
     const searchWhere = q
       ? {
@@ -243,10 +244,16 @@ export class FarmsService {
   }
 
   async getByIdForActor(actor: ActorContext, id: string) {
+    // Explicit branches instead of a fake-UUID sentinel: platform admins see
+    // any farm; an org actor sees its own org plus public farms; an org-less
+    // actor sees only public farms.
+    const where = actor.isPlatformAdmin
+      ? { id }
+      : actor.orgId
+        ? { id, OR: [{ orgId: actor.orgId }, { orgId: null }] }
+        : { id, orgId: null };
     const farm = await this.prisma.farm.findFirst({
-      where: actor.isPlatformAdmin
-        ? { id }
-        : { id, OR: [{ orgId: actor.orgId ?? '__none__' }, { orgId: null }] },
+      where,
       include: { documents: true, _count: { select: { documents: true } } },
     });
     if (!farm) {
@@ -273,11 +280,18 @@ export class FarmsService {
     return this.shapeFarm(farm);
   }
 
-  async getByCarKeyForActor(actor: ActorContext, carKeyInput: string) {
+  /**
+   * Scoped CAR lookup that returns `null` when the CAR is not found within the
+   * actor's scope (instead of throwing 404). Used by the analysis-creation
+   * autofill, where "no farm in scope" is a normal, non-error outcome.
+   *
+   * Ambiguity (platform admin without org and the CAR exists in multiple
+   * scopes) is NOT a not-found condition — it still throws 400.
+   */
+  async findByCarKeyForActor(actor: ActorContext, carKeyInput: string) {
     const carKey = this.normalizeCarKey(carKeyInput);
-    let farm:
-      | Awaited<ReturnType<typeof this.prisma.farm.findFirst>>
-      | null = null;
+    let farm: Awaited<ReturnType<typeof this.prisma.farm.findFirst>> | null =
+      null;
     if (actor.isPlatformAdmin && !actor.orgId) {
       const matches = await this.prisma.farm.findMany({
         where: { carKey },
@@ -305,13 +319,18 @@ export class FarmsService {
           include: { documents: true, _count: { select: { documents: true } } },
         }));
     }
+    return farm ? this.shapeFarm(farm) : null;
+  }
+
+  async getByCarKeyForActor(actor: ActorContext, carKeyInput: string) {
+    const farm = await this.findByCarKeyForActor(actor, carKeyInput);
     if (!farm) {
       throw new NotFoundException({
         code: 'FARM_NOT_FOUND',
         message: 'Farm not found',
       });
     }
-    return this.shapeFarm(farm);
+    return farm;
   }
 
   async update(
@@ -367,7 +386,6 @@ export class FarmsService {
       documents?: string[];
     },
   ) {
-
     if (data.name !== undefined && data.name.trim().length === 0) {
       throw new BadRequestException({
         code: 'INVALID_NAME',
