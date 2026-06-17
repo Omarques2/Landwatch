@@ -5,7 +5,8 @@ defineOptions({ name: "UiSheet", inheritAttrs: false });
 
 defineProps<{
   open: boolean;
-  side?: "left" | "right";
+  side?: "left" | "right" | "bottom";
+  label?: string;
   widthClass?: string;
   overlayClass?: string;
   panelClass?: string;
@@ -20,6 +21,7 @@ defineEmits<{
   <BaseDrawer
     :open="open"
     :side="side"
+    :label="label"
     :width-class="widthClass"
     :overlay-class="overlayClass"
     :panel-class="panelClass"

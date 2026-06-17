@@ -36,3 +36,6 @@ repomix*.md
 
 # Local design references
 Design e conceitos para anexos/
+
+# Debug HAR captures (never commit)
+*.har

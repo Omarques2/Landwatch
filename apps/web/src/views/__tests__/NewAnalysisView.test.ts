@@ -15,7 +15,7 @@ vi.mock("@/api/http", () => ({
 }));
 
 vi.mock("vue-router", () => ({
-  useRouter: () => ({ push: vi.fn() }),
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
   useRoute: () => ({ path: routePath, query: {} }),
 }));
 

@@ -46,6 +46,20 @@ describe('FarmsService', () => {
     expect(prisma.farm.create).not.toHaveBeenCalled();
   });
 
+  it('rejects farm creation when the actor has no org (e.g. platform admin without X-Org-Id)', async () => {
+    const prisma = makePrismaMock();
+    const service = new FarmsService(prisma);
+
+    await expect(
+      service.createForActor(
+        { userId: 'admin-1', orgId: null, isPlatformAdmin: true } as any,
+        { name: 'Fazenda', carKey: 'CAR-1' },
+      ),
+    ).rejects.toMatchObject({ response: { code: 'ORG_REQUIRED' } });
+
+    expect(prisma.farm.create).not.toHaveBeenCalled();
+  });
+
   it('allows updates even when user is not owner (MVP access)', async () => {
     const prisma = makePrismaMock();
     prisma.user.findUnique.mockResolvedValue({ id: 'user-2' });

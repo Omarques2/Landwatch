@@ -1,5 +1,5 @@
 <template>
-  <div class="relative mx-auto flex max-w-6xl flex-col gap-6 px-6 py-6 overflow-hidden">
+  <div class="relative mx-auto flex max-w-6xl flex-col gap-6 px-4 py-4 sm:px-6 sm:py-6 overflow-hidden">
     <div class="relative z-10">
     <header class="flex flex-wrap items-center justify-between gap-4">
       <div>
@@ -21,7 +21,7 @@
       </div>
     </header>
 
-    <section class="rounded-2xl border border-border bg-card p-6 shadow-sm">
+    <section class="rounded-2xl border border-border bg-card p-4 sm:p-6 shadow-sm">
       <div class="mb-4 hidden flex-wrap items-end gap-3 md:flex">
         <div class="min-w-[220px] space-y-1">
           <UiLabel for="analysis-filter-farm" class="text-xs">Fazenda</UiLabel>
@@ -117,12 +117,13 @@
           class="rounded-xl border border-border bg-background p-4"
         >
           <div class="flex flex-wrap items-center justify-between gap-3">
-            <div>
+            <div class="min-w-0">
               <div class="font-semibold">
                 {{ analysis.farmName ?? "Fazenda sem cadastro" }}
               </div>
               <div class="text-xs text-muted-foreground">
-                {{ formatDate(analysis.analysisDate) }} · {{ analysis.carKey }}
+                {{ formatDate(analysis.analysisDate) }} ·
+                <span class="break-all font-mono">{{ analysis.carKey }}</span>
               </div>
             </div>
             <div
@@ -170,7 +171,11 @@
       </div>
     </section>
 
-    <UiDialog :open="filtersOpen" @close="filtersOpen = false">
+    <component
+      :is="isCoarsePointer ? dynComponents.UiSheet : dynComponents.UiDialog"
+      v-bind="isCoarsePointer ? { open: filtersOpen, side: 'bottom', label: 'Filtros' } : { open: filtersOpen }"
+      @close="filtersOpen = false"
+    >
       <UiDialogHeader>
         <UiDialogTitle>Filtros</UiDialogTitle>
         <UiDialogDescription>Refine a lista de análises.</UiDialogDescription>
@@ -231,7 +236,7 @@
           Aplicar filtros
         </UiButton>
       </UiDialogFooter>
-    </UiDialog>
+    </component>
     </div>
   </div>
 </template>
@@ -254,11 +259,15 @@ import {
   Input as UiInput,
   Label as UiLabel,
   Select as UiSelect,
+  Sheet as UiSheet,
   Skeleton as UiSkeleton,
 } from "@/components/ui";
+import { useCoarsePointer } from "@/composables/useCoarsePointer";
 import { http } from "@/api/http";
 import { unwrapPaged, type ApiEnvelope } from "@/api/envelope";
 import { filenameFromContentDisposition, saveBlobAsFile } from "@/lib/downloads";
+
+const dynComponents = { UiSheet, UiDialog };
 
 type AnalysisRow = {
   id: string;
@@ -277,6 +286,7 @@ type FarmRow = {
 };
 
 const router = useRouter();
+const { isCoarsePointer } = useCoarsePointer();
 const analyses = ref<AnalysisRow[]>([]);
 const loadingAnalyses = ref(true);
 const analysesLoaded = ref(false);

@@ -19,7 +19,9 @@ const emit = defineEmits<{
 const attrs = useAttrs();
 const classes = computed(() =>
   cn(
-    "flex h-9 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm",
+    // 16px (text-base) on touch prevents iOS Safari auto-zoom on focus; 14px on desktop.
+    "flex h-9 w-full rounded-lg border border-input bg-background px-3 py-2 text-base sm:text-sm",
+    "pointer-coarse:h-11",
     "text-foreground shadow-sm placeholder:text-muted-foreground",
     "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
     "disabled:cursor-not-allowed disabled:opacity-50",

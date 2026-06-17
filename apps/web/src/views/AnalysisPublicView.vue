@@ -1,5 +1,5 @@
 <template>
-  <div class="analysis-public-root relative mx-auto flex max-w-6xl flex-col gap-6 px-6 py-6 overflow-hidden">
+  <div class="analysis-public-root relative mx-auto flex max-w-6xl flex-col gap-6 px-4 py-4 sm:px-6 sm:py-6 overflow-hidden">
     <AnalysisWatermark />
     <div class="relative z-10">
     <header class="public-header">
@@ -52,7 +52,7 @@
             </div>
           </div>
         </div>
-        <div class="mt-3 flex gap-2">
+        <div class="mt-3 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
           <button
             :class="publicActionButtonClass"
             @click="downloadPublicGeoJson"
@@ -112,7 +112,13 @@
         </div>
       </div>
       <div class="mt-4">
-        <div class="analysis-map-frame relative h-[560px]">
+        <div
+          :class="
+            mapExpanded
+              ? 'fixed inset-0 z-[60] bg-background p-2 pb-safe-3'
+              : 'analysis-map-frame relative h-[420px] sm:h-[560px]'
+          "
+        >
           <div
             v-if="mapLoading || isLoading"
             class="grid h-full place-items-center rounded-xl border border-dashed border-border bg-muted/20"
@@ -121,6 +127,7 @@
           </div>
           <AnalysisVectorMap
             v-else-if="vectorMap?.vectorSource"
+            ref="mapRef"
             :vector-source="vectorMap?.vectorSource ?? null"
             :legend-items="vectorMap?.legendItems ?? []"
             :active-legend-code="activeLegendCode"
@@ -132,6 +139,17 @@
           >
             Nenhuma geometria disponível.
           </div>
+          <UiButton
+            v-if="isCoarsePointer && vectorMap?.vectorSource && !mapLoading && !isLoading"
+            size="icon"
+            variant="outline"
+            class="absolute right-3 top-3 z-30 bg-background/92"
+            :aria-label="mapExpanded ? 'Recolher mapa' : 'Expandir mapa'"
+            @click="toggleMapExpanded"
+          >
+            <Minimize2 v-if="mapExpanded" class="h-4 w-4" />
+            <Maximize2 v-else class="h-4 w-4" />
+          </UiButton>
         </div>
         <div v-if="vectorMap?.vectorSource" class="mt-4">
           <div class="text-sm font-semibold">Legenda</div>
@@ -226,8 +244,8 @@
             >
               <div class="flex flex-wrap items-start justify-between gap-3">
                 <div class="min-w-0">
-                  <div class="truncate font-semibold">{{ attachment.originalFilename }}</div>
-                  <div class="mt-1 text-xs text-muted-foreground">{{ attachment.categoryName }}</div>
+                  <div class="line-clamp-2 break-words font-semibold">{{ attachment.originalFilename }}</div>
+                  <div class="mt-1 break-words text-xs text-muted-foreground">{{ attachment.categoryName }}</div>
                 </div>
                 <span
                   class="inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold"
@@ -247,7 +265,7 @@
             </div>
           </div>
         </div>
-        <div class="flex justify-end border-t border-border px-6 py-4">
+        <div class="flex justify-end border-t border-border px-6 py-4 pb-safe-3">
           <button
             class="rounded-lg border border-border px-3 py-1.5 text-xs font-semibold hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
             :disabled="publicAttachments.length === 0"
@@ -263,7 +281,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, nextTick, onMounted, ref } from "vue";
 import { useRoute } from "vue-router";
 import { http } from "@/api/http";
 import { unwrapData, type ApiEnvelope } from "@/api/envelope";
@@ -280,6 +298,9 @@ import {
   type AnalysisVectorMap as AnalysisVectorMapPayload,
 } from "@/features/analyses/analysis-vector-map";
 import AnalysisVectorMap from "@/components/maps/AnalysisVectorMap.vue";
+import { Maximize2, Minimize2 } from "lucide-vue-next";
+import { Button as UiButton } from "@/components/ui";
+import { useCoarsePointer } from "@/composables/useCoarsePointer";
 import AnalysisWatermark from "@/components/analyses/AnalysisWatermark.vue";
 import logoSrc from "@/assets/logo.png";
 import { toTitleCase } from "@/lib/formatters";
@@ -355,6 +376,13 @@ const publicAttachments = ref<PublicAttachment[]>([]);
 const publicAttachmentsResolved = ref(false);
 const activeLegendCode = ref<string | null>(null);
 const pdfDownloading = ref(false);
+const { isCoarsePointer } = useCoarsePointer();
+const mapExpanded = ref(false);
+const mapRef = ref<{ refresh: () => void } | null>(null);
+function toggleMapExpanded() {
+  mapExpanded.value = !mapExpanded.value;
+  void nextTick(() => mapRef.value?.refresh());
+}
 const analysisId = computed(() => String(route.params.id ?? "").trim());
 const hasPublicAttachments = computed(() => publicAttachments.value.length > 0);
 
@@ -757,7 +785,12 @@ onMounted(async () => {
   background: white;
   border: 1px solid #e2e8f0;
   border-radius: 16px;
-  padding: 16px;
+  padding: 12px;
+}
+@media (min-width: 640px) {
+  .public-card {
+    padding: 16px;
+  }
 }
 
 .skeleton-line {

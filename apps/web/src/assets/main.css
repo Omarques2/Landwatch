@@ -79,6 +79,42 @@
     background-color: var(--background);
     color: var(--foreground);
   }
+  /* Kill the 300ms tap delay and double-tap zoom on interactive controls. */
+  button,
+  a,
+  [role="button"],
+  input,
+  select,
+  textarea,
+  label {
+    touch-action: manipulation;
+  }
+  /* Guard against horizontal scroll leaks from wide rows/maps on mobile. */
+  html,
+  body {
+    overflow-x: hidden;
+  }
+}
+
+/* Safe-area utilities (notch / home indicator). Used by topbar + sticky bars + sheets. */
+.pt-safe {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+.pl-safe {
+  padding-left: env(safe-area-inset-left, 0px);
+}
+.pr-safe {
+  padding-right: env(safe-area-inset-right, 0px);
+}
+/* Additive variants so a sticky bar keeps its own padding PLUS the inset. */
+.pb-safe-3 {
+  padding-bottom: calc(0.75rem + env(safe-area-inset-bottom, 0px));
+}
+.pb-safe-4 {
+  padding-bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
 }
 
 .page-fade-enter-active,

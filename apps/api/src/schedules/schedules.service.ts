@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
@@ -423,10 +424,13 @@ export class SchedulesService {
         message: 'Farm not found',
       });
     }
-    if (!actor.isPlatformAdmin && farm.orgId === null) {
-      throw new NotFoundException({
-        code: 'FARM_NOT_FOUND',
-        message: 'Farm not found',
+    // A schedule must belong to an organization. Block org-less farms for
+    // EVERYONE (including platform admin) so a scheduled run can never produce
+    // an analysis with orgId = null.
+    if (farm.orgId === null) {
+      throw new BadRequestException({
+        code: 'FARM_ORG_REQUIRED',
+        message: 'Cannot schedule analyses for a farm without an organization.',
       });
     }
     return farm;

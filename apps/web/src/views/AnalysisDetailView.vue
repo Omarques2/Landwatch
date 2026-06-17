@@ -1,5 +1,5 @@
 <template>
-  <div class="analysis-report-root relative mx-auto flex max-w-6xl flex-col gap-6 px-6 py-6 overflow-hidden">
+  <div class="analysis-report-root relative mx-auto flex max-w-6xl flex-col gap-6 px-4 py-4 sm:px-6 sm:py-6 overflow-hidden">
     <div class="relative z-10">
     <header class="screen-only flex flex-wrap items-center justify-between gap-4">
       <div>
@@ -68,7 +68,7 @@
           Análise preventiva DETER. Esta visão é voltada para prevenção e não substitui a análise socioambiental completa.
         </div>
       </div>
-      <div class="flex gap-2">
+      <div class="flex w-full flex-wrap gap-2 sm:w-auto">
         <UiButton variant="outline" size="sm" @click="loadAnalysis">Atualizar</UiButton>
         <UiButton
           v-if="hasAnalysisAttachments"
@@ -105,7 +105,7 @@
       </div>
     </header>
 
-    <section class="report-card rounded-2xl border border-border bg-card p-6 shadow-sm">
+    <section class="report-card rounded-2xl border border-border bg-card p-4 sm:p-6 shadow-sm">
       <div class="text-lg font-semibold">{{ mapSectionTitle }}</div>
       <div
         v-if="displayStatus && displayStatus !== 'completed'"
@@ -154,7 +154,13 @@
         A feição do imóvel no SICAR não está ativa (status: {{ formatStatus(analysis?.sicarStatus) }}).
       </div>
       <div class="report-map-row mt-4">
-        <div class="analysis-map-frame report-map-col relative h-[560px]">
+        <div
+          :class="
+            mapExpanded
+              ? 'fixed inset-0 z-[60] bg-background p-2 pb-safe-3'
+              : 'analysis-map-frame report-map-col relative h-[420px] sm:h-[560px]'
+          "
+        >
           <div
             v-if="mapLoading"
             class="grid h-full place-items-center rounded-xl border border-dashed border-border bg-muted/20"
@@ -167,6 +173,7 @@
           </div>
           <AnalysisVectorMap
             v-else-if="vectorMap?.vectorSource"
+            ref="mapRef"
             :vector-source="vectorMap?.vectorSource ?? null"
             :legend-items="vectorMap?.legendItems ?? []"
             :active-legend-code="activeLegendCode"
@@ -174,6 +181,7 @@
             auth-mode="private"
             :enable-context-menu="true"
             @feature-contextmenu="onMapFeatureContextMenu"
+            @feature-attachments="onMapFeatureAttachments"
           />
           <div
             v-else-if="analysis?.status === 'completed'"
@@ -195,6 +203,17 @@
               </div>
             </div>
           </div>
+          <UiButton
+            v-if="isCoarsePointer && vectorMap?.vectorSource && !mapLoading"
+            size="icon"
+            variant="outline"
+            class="absolute right-3 top-3 z-30 bg-background/92"
+            :aria-label="mapExpanded ? 'Recolher mapa' : 'Expandir mapa'"
+            @click="toggleMapExpanded"
+          >
+            <Minimize2 v-if="mapExpanded" class="h-4 w-4" />
+            <Maximize2 v-else class="h-4 w-4" />
+          </UiButton>
         </div>
       </div>
       <div v-if="vectorMap?.vectorSource" class="screen-only mt-4">
@@ -227,7 +246,7 @@
       </div>
     </section>
 
-    <section class="report-card rounded-2xl border border-border bg-card p-6 shadow-sm">
+    <section class="report-card rounded-2xl border border-border bg-card p-4 sm:p-6 shadow-sm">
       <div class="flex flex-wrap items-start justify-between gap-3">
         <div class="text-lg font-semibold">{{ intersectionsSectionTitle }}</div>
         <AnalysisDatasetStatusLegend :groups="analysis?.datasetGroups ?? null" class="ml-auto" />
@@ -274,13 +293,17 @@
       Esta análise preventiva usa alertas DETER para prevenção de possíveis desmatamentos no CAR. Use a análise completa para avaliação socioambiental oficial.
     </footer>
 
-    <UiDialog :open="attachmentsOpen" max-width-class="max-w-3xl" @close="attachmentsOpen = false">
-      <div class="flex max-h-[82vh] min-h-[420px] flex-col">
-        <div class="flex items-center justify-between gap-3 border-b border-border px-6 py-5">
+    <component
+      :is="isCoarsePointer ? dynComponents.UiSheet : dynComponents.UiDialog"
+      v-bind="isCoarsePointer ? { open: attachmentsOpen, side: 'bottom', label: 'Anexos da análise' } : { open: attachmentsOpen, maxWidthClass: 'max-w-3xl' }"
+      @close="attachmentsOpen = false"
+    >
+      <div class="flex max-h-[82vh] min-h-[320px] flex-col">
+        <div class="flex items-center justify-between gap-3 border-b border-border px-4 py-4 sm:px-6 sm:py-5">
           <div class="text-lg font-semibold text-foreground">Anexos da análise</div>
           <UiButton variant="ghost" size="sm" @click="attachmentsOpen = false">Fechar</UiButton>
         </div>
-        <div class="min-h-0 flex-1 overflow-auto px-6 py-5">
+        <div class="min-h-0 flex-1 overflow-auto px-4 py-4 sm:px-6 sm:py-5">
           <div v-if="attachmentsLoading" class="text-sm text-muted-foreground">Carregando anexos...</div>
           <div v-else-if="analysisAttachments.length === 0" class="rounded-2xl border border-dashed border-border px-4 py-8 text-sm text-muted-foreground">
             Nenhum anexo efetivo para esta análise.
@@ -293,13 +316,13 @@
             >
               <div class="flex flex-wrap items-start justify-between gap-3">
                 <div class="min-w-0">
-                  <div class="truncate font-semibold text-foreground">{{ attachment.originalFilename }}</div>
-                  <div class="mt-1 text-xs text-muted-foreground">
+                  <div class="line-clamp-2 break-words font-semibold text-foreground">{{ attachment.originalFilename }}</div>
+                  <div class="mt-1 break-words text-xs text-muted-foreground">
                     {{ attachment.categoryName }} • {{ attachment.target.datasetCode }} • featureId={{ attachment.target.featureId ?? '-' }}
                   </div>
                 </div>
                 <span
-                  class="inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold"
+                  class="inline-flex shrink-0 items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold"
                   :class="attachment.isJustification ? 'border-amber-200 bg-amber-50 text-amber-700' : 'border-sky-200 bg-sky-50 text-sky-700'"
                 >
                   {{ attachment.isJustification ? 'Justificativa' : 'Informativo' }}
@@ -313,7 +336,7 @@
             </article>
           </div>
         </div>
-        <div class="flex flex-wrap items-center justify-end gap-2 border-t border-border px-6 py-4">
+        <div class="flex flex-wrap items-center justify-end gap-2 border-t border-border px-4 py-4 pb-safe-3 sm:px-6">
           <UiButton variant="outline" :disabled="analysisAttachments.length === 0" @click="downloadAnalysisAttachmentsZip">
             Baixar ZIP
           </UiButton>
@@ -322,7 +345,7 @@
           </UiButton>
         </div>
       </div>
-    </UiDialog>
+    </component>
     <div
       v-if="featureContextMenu.open"
       ref="featureContextMenuEl"
@@ -343,9 +366,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { Button as UiButton, Dialog as UiDialog } from "@/components/ui";
+import { Button as UiButton, Dialog as UiDialog, Sheet as UiSheet } from "@/components/ui";
 import { http } from "@/api/http";
 import { unwrapData, type ApiEnvelope } from "@/api/envelope";
 import { formatDatasetLabel } from "@/features/analyses/analysis-colors";
@@ -366,6 +389,11 @@ import {
 import { toTitleCase } from "@/lib/formatters";
 import { filenameFromContentDisposition, saveBlobAsFile } from "@/lib/downloads";
 import AnalysisVectorMap from "@/components/maps/AnalysisVectorMap.vue";
+import { Maximize2, Minimize2 } from "lucide-vue-next";
+import { useCoarsePointer } from "@/composables/useCoarsePointer";
+import type { AnalysisOverlapCandidate as OverlapCandidate } from "@/features/analyses/analysis-vector-map";
+
+const dynComponents = { UiSheet, UiDialog };
 
 type AnalysisResult = {
   id: string;
@@ -481,6 +509,31 @@ const analysisAttachments = ref<AnalysisAttachment[]>([]);
 const attachmentsResolved = ref(false);
 const pdfDownloading = ref(false);
 const activeLegendCode = ref<string | null>(null);
+const { isCoarsePointer } = useCoarsePointer();
+const mapExpanded = ref(false);
+const mapRef = ref<{ refresh: () => void } | null>(null);
+function toggleMapExpanded() {
+  mapExpanded.value = !mapExpanded.value;
+  void nextTick(() => mapRef.value?.refresh());
+}
+async function onMapFeatureAttachments(payload: {
+  datasetCode: string;
+  featureId: string | null;
+  selectedFeatures: OverlapCandidate[];
+}) {
+  const analysisId = analysis.value?.id;
+  if (!analysisId || !payload.datasetCode) return;
+  await router.push({
+    path: "/attachments",
+    query: {
+      tab: "explore",
+      fromAnalysisId: analysisId,
+      datasetCode: payload.datasetCode,
+      featureId: payload.featureId ?? undefined,
+      carKey: analysis.value?.carKey ?? undefined,
+    },
+  });
+}
 const featureContextMenu = ref<{
   open: boolean;
   x: number;

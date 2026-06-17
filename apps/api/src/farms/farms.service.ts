@@ -114,6 +114,15 @@ export class FarmsService {
       documents?: string[];
     },
   ) {
+    // Farms are organization-scoped. Platform admins resolve to a null org on
+    // tenant endpoints unless they pass X-Org-Id, so require a resolved org here
+    // to stop org-less farms (which would later yield org-less analyses).
+    if (!actor.orgId) {
+      throw new BadRequestException({
+        code: 'ORG_REQUIRED',
+        message: 'X-Org-Id is required to create a farm.',
+      });
+    }
     return this.createForOwner(actor.userId, actor.orgId, data);
   }
 

@@ -15,10 +15,12 @@ export const buttonVariants = cva(
         destructive: "bg-destructive text-destructive-foreground hover:bg-destructive/90",
       },
       size: {
-        sm: "h-8 px-3",
-        md: "h-9 px-4",
-        lg: "h-10 px-6",
-        icon: "h-9 w-9",
+        // pointer-coarse bumps every control to the 44px touch-target minimum
+        // on touch devices, while desktop keeps the denser sizing.
+        sm: "h-8 px-3 pointer-coarse:h-11 pointer-coarse:px-4",
+        md: "h-9 px-4 pointer-coarse:h-11",
+        lg: "h-10 px-6 pointer-coarse:h-11",
+        icon: "h-9 w-9 pointer-coarse:h-11 pointer-coarse:w-11",
       },
     },
     defaultVariants: {

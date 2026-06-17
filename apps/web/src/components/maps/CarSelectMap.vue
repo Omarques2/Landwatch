@@ -8,7 +8,9 @@
     </div>
 
     <div class="relative h-full w-full">
-      <div ref="mapEl" class="h-full w-full rounded-xl border border-border"></div>
+      <div ref="mapEl" class="h-full w-full touch-none rounded-xl border border-border"></div>
+
+      <MapCrosshair v-if="isCoarsePointer && hasRenderableSearch" />
 
       <div
         v-if="!hasRenderableSearch"
@@ -88,6 +90,30 @@
       </div>
     </div>
   </div>
+
+  <UiSheet :open="mobileSheet.open" side="bottom" label="CARs neste ponto" @close="closeMobileSheet">
+    <div class="px-4 pt-3">
+      <div class="text-sm font-semibold">
+        {{ mobileSheet.candidates.length > 1 ? "CARs neste ponto" : "CAR selecionado" }}
+      </div>
+      <ul class="mt-3 space-y-2">
+        <li v-for="candidate in mobileSheet.candidates" :key="candidate.featureKey">
+          <button
+            type="button"
+            class="flex w-full items-center justify-between gap-3 rounded-xl border border-border bg-background px-3 py-3 text-left active:scale-[0.99]"
+            @click="chooseMobileCandidate(candidate.featureKey)"
+          >
+            <span class="min-w-0 flex-1 break-all font-mono text-xs font-semibold">
+              {{ candidate.featureKey }}
+            </span>
+            <span v-if="candidate.areaHa !== null" class="shrink-0 text-xs text-muted-foreground">
+              {{ formatAreaHa(candidate.areaHa) }}
+            </span>
+          </button>
+        </li>
+      </ul>
+    </div>
+  </UiSheet>
 </template>
 
 <script setup lang="ts">
@@ -97,11 +123,18 @@ import maplibregl, { type ExpressionSpecification, type LngLatBoundsLike } from 
 import "maplibre-gl/dist/maplibre-gl.css";
 import { acquireApiToken } from "@/auth/auth";
 import {
+  getDevBypassOrgId,
   getDevBypassUserEmail,
   getDevBypassUserSub,
   isLocalAuthBypassEnabled,
 } from "@/auth/local-bypass";
+import { getActiveOrgId } from "@/state/org-context";
+import { buildCarTileHeaders, shouldAttachCarTileAuth } from "@/features/cars/tile-headers";
 import { getSearchPinHtml } from "@/components/maps/car-search-pin";
+import MapCrosshair from "@/components/maps/MapCrosshair.vue";
+import { Sheet as UiSheet } from "@/components/ui";
+import { useCoarsePointer } from "@/composables/useCoarsePointer";
+import { useMapAutoResize } from "@/composables/useMapAutoResize";
 
 type FallbackFeature = {
   feature_key: string;
@@ -185,6 +218,8 @@ const emit = defineEmits<{
 }>();
 
 const mapEl = ref<HTMLDivElement | null>(null);
+const { isCoarsePointer } = useCoarsePointer();
+useMapAutoResize(mapEl, () => map?.resize());
 const hasRenderableSearch = computed(
   () => Boolean(props.activeSearch?.vectorSource) || (props.fallbackFeatures?.length ?? 0) > 0,
 );
@@ -226,6 +261,18 @@ const overlapSelector = ref<{
   y: 0,
   candidates: [],
 });
+
+const mobileSheet = ref<{ open: boolean; candidates: OverlapCandidate[] }>({
+  open: false,
+  candidates: [],
+});
+function closeMobileSheet() {
+  mobileSheet.value = { open: false, candidates: [] };
+}
+function chooseMobileCandidate(featureKey: string) {
+  closeMobileSheet();
+  emit("update:selectedCarKey", featureKey === props.selectedCarKey ? "" : featureKey);
+}
 
 let map: maplibregl.Map | null = null;
 let accessToken: string | null = null;
@@ -455,20 +502,8 @@ function styleDefinition(showSatellite: boolean): maplibregl.StyleSpecification 
   };
 }
 
-function normalizeDevHeaders(headers: Record<string, string>) {
-  if (!isLocalAuthBypassEnabled()) return headers;
-  headers["X-Dev-User-Sub"] = getDevBypassUserSub();
-  headers["X-Dev-User-Email"] = getDevBypassUserEmail();
-  return headers;
-}
-
 function shouldAttachAuthHeaders(url: string) {
-  try {
-    const parsed = new URL(url, window.location.origin);
-    return parsed.pathname.includes("/v1/cars/tiles/");
-  } catch {
-    return false;
-  }
+  return shouldAttachCarTileAuth(url);
 }
 
 async function refreshMapToken() {
@@ -484,11 +519,16 @@ async function refreshMapToken() {
 }
 
 function buildAuthHeaders() {
-  const headers: Record<string, string> = {};
-  if (accessToken) {
-    headers.Authorization = `Bearer ${accessToken}`;
-  }
-  return normalizeDevHeaders(headers);
+  // Tiles load via MapLibre transformRequest, NOT Axios, so the tenant X-Org-Id
+  // the Axios interceptor adds must be attached here too — otherwise the
+  // backend orgMode:'tenant' guard returns 403 on the MVT endpoint.
+  return buildCarTileHeaders({
+    accessToken,
+    orgId: getActiveOrgId() || getDevBypassOrgId(),
+    devBypass: isLocalAuthBypassEnabled(),
+    devSub: getDevBypassUserSub(),
+    devEmail: getDevBypassUserEmail(),
+  });
 }
 
 async function initMap() {
@@ -507,7 +547,10 @@ async function initMap() {
     },
   });
 
-  map.addControl(new maplibregl.NavigationControl({ visualizePitch: false }), "top-left");
+  map.addControl(
+    new maplibregl.NavigationControl({ visualizePitch: false }),
+    isCoarsePointer.value ? "bottom-right" : "top-left",
+  );
 
   bindMapEvents();
   map.on("load", async () => {
@@ -932,8 +975,34 @@ function bindMapEvents() {
 
   map.on("click", (event) => {
     contextMenu.value.open = false;
-    const features = map?.queryRenderedFeatures(event.point, { layers: interactiveLayerIds() }) ?? [];
+    // Query a small box around the tap (not a 0-tolerance point) so overlapping
+    // CARs are detected reliably at any zoom — a point query at high zoom covers
+    // too little ground and would miss the second CAR, hiding the overlap menu.
+    const tolerance = isCoarsePointer.value ? 8 : 4;
+    const box: [maplibregl.PointLike, maplibregl.PointLike] = [
+      [event.point.x - tolerance, event.point.y - tolerance],
+      [event.point.x + tolerance, event.point.y + tolerance],
+    ];
+    const features = map?.queryRenderedFeatures(box, { layers: interactiveLayerIds() }) ?? [];
     const candidates = normalizeOverlapCandidates(features as maplibregl.MapGeoJSONFeature[]);
+
+    if (isCoarsePointer.value) {
+      // Mobile: a single CAR auto-selects immediately (no sheet); only overlaps
+      // (2+ candidates) open the bottom sheet so the user picks which one.
+      if (!candidates.length) {
+        closeMobileSheet();
+        emit("update:selectedCarKey", "");
+        return;
+      }
+      if (candidates.length === 1) {
+        chooseMobileCandidate(candidates[0]!.featureKey);
+        return;
+      }
+      mobileSheet.value = { open: true, candidates };
+      return;
+    }
+
+    // Desktop: inline popover for overlaps, direct toggle otherwise.
     if (!candidates.length) {
       closeOverlapSelector();
       emit("update:selectedCarKey", "");
@@ -1297,10 +1366,17 @@ async function exportPng(filename: string) {
   window.setTimeout(() => URL.revokeObjectURL(href), 1000);
 }
 
+function getMapCenter(): { lat: number; lng: number } | null {
+  if (!map) return null;
+  const c = map.getCenter();
+  return { lat: c.lat, lng: c.lng };
+}
+
 defineExpose({
   refresh,
   captureCurrentPng,
   exportPng,
+  getMapCenter,
   legacyOffscreenExportMapBlob: buildExportMapBlob,
 });
 
@@ -1327,6 +1403,7 @@ watch(
   () => props.activeSearch,
   async () => {
     closeOverlapSelector();
+    closeMobileSheet();
     if (!map || !map.isStyleLoaded()) return;
     await refreshMapToken();
     await syncMapSources();
@@ -1338,6 +1415,7 @@ watch(
   () => props.fallbackFeatures,
   () => {
     closeOverlapSelector();
+    closeMobileSheet();
     if (!map || !map.isStyleLoaded()) return;
     void syncMapSources();
   },

@@ -1,9 +1,9 @@
 <template>
   <div
-    class="app-shell h-screen w-screen overflow-hidden bg-background text-foreground"
+    class="app-shell h-dvh w-full overflow-hidden bg-background text-foreground"
     :style="{ '--topbar-h': '72px' }"
   >
-    <div class="flex h-screen overflow-hidden">
+    <div class="flex h-dvh overflow-hidden">
       <aside
         class="app-sidebar hidden shrink-0 border-r border-border bg-card lg:flex lg:flex-col transition-[width] duration-200"
         :class="sidebarOpen ? 'w-72' : 'w-[72px]'"
@@ -48,7 +48,7 @@
       </UiSheet>
 
       <main class="app-main flex min-w-0 flex-1 flex-col overflow-hidden">
-        <div class="app-topbar border-b border-border bg-card px-4 h-[var(--topbar-h)] flex items-center">
+        <div class="app-topbar border-b border-border bg-card px-4 pl-safe pr-safe pt-safe min-h-[calc(var(--topbar-h)+env(safe-area-inset-top,0px))] h-auto flex items-center">
           <div class="flex w-full items-center gap-3">
             <UiButton
               class="shrink-0 lg:hidden"
@@ -91,10 +91,10 @@
             </select>
 
             <UiButton
-              v-if="canCreateAnalysis"
+              v-if="canCreateAnalysis && !hideTopbarCta"
               variant="default"
               size="md"
-              class="h-9 px-4"
+              class="h-9 px-4 pointer-coarse:h-11"
               :disabled="mvBusy"
               :title="mvBusy ? 'Base geoespacial em atualização' : 'Nova análise'"
               @click="goNewAnalysis"
@@ -190,6 +190,9 @@ function hasFeature(feature?: AppFeature) {
 
 const isPlatformAdmin = computed(() => Boolean(access.value?.isPlatformAdmin));
 const canCreateAnalysis = computed(() => hasFeature("ANALYSIS_CREATE"));
+const hideTopbarCta = computed(
+  () => activeKey.value === "new-analysis" || activeKey.value === "car-search",
+);
 
 const navItems = computed(() => {
   const filtered: ShellNavItem[] = baseNavItems.filter((item) => {

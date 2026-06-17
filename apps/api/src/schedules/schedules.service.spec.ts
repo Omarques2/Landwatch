@@ -95,6 +95,35 @@ describe('SchedulesService', () => {
     expect(prisma.analysisSchedule.create).not.toHaveBeenCalled();
   });
 
+  it('blocks platform admin from scheduling a null-org farm', async () => {
+    const prisma = makePrismaMock();
+    prisma.farm.findUnique.mockResolvedValue({
+      id: 'farm-public',
+      orgId: null,
+    });
+    const analyses = { createScheduled: jest.fn() };
+    const service = new SchedulesService(prisma, analyses as any, () => now);
+
+    const adminActor = {
+      userId: 'admin-1',
+      subject: 'entra-admin',
+      orgId: null,
+      orgRole: null,
+      isPlatformAdmin: true,
+      isPlatformOrgAdmin: true,
+      source: 'user',
+    } as any;
+
+    await expect(
+      service.createForActor(adminActor, {
+        farmId: 'farm-public',
+        analysisKind: AnalysisKind.STANDARD,
+        frequency: ScheduleFrequency.WEEKLY,
+      }),
+    ).rejects.toMatchObject({ response: { code: 'FARM_ORG_REQUIRED' } });
+    expect(prisma.analysisSchedule.create).not.toHaveBeenCalled();
+  });
+
   it('runs due schedules and creates analyses', async () => {
     const prisma = makePrismaMock();
     prisma.analysisSchedule.findMany.mockResolvedValue([

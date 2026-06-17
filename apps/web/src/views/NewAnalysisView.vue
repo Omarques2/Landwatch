@@ -1,8 +1,8 @@
 <template>
   <div
-    class="new-analysis-root mx-auto flex max-w-6xl flex-col gap-6 px-6 py-6"
+    class="new-analysis-root mx-auto flex max-w-6xl flex-col gap-6 px-4 py-4 sm:px-6 sm:py-6"
   >
-    <section v-if="viewMode === 'analysis'" class="rounded-2xl border border-border bg-card p-6 shadow-sm">
+    <section v-if="viewMode === 'analysis'" class="rounded-2xl border border-border bg-card p-4 shadow-sm sm:p-6">
       <div class="text-lg font-semibold">Nova análise</div>
       <div
         v-if="mvBusy"
@@ -22,17 +22,31 @@
         </div>
 
         <UiLabel for="analysis-car">CAR (cod_imovel)</UiLabel>
-        <UiInput
-          id="analysis-car"
-          :model-value="analysisForm.carKey"
-          placeholder="Selecione no mapa ou digite"
-          inputmode="text"
-          autocapitalize="characters"
-          maxlength="64"
-          @update:model-value="onCarInput"
-          @blur="onCarCommit"
-          @keydown.enter.prevent="onCarCommit"
-        />
+        <div class="flex gap-2">
+          <UiInput
+            id="analysis-car"
+            class="flex-1 font-mono"
+            :model-value="analysisForm.carKey"
+            placeholder="Selecione no mapa ou digite"
+            inputmode="text"
+            autocapitalize="characters"
+            maxlength="64"
+            @update:model-value="onCarInput"
+            @blur="onCarCommit"
+            @keydown.enter.prevent="onCarCommit"
+          />
+          <UiButton
+            size="icon"
+            variant="outline"
+            class="shrink-0"
+            data-testid="car-search-shortcut"
+            title="Buscar CAR no mapa"
+            aria-label="Buscar CAR no mapa"
+            @click="router.push('/analyses/search')"
+          >
+            <MapPin class="h-4 w-4" />
+          </UiButton>
+        </div>
 
         <UiLabel for="analysis-doc">Documentos (CPF/CNPJ, opcional)</UiLabel>
         <UiInput
@@ -102,7 +116,7 @@
         </div>
 
         <UiButton
-          class="mt-2 inline-flex items-center gap-2"
+          class="mt-2 inline-flex w-full items-center justify-center gap-2 sm:w-auto"
           data-testid="analysis-submit"
           :disabled="isSubmitting || mvBusy"
           @click="submitAnalysis"
@@ -121,7 +135,7 @@
 
     <section
       v-else
-      class="search-card rounded-2xl border border-border bg-card p-6 shadow-sm"
+      class="search-card rounded-2xl border border-border bg-card p-4 shadow-sm sm:p-6"
     >
       <div
         v-if="mvBusy"
@@ -129,32 +143,112 @@
       >
         Base geoespacial em atualização. A busca por CARs está temporariamente indisponível.
       </div>
-      <div class="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(220px,280px)] search-controls">
-        <div>
-          <UiLabel>Latitude</UiLabel>
-          <UiInput
-            :model-value="center.lat"
-            data-testid="gps-lat"
-            placeholder="-10.0000 ou 10° 00' 00&quot; S"
-            @update:model-value="onSearchLatInput"
-          />
-        </div>
-        <div>
-          <UiLabel>Longitude</UiLabel>
-          <div class="flex gap-2">
+
+      <!-- DESKTOP controls (unchanged behavior) -->
+      <div class="hidden md:block">
+        <div class="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(220px,280px)] search-controls">
+          <div>
+            <UiLabel>Latitude</UiLabel>
             <UiInput
-              :model-value="center.lng"
-              data-testid="gps-lng"
-              placeholder="-50.0000 ou 50° 00' 00&quot; W"
-              @update:model-value="onSearchLngInput"
+              :model-value="center.lat"
+              data-testid="gps-lat"
+              placeholder="-10.0000 ou 10° 00' 00&quot; S"
+              @update:model-value="onSearchLatInput"
             />
+          </div>
+          <div>
+            <UiLabel>Longitude</UiLabel>
+            <div class="flex gap-2">
+              <UiInput
+                :model-value="center.lng"
+                data-testid="gps-lng"
+                placeholder="-50.0000 ou 50° 00' 00&quot; W"
+                @update:model-value="onSearchLngInput"
+              />
+              <UiButton
+                size="icon"
+                variant="outline"
+                data-testid="gps-button"
+                class="shrink-0"
+                :disabled="mvBusy || gpsLoading || searchBusy"
+                title="Usar minha localização"
+                aria-label="Usar minha localização"
+                @click="useMyLocation"
+              >
+                <Loader2 v-if="gpsLoading" class="h-4 w-4 animate-spin" />
+                <LocateFixed v-else class="h-4 w-4" />
+              </UiButton>
+            </div>
+          </div>
+          <label class="flex min-w-0 flex-col gap-2">
+            <span class="text-sm font-medium">Raio</span>
+            <div class="search-radius-card">
+              <input
+                v-model.number="searchRadiusKm"
+                data-testid="search-radius"
+                class="search-radius-slider"
+                type="range"
+                min="1"
+                max="50"
+                step="1"
+              />
+              <span class="search-radius-pill">{{ searchRadiusKm }} km</span>
+            </div>
+          </label>
+        </div>
+        <div class="mt-3 flex flex-wrap items-center gap-2 search-controls">
+          <UiButton size="sm" :disabled="!canSearch || mvBusy || searchBusy" @click="searchCars">
+            Buscar CARs
+          </UiButton>
+          <UiButton
+            size="sm"
+            class="shadow-sm"
+            :class="!analysisForm.carKey || mvBusy || searchBusy ? 'opacity-50' : ''"
+            :disabled="!analysisForm.carKey || mvBusy || searchBusy"
+            @click="goToAnalysisTab"
+          >
+            Gerar análise
+          </UiButton>
+          <UiButton
+            size="sm"
+            variant="outline"
+            :disabled="!canExportSearch || searchBusy || mapLoading || pngBusy"
+            @click="downloadSearchPng"
+          >
+            <Loader2 v-if="pngBusy" class="mr-2 h-3.5 w-3.5 animate-spin" />
+            {{ pngBusy ? "Gerando PNG" : "Baixar PNG" }}
+          </UiButton>
+          <label
+            class="ml-auto inline-flex items-center gap-2 rounded-full border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground"
+            data-testid="hide-unselected-toggle"
+          >
+            <input v-model="hideUnselectedCars" type="checkbox" class="h-4 w-4 accent-emerald-600" />
+            <span>Ocultar CARs não selecionados</span>
+          </label>
+          <label
+            class="inline-flex items-center gap-2 rounded-full border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground"
+            data-testid="auto-zoom-toggle"
+          >
+            <input v-model="searchAutoZoom" type="checkbox" class="h-4 w-4 accent-emerald-600" />
+            <span>Auto zoom</span>
+          </label>
+        </div>
+        <div v-if="searchMessage" class="mt-2 text-xs text-muted-foreground search-controls">
+          {{ searchMessage }}
+        </div>
+      </div>
+
+      <!-- MOBILE: post-search header (only after the first results exist) -->
+      <div v-if="hasSearchResults" class="md:hidden">
+        <div class="mb-2 flex items-center justify-between gap-2">
+          <div class="flex items-center gap-2">
+            <UiButton size="sm" variant="outline" class="gap-2" @click="adjustSheetOpen = true">
+              <SlidersHorizontal class="h-4 w-4" /> Ajustar busca
+            </UiButton>
             <UiButton
               size="icon"
               variant="outline"
-              data-testid="gps-button"
-              class="shrink-0"
               :disabled="mvBusy || gpsLoading || searchBusy"
-              title="Usar minha localização"
               aria-label="Usar minha localização"
               @click="useMyLocation"
             >
@@ -162,89 +256,185 @@
               <LocateFixed v-else class="h-4 w-4" />
             </UiButton>
           </div>
+          <span class="truncate text-xs text-muted-foreground">
+            {{ center.lat && center.lng ? `${center.lat}, ${center.lng} · ${searchRadiusKm} km` : "" }}
+          </span>
         </div>
-        <label class="flex min-w-0 flex-col gap-2">
-          <span class="text-sm font-medium">Raio</span>
-          <div class="search-radius-card">
+        <p v-if="searchMessage" class="mb-2 text-xs text-muted-foreground">{{ searchMessage }}</p>
+      </div>
+
+      <!-- MAP (shared; expands to fullscreen on mobile) -->
+      <div
+        :class="
+          mapExpanded
+            ? 'fixed inset-0 z-[60] bg-background p-2 pb-safe-3'
+            : 'search-map-frame mt-1 md:mt-3'
+        "
+      >
+        <!-- INITIAL location entry (mobile, before the first search) -->
+        <div
+          v-if="showLocationEntry"
+          class="flex h-full w-full flex-col justify-center gap-4 rounded-xl border border-border bg-muted/10 p-5"
+        >
+          <div>
+            <div class="text-base font-semibold">Onde buscar?</div>
+            <div class="mt-1 text-xs text-muted-foreground">
+              Use sua localização ou informe a coordenada para buscar CARs.
+            </div>
+          </div>
+          <UiButton
+            class="w-full gap-2"
+            data-testid="entry-gps"
+            :disabled="mvBusy || gpsLoading || searchBusy"
+            @click="useMyLocation"
+          >
+            <Loader2 v-if="gpsLoading" class="h-4 w-4 animate-spin" />
+            <LocateFixed v-else class="h-4 w-4" />
+            Usar minha localização
+          </UiButton>
+          <div>
+            <UiLabel for="entry-coord">Latitude, longitude</UiLabel>
+            <UiInput
+              id="entry-coord"
+              :model-value="combinedCoord"
+              inputmode="text"
+              placeholder="-22.004475, -49.198096"
+              @update:model-value="onCombinedCoordInput"
+            />
+          </div>
+          <UiButton
+            class="w-full gap-2"
+            data-testid="entry-search"
+            :disabled="!canSearch || mvBusy || searchBusy"
+            @click="searchCars"
+          >
+            <Loader2 v-if="searchBusy" class="h-4 w-4 animate-spin" />
+            Buscar CARs
+          </UiButton>
+          <p v-if="searchMessage" class="text-xs text-muted-foreground">{{ searchMessage }}</p>
+        </div>
+
+        <!-- MAP (desktop always; mobile after the first results) -->
+        <div v-else class="relative h-full w-full">
+          <CarSelectMap
+            ref="searchMapRef"
+            v-model:selected-car-key="analysisForm.carKey"
+            :center="centerValue"
+            :active-search="activeSearch"
+            :fallback-features="fallbackCars"
+            :disabled="mvBusy"
+            :hide-unselected-cars="hideUnselectedCars"
+            :loading="searchBusy"
+            :auto-zoom-on-export="searchAutoZoom"
+            @center-change="updateCenter"
+            @search-here="searchCarsFromMap"
+            @loading-change="onMapLoadingChange"
+          />
+          <!-- Expand / collapse toggle (touch only) -->
+          <UiButton
+            v-if="isCoarsePointer"
+            size="icon"
+            variant="outline"
+            class="absolute right-3 top-3 z-30 bg-background/92"
+            :aria-label="mapExpanded ? 'Recolher mapa' : 'Expandir mapa'"
+            @click="toggleMapExpanded"
+          >
+            <Minimize2 v-if="mapExpanded" class="h-4 w-4" />
+            <Maximize2 v-else class="h-4 w-4" />
+          </UiButton>
+        </div>
+      </div>
+
+      <!-- MOBILE sticky contextual CTA (only once the map/results exist) -->
+      <div
+        v-if="hasSearchResults"
+        class="sticky bottom-0 z-30 -mx-4 mt-3 flex gap-2 border-t border-border bg-card/95 px-4 pb-safe-3 pt-3 backdrop-blur md:hidden"
+        :class="mapExpanded ? 'hidden' : ''"
+      >
+        <UiButton
+          v-if="!analysisForm.carKey"
+          class="flex-1 gap-2"
+          data-testid="search-at-center"
+          :disabled="mvBusy || searchBusy"
+          @click="searchAtMapCenter"
+        >
+          <Loader2 v-if="searchBusy" class="h-4 w-4 animate-spin" />
+          <Search v-else class="h-4 w-4" />
+          Buscar neste ponto
+        </UiButton>
+        <UiButton
+          v-else
+          class="flex-1"
+          :disabled="mvBusy || searchBusy"
+          @click="goToAnalysisTab"
+        >
+          Gerar análise
+        </UiButton>
+      </div>
+
+      <!-- MOBILE "Ajustar busca" bottom sheet -->
+      <UiSheet :open="adjustSheetOpen" side="bottom" label="Ajustar busca" @close="adjustSheetOpen = false">
+        <div class="grid gap-3 px-4 pt-3">
+          <div class="text-sm font-semibold">Ajustar busca</div>
+          <div>
+            <UiLabel for="adjust-coord">Latitude, longitude</UiLabel>
+            <UiInput
+              id="adjust-coord"
+              :model-value="combinedCoord"
+              inputmode="text"
+              placeholder="-22.004475, -49.198096"
+              @update:model-value="onCombinedCoordInput"
+            />
+          </div>
+          <UiButton
+            variant="outline"
+            class="gap-2"
+            :disabled="mvBusy || gpsLoading || searchBusy"
+            @click="useMyLocation"
+          >
+            <Loader2 v-if="gpsLoading" class="h-4 w-4 animate-spin" />
+            <LocateFixed v-else class="h-4 w-4" />
+            Usar minha localização
+          </UiButton>
+          <label class="flex flex-col gap-2">
+            <span class="text-sm font-medium">Raio: {{ searchRadiusKm }} km</span>
             <input
               v-model.number="searchRadiusKm"
-              data-testid="search-radius"
               class="search-radius-slider"
               type="range"
               min="1"
               max="50"
               step="1"
             />
-            <span class="search-radius-pill">{{ searchRadiusKm }} km</span>
+          </label>
+          <div class="grid grid-cols-2 gap-2">
+            <label class="inline-flex items-center gap-2 rounded-xl border border-border px-3 py-3 text-xs font-medium">
+              <input v-model="hideUnselectedCars" type="checkbox" class="h-5 w-5 accent-emerald-600" />
+              <span>Ocultar não selec.</span>
+            </label>
+            <label class="inline-flex items-center gap-2 rounded-xl border border-border px-3 py-3 text-xs font-medium">
+              <input v-model="searchAutoZoom" type="checkbox" class="h-5 w-5 accent-emerald-600" />
+              <span>Auto zoom</span>
+            </label>
           </div>
-        </label>
-      </div>
-      <div class="mt-3 flex flex-wrap items-center gap-2 search-controls">
-        <UiButton size="sm" :disabled="!canSearch || mvBusy || searchBusy" @click="searchCars">
-          Buscar CARs
-        </UiButton>
-        <UiButton
-          size="sm"
-          class="shadow-sm"
-          :class="!analysisForm.carKey || mvBusy || searchBusy ? 'opacity-50' : ''"
-          :disabled="!analysisForm.carKey || mvBusy || searchBusy"
-          @click="goToAnalysisTab"
-        >
-          Gerar análise
-        </UiButton>
-        <UiButton
-          size="sm"
-          variant="outline"
-          :disabled="!canExportSearch || searchBusy || mapLoading || pngBusy"
-          @click="downloadSearchPng"
-        >
-          <Loader2 v-if="pngBusy" class="mr-2 h-3.5 w-3.5 animate-spin" />
-          {{ pngBusy ? "Gerando PNG" : "Baixar PNG" }}
-        </UiButton>
-        <label
-          class="ml-auto inline-flex items-center gap-2 rounded-full border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground"
-          data-testid="hide-unselected-toggle"
-        >
-          <input
-            v-model="hideUnselectedCars"
-            type="checkbox"
-            class="h-4 w-4 accent-emerald-600"
-          />
-          <span>Ocultar CARs não selecionados</span>
-        </label>
-        <label
-          class="inline-flex items-center gap-2 rounded-full border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground"
-          data-testid="auto-zoom-toggle"
-        >
-          <input
-            v-model="searchAutoZoom"
-            type="checkbox"
-            class="h-4 w-4 accent-emerald-600"
-          />
-          <span>Auto zoom</span>
-        </label>
-      </div>
-      <div v-if="searchMessage" class="mt-2 text-xs text-muted-foreground search-controls">
-        {{ searchMessage }}
-      </div>
-      <div
-        class="search-map-frame mt-3"
-      >
-        <CarSelectMap
-          ref="searchMapRef"
-          v-model:selected-car-key="analysisForm.carKey"
-          :center="centerValue"
-          :active-search="activeSearch"
-          :fallback-features="fallbackCars"
-          :disabled="mvBusy"
-          :hide-unselected-cars="hideUnselectedCars"
-          :loading="searchBusy"
-          :auto-zoom-on-export="searchAutoZoom"
-          @center-change="updateCenter"
-          @search-here="searchCarsFromMap"
-          @loading-change="onMapLoadingChange"
-        />
-      </div>
+          <UiButton
+            class="mt-1"
+            data-testid="sheet-search"
+            :disabled="!canSearch || mvBusy || searchBusy"
+            @click="searchCarsFromSheet"
+          >
+            Buscar CARs
+          </UiButton>
+          <UiButton
+            variant="outline"
+            :disabled="!canExportSearch || searchBusy || mapLoading || pngBusy"
+            @click="downloadSearchPng"
+          >
+            <Loader2 v-if="pngBusy" class="mr-2 h-3.5 w-3.5 animate-spin" />
+            {{ pngBusy ? "Gerando PNG" : "Baixar PNG" }}
+          </UiButton>
+        </div>
+      </UiSheet>
     </section>
 
     <UiDialog :open="confirmMissingOpen" @close="confirmMissingOpen = false">
@@ -267,10 +457,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from "vue";
+import { computed, nextTick, onMounted, reactive, ref, watch } from "vue";
 import type { Geometry } from "geojson";
 import { useRoute, useRouter } from "vue-router";
-import { LocateFixed, Loader2 } from "lucide-vue-next";
+import { LocateFixed, Loader2, MapPin, Maximize2, Minimize2, Search, SlidersHorizontal } from "lucide-vue-next";
 import {
   Button as UiButton,
   Dialog as UiDialog,
@@ -280,12 +470,15 @@ import {
   DialogTitle as UiDialogTitle,
   Input as UiInput,
   Label as UiLabel,
+  Sheet as UiSheet,
 } from "@/components/ui";
+import { useCoarsePointer } from "@/composables/useCoarsePointer";
 import { http } from "@/api/http";
 import { unwrapData, unwrapPaged, type ApiEnvelope } from "@/api/envelope";
 import CarSelectMap from "@/components/maps/CarSelectMap.vue";
 import { isValidCpfCnpj, sanitizeDoc } from "@/lib/doc-utils";
 import { mvBusy } from "@/state/landwatch-status";
+import { parseSearchQuery, serializeSearchQuery } from "@/lib/search-query";
 
 type CarSearchVectorSource = {
   tiles: string[];
@@ -346,6 +539,56 @@ const searchAutoZoom = ref(true);
 const activeSearch = ref<CarSearchVectorMapResponse | null>(null);
 const fallbackCars = ref<CarFallbackFeature[]>([]);
 const searchMapRef = ref<InstanceType<typeof CarSelectMap> | null>(null);
+const { isCoarsePointer } = useCoarsePointer();
+const adjustSheetOpen = ref(false);
+const mapExpanded = ref(false);
+const combinedCoord = ref("");
+
+const hasSearchResults = computed(
+  () => Boolean(activeSearch.value?.vectorSource) || fallbackCars.value.length > 0,
+);
+// Mobile opens location-first (entry panel) rather than an empty map: before the
+// first search the map isn't initialized, so a crosshair / "Buscar neste ponto"
+// CTA would be dead. The map (and that CTA) appear only once results exist.
+const showLocationEntry = computed(
+  () => isCoarsePointer.value && viewMode.value === "search" && !hasSearchResults.value,
+);
+
+function onCombinedCoordInput(value: string) {
+  combinedCoord.value = value ?? "";
+  // Reuse the existing parser: it accepts "lat, lng" and fills both center fields.
+  onSearchLatInput(value ?? "");
+}
+
+function toggleMapExpanded() {
+  mapExpanded.value = !mapExpanded.value;
+  void nextTick(() => searchMapRef.value?.refresh());
+}
+
+async function searchAtMapCenter() {
+  if (mvBusy.value) {
+    searchMessage.value = "Base geoespacial em atualização. Aguarde para buscar CARs.";
+    return;
+  }
+  if (searchBusy.value) return;
+  const c = searchMapRef.value?.getMapCenter();
+  if (!c) {
+    searchMessage.value = "Mapa ainda não está pronto.";
+    return;
+  }
+  await runCarSearch({ lat: c.lat, lng: c.lng, radiusMeters: searchRadiusKm.value * 1000 });
+}
+
+async function searchCarsFromSheet() {
+  // Don't close on an invalid/blocked attempt. `searchCars()` already no-ops on
+  // mvBusy / invalid coords (setting searchMessage); only close once it actually
+  // ran. The sheet "Buscar" button is also :disabled on !canSearch / mvBusy /
+  // searchBusy, so this is the second guard, not the only one.
+  if (mvBusy.value || searchBusy.value || !canSearch.value) return;
+  adjustSheetOpen.value = false;
+  await searchCars();
+}
+
 const canSearch = computed(() => {
   return parseCoordinate(center.lat, "lat") !== null && parseCoordinate(center.lng, "lng") !== null;
 });
@@ -626,6 +869,7 @@ async function runCarSearch(payload: { lat: number; lng: number; radiusMeters: n
     }
   } finally {
     searchBusy.value = false;
+    syncSearchUrl();
   }
 }
 
@@ -677,9 +921,12 @@ function useMyLocation() {
       const lng = Number(pos.coords.longitude.toFixed(6));
       center.lat = lat.toFixed(6);
       center.lng = lng.toFixed(6);
+      combinedCoord.value = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
       parsedCenter.value = { lat, lng };
-      searchMessage.value = "Coordenadas atualizadas.";
       gpsLoading.value = false;
+      // Auto-run the CAR search as soon as the location is found (mobile + desktop) —
+      // no extra "Buscar CARs" tap needed.
+      void runCarSearch({ lat, lng, radiusMeters: searchRadiusKm.value * 1000 });
     },
     (err) => {
       if (err?.code === err.PERMISSION_DENIED) {
@@ -944,6 +1191,19 @@ function updateCenter(payload: { lat: number; lng: number }) {
   center.lng = payload.lng.toFixed(6);
 }
 
+function syncSearchUrl() {
+  if (viewMode.value !== "search") return;
+  const lat = parseCoordinate(center.lat, "lat");
+  const lng = parseCoordinate(center.lng, "lng");
+  const query = serializeSearchQuery({
+    lat,
+    lng,
+    radiusKm: searchRadiusKm.value,
+    carKey: analysisForm.carKey || null,
+  });
+  void router.replace({ path: route.path, query });
+}
+
 function onMapLoadingChange(value: boolean) {
   mapLoading.value = value;
 }
@@ -978,6 +1238,15 @@ onMounted(() => {
   if (carKey) {
     analysisForm.carKey = maskCarKey(carKey);
   }
+  if (viewMode.value === "search") {
+    const parsed = parseSearchQuery(route.query as Record<string, unknown>);
+    if (parsed.lat !== null && parsed.lng !== null) {
+      applySearchCoordinates(parsed.lat, parsed.lng);
+      combinedCoord.value = `${parsed.lat}, ${parsed.lng}`;
+    }
+    if (parsed.radiusKm !== null) searchRadiusKm.value = parsed.radiusKm;
+    if (parsed.carKey) analysisForm.carKey = maskCarKey(parsed.carKey);
+  }
 });
 
 watch(
@@ -1003,6 +1272,11 @@ watch(
 );
 
 watch(
+  () => analysisForm.carKey,
+  () => syncSearchUrl(),
+);
+
+watch(
   () => [center.lat, center.lng],
   ([lat, lng]) => {
     const parsedLat = parseCoordinate(lat, "lat");
@@ -1022,9 +1296,9 @@ watch(
   gap: 0.875rem;
   min-height: 2.75rem;
   padding: 0.5rem 0.875rem;
-  border: 1px solid hsl(var(--border));
+  border: 1px solid var(--border);
   border-radius: 0.875rem;
-  background: hsl(var(--background));
+  background: var(--background);
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
 }
 
@@ -1047,6 +1321,11 @@ watch(
 }
 
 .search-map-frame {
-  height: clamp(320px, calc(100vh - 360px), 720px);
+  height: clamp(360px, 70dvh, 760px);
+}
+@media (min-width: 768px) {
+  .search-map-frame {
+    height: clamp(320px, calc(100dvh - 360px), 720px);
+  }
 }
 </style>

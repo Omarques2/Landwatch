@@ -439,6 +439,15 @@ export class AnalysesService {
         message: 'Farm not found',
       });
     }
+    // Defense in depth: a scheduled analysis derives its org from the farm, not
+    // the actor. Refuse org-less farms so we never persist an analysis with a
+    // null orgId (the schedule-creation guard should already prevent this).
+    if (!farm.orgId) {
+      throw new BadRequestException({
+        code: 'ORG_REQUIRED',
+        message: 'Scheduled analysis requires an organization-scoped farm.',
+      });
+    }
 
     const analysisDate = this.nowProvider().toISOString().slice(0, 10);
     const docs =

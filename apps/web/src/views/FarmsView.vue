@@ -1,5 +1,5 @@
 <template>
-  <div class="mx-auto flex max-w-6xl flex-col gap-6 px-6 py-6">
+  <div class="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-4 sm:px-6 sm:py-6">
     <header class="flex flex-wrap items-center justify-between gap-4">
       <div>
         <div class="text-2xl font-semibold">Fazendas</div>
@@ -13,7 +13,7 @@
       </div>
     </header>
 
-    <section class="rounded-2xl border border-border bg-card p-6 shadow-sm">
+    <section class="rounded-2xl border border-border bg-card p-4 sm:p-6 shadow-sm">
         <div class="flex items-center justify-between">
           <div class="text-lg font-semibold">Fazendas cadastradas</div>
           <div class="text-xs text-muted-foreground">
@@ -44,10 +44,10 @@
               class="rounded-xl border border-border bg-background p-4"
             >
               <div class="flex flex-col gap-3">
-                <div>
+                <div class="min-w-0">
                   <div class="font-semibold">{{ farm.name }}</div>
-                  <div class="text-xs text-muted-foreground">
-                    {{ farm.carKey }} · {{ formatDocumentsSummary(farm) }}
+                  <div class="break-all text-xs text-muted-foreground">
+                    <span class="font-mono">{{ farm.carKey }}</span> · {{ formatDocumentsSummary(farm) }}
                   </div>
                 </div>
                 <div class="flex flex-wrap items-center gap-2">
@@ -185,7 +185,7 @@
           Informe o CAR e os dados principais para cadastro.
         </UiDialogDescription>
       </UiDialogHeader>
-      <div class="grid gap-4 p-6">
+      <div class="grid gap-4 p-4 sm:p-6">
         <div class="grid gap-2">
           <UiLabel for="farm-name">Nome</UiLabel>
           <UiInput id="farm-name" v-model="farmForm.name" placeholder="Nome da fazenda" />
@@ -241,7 +241,7 @@
           </div>
         </div>
       </div>
-      <UiDialogFooter class="flex flex-wrap items-center gap-2 border-t border-border px-6 py-4">
+      <UiDialogFooter class="flex flex-wrap items-center gap-2 border-t border-border px-4 py-4 pb-safe-3 sm:px-6">
         <UiButton variant="outline" :disabled="savingFarm" @click="closeCreate">
           Cancelar
         </UiButton>

@@ -1,6 +1,6 @@
 <template>
   <div class="relative h-full w-full">
-    <div ref="mapEl" class="h-full w-full rounded-xl border border-border"></div>
+    <div ref="mapEl" class="h-full w-full touch-none rounded-xl border border-border"></div>
     <div
       v-if="overlapSelector.open"
       ref="overlapSelectorEl"
@@ -27,6 +27,32 @@
       </div>
     </div>
   </div>
+  <UiSheet :open="mobileSheet.open" side="bottom" label="Áreas neste ponto" @close="closeMobileSheet">
+    <div class="px-4 pt-3">
+      <div class="text-sm font-semibold">Áreas neste ponto</div>
+      <ul class="mt-3 space-y-2">
+        <li v-for="candidate in mobileSheet.candidates" :key="`${candidate.datasetCode}:${candidate.featureId}`">
+          <div class="rounded-xl border border-border bg-background px-3 py-3">
+            <button type="button" class="block w-full text-left" @click="pickMobileFeature(candidate)">
+              <span class="block break-words font-medium">{{ candidate.label }}</span>
+              <span class="mt-0.5 block break-all text-[11px] text-muted-foreground">
+                {{ candidate.datasetCode }} · Feature ID: {{ candidate.featureId }}
+              </span>
+            </button>
+            <UiButton
+              v-if="enableContextMenu"
+              size="sm"
+              variant="outline"
+              class="mt-3"
+              @click="requestAttachmentsForCandidate(candidate)"
+            >
+              Ir para Anexos
+            </UiButton>
+          </div>
+        </li>
+      </ul>
+    </div>
+  </UiSheet>
 </template>
 
 <script setup lang="ts">
@@ -41,9 +67,10 @@ import {
   isLocalAuthBypassEnabled,
 } from "@/auth/local-bypass";
 import { getActiveOrgId } from "@/state/org-context";
+import { normalizeOrgHeader } from "@/lib/org-header";
 import { colorForDataset } from "@/features/analyses/analysis-colors";
 import { colorForUcsLegendItem } from "@/features/analyses/analysis-legend";
-import { useToast } from "@/components/ui";
+import { useToast, Sheet as UiSheet, Button as UiButton } from "@/components/ui";
 import {
   ANALYSIS_SICAR_OUTLINE_LAYER_ID,
   ANALYSIS_SICAR_OUTLINE_PAINT,
@@ -58,6 +85,8 @@ import {
   getPreferredAnalysisBounds,
   getPreferredAnalysisFitMaxZoom,
 } from "@/features/analyses/analysis-vector-bounds";
+import { useCoarsePointer } from "@/composables/useCoarsePointer";
+import { useMapAutoResize } from "@/composables/useMapAutoResize";
 
 type VectorSourceContract = {
   tiles: string[];
@@ -112,10 +141,37 @@ const props = withDefaults(defineProps<{
 
 const emit = defineEmits<{
   (event: "feature-contextmenu", payload: FeatureContextPayload): void;
+  (event: "feature-attachments", payload: {
+    datasetCode: string;
+    featureId: string | null;
+    selectedFeatures: AnalysisOverlapCandidate[];
+  }): void;
 }>();
 const { push: pushToast } = useToast();
 
 const mapEl = ref<HTMLDivElement | null>(null);
+const { isCoarsePointer } = useCoarsePointer();
+useMapAutoResize(mapEl, () => map?.resize());
+
+const mobileSheet = ref<{
+  open: boolean;
+  candidates: AnalysisOverlapCandidate[];
+}>({ open: false, candidates: [] });
+function closeMobileSheet() {
+  mobileSheet.value = { open: false, candidates: [] };
+}
+function pickMobileFeature(candidate: AnalysisOverlapCandidate) {
+  closeMobileSheet();
+  selectFeature(candidate, false);
+}
+function requestAttachmentsForCandidate(candidate: AnalysisOverlapCandidate) {
+  closeMobileSheet();
+  emit("feature-attachments", {
+    datasetCode: candidate.datasetCode,
+    featureId: candidate.featureId ?? null,
+    selectedFeatures: [candidate],
+  });
+}
 const overlapSelectorEl = ref<HTMLElement | null>(null);
 const overlapSelector = ref<{
   open: boolean;
@@ -140,8 +196,6 @@ let hasAutoFitApplied = false;
 const SOURCE_ID = "analysis-vector";
 const SICAR_FILL_LAYER_ID = "analysis-sicar-fill";
 const SELECTED_LINE_LAYER_ID = "analysis-selected-line";
-const UUID_REGEX =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const ucsLegendItems = computed(() => props.legendItems.filter((item) => item.kind === "ucs"));
 const colorByLegendCode = computed(() => {
@@ -158,14 +212,6 @@ const colorByLegendCode = computed(() => {
   }
   return mapValue;
 });
-
-function normalizeOrgHeader(orgId: string | null | undefined): string | null {
-  const value = orgId?.trim();
-  if (!value) return null;
-  const lower = value.toLowerCase();
-  if (lower === "null" || lower === "undefined") return null;
-  return UUID_REGEX.test(value) ? value : null;
-}
 
 function sanitizeLegendCode(code: string) {
   return code.replace(/[^a-zA-Z0-9_-]+/g, "-");
@@ -398,6 +444,18 @@ function bindMapEvents() {
 
   map.on("click", (event) => {
     if (!map) return;
+    if (isCoarsePointer.value) {
+      const touched = map.queryRenderedFeatures(event.point, { layers: interactiveLayerIds() });
+      const touchedCandidates = normalizeRenderedCandidates(touched as maplibregl.MapGeoJSONFeature[]);
+      if (!touchedCandidates.length) {
+        closeMobileSheet();
+        selectedFeatures = [];
+        syncLegendVisibility();
+        return;
+      }
+      mobileSheet.value = { open: true, candidates: touchedCandidates };
+      return;
+    }
     const additive = event.originalEvent.ctrlKey || event.originalEvent.metaKey;
     const features = map.queryRenderedFeatures(event.point, { layers: interactiveLayerIds() });
     const candidates = normalizeRenderedCandidates(features as maplibregl.MapGeoJSONFeature[]);
@@ -643,7 +701,10 @@ onMounted(async () => {
     },
   });
 
-  map.addControl(new maplibregl.NavigationControl({ visualizePitch: false }), "top-left");
+  map.addControl(
+    new maplibregl.NavigationControl({ visualizePitch: false }),
+    isCoarsePointer.value ? "bottom-right" : "top-left",
+  );
 
   bindMapEvents();
   window.addEventListener("pointerdown", handleWindowPointerDown);
@@ -657,6 +718,7 @@ onMounted(async () => {
 watch(
   () => props.vectorSource,
   async () => {
+    closeMobileSheet();
     if (!map || !map.isStyleLoaded()) return;
     await refreshMapToken();
     ensureSourceAndLayers();
