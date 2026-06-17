@@ -60,6 +60,12 @@ async function bootstrap() {
   app.enableCors({
     origin: origin.length ? origin : false,
     credentials: parseBoolean(process.env.CORS_CREDENTIALS),
+    // Cache the CORS preflight so the browser stops re-issuing an OPTIONS
+    // before every authenticated request (each request carries Authorization /
+    // X-Org-Id, which forces a preflight). Default 10 min; Chrome caps at 7200s.
+    // `allowedHeaders` is left unset so the middleware reflects the request's
+    // Access-Control-Request-Headers (avoids missing a header in prod).
+    maxAge: parseNumber(process.env.CORS_MAX_AGE, 600),
   });
 
   const adminLimiter = buildRateLimiter(

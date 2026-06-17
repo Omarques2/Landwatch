@@ -257,6 +257,11 @@
 <script setup lang="ts">
 import axios from "axios";
 import { computed, onMounted, reactive, ref } from "vue";
+import {
+  listCacheKey,
+  readListCache,
+  writeListCache,
+} from "@/features/shared/list-cache";
 import { useRouter } from "vue-router";
 import { Eye, FileText, Pencil, Plus, Trash2 } from "lucide-vue-next";
 import {
@@ -401,15 +406,23 @@ function closeCreate() {
   farmMessage.value = "";
 }
 
-async function loadFarms() {
-  loadingFarms.value = true;
+function farmsCacheKey() {
+  return listCacheKey("farms", { pageSize: 100, includeDocs: true });
+}
+
+async function loadFarms(options?: { background?: boolean }) {
+  // background = revalidate without a blocking spinner (after rendering cache).
+  if (!options?.background) loadingFarms.value = true;
   try {
     const res = await http.get<ApiEnvelope<Farm[]>>("/v1/farms", {
       params: { page: 1, pageSize: 100, includeDocs: true },
     });
     farms.value = unwrapPaged(res.data).rows;
+    // loadFarms is also called after create/edit, so this keeps the cache fresh
+    // (mutations reflect on the next visit without an explicit invalidation).
+    writeListCache<Farm[]>(farmsCacheKey(), farms.value);
   } finally {
-    loadingFarms.value = false;
+    if (!options?.background) loadingFarms.value = false;
     farmsLoaded.value = true;
   }
 }
@@ -515,6 +528,17 @@ async function goDetail(farm: Farm) {
 }
 
 onMounted(() => {
-  void loadFarms();
+  // Cache-first: show the cached list instantly, then revalidate in background.
+  const cached = readListCache<Farm[]>(farmsCacheKey());
+  if (cached) {
+    farms.value = cached.value;
+    farmsLoaded.value = true;
+    // The list skeleton is gated on loadingFarms (which starts true on every
+    // fresh mount); clear it so the cached list shows immediately.
+    loadingFarms.value = false;
+    void loadFarms({ background: true }).catch(() => undefined);
+  } else {
+    void loadFarms();
+  }
 });
 </script>

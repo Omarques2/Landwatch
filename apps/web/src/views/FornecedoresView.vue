@@ -1134,6 +1134,10 @@ async function loadSummary() {
   try {
     const response = await http.get<ApiEnvelope<Summary>>("/v1/fornecedores/summary");
     summary.value = unwrapData(response.data);
+  } catch {
+    // Source (Fabric lakehouse) may be unavailable (503). Degrade gracefully:
+    // clear the summary instead of letting the rejection propagate unhandled.
+    summary.value = null;
   } finally {
     loadingSummary.value = false;
   }
@@ -1204,9 +1208,15 @@ async function loadPendencias(fornecedorId: string) {
 }
 
 async function refreshAll() {
-  await Promise.all([loadSummary(), loadRows()]);
-  if (selectedFornecedor.value && fornecedorModalOpen.value) {
-    await loadPendencias(selectedFornecedor.value.idFornecedor);
+  // loadSummary/loadRows handle their own errors; guard here too so any future
+  // call can't surface as an unhandled promise rejection in the console.
+  try {
+    await Promise.all([loadSummary(), loadRows()]);
+    if (selectedFornecedor.value && fornecedorModalOpen.value) {
+      await loadPendencias(selectedFornecedor.value.idFornecedor);
+    }
+  } catch {
+    // Errors are already reflected in rowsError / per-section state.
   }
 }
 

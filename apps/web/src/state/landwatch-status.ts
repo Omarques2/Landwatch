@@ -17,6 +17,10 @@ export type LandwatchMvStatus = {
 
 export const mvStatus = ref<LandwatchMvStatus | null>(null);
 export const mvBusy = ref(false);
+// Becomes true after the first status fetch resolves (success or failure), so
+// the UI can keep the "Nova análise" button gated until the MV state is known
+// instead of briefly enabling it while the (now non-blocking) status loads.
+export const mvStatusResolved = ref(false);
 let pollTimer: number | null = null;
 
 export async function fetchLandwatchStatus() {
@@ -32,6 +36,8 @@ export async function fetchLandwatchStatus() {
     mvStatus.value = null;
     mvBusy.value = false;
     return null;
+  } finally {
+    mvStatusResolved.value = true;
   }
 }
 

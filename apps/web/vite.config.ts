@@ -11,6 +11,21 @@ export default defineConfig({
       "@": fileURLToPath(new URL("./src", import.meta.url)),
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        // Split heavy vendors into separate, long-term cacheable chunks so they
+        // are not re-downloaded on every app-code change and stay out of the
+        // entry chunk. Map libs are further isolated by route-level lazy loading.
+        manualChunks: {
+          maplibre: ["maplibre-gl", "pmtiles"],
+          leaflet: ["leaflet"],
+          ui: ["radix-vue"],
+          http: ["axios"],
+        },
+      },
+    },
+  },
   server: {
     proxy: {
       "/v1": {

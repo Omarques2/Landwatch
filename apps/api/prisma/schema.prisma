@@ -172,6 +172,7 @@ model Farm {
 
   @@index([ownerUserId], map: "farm_owner_user_id_idx")
   @@index([orgId], map: "farm_org_id_idx")
+  @@index([orgId, createdAt(sort: Desc)], map: "farm_org_created_idx")
   @@map("farm")
   @@schema("app")
 }
@@ -241,6 +242,7 @@ model Analysis {
   @@index([scheduleId], map: "analysis_schedule_id_idx")
   @@index([status], map: "analysis_status_idx")
   @@index([pdfStatus], map: "analysis_pdf_status_idx")
+  @@index([orgId, createdAt(sort: Desc)], map: "analysis_org_created_idx")
   @@map("analysis")
   @@schema("app")
 }
@@ -337,6 +339,7 @@ model AnalysisSchedule {
 
   @@index([farmId], map: "analysis_schedule_farm_id_idx")
   @@index([orgId], map: "analysis_schedule_org_id_idx")
+  @@index([orgId, createdAt(sort: Desc)], map: "analysis_schedule_org_created_idx")
   @@index([isActive, nextRunAt], map: "analysis_schedule_due_idx")
   @@index([createdByUserId], map: "analysis_schedule_user_id_idx")
   @@map("analysis_schedule")

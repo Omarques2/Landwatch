@@ -27,7 +27,13 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import L from "leaflet";
+import "leaflet/dist/leaflet.css";
+import { setupLeafletDefaultIcons } from "@/lib/leaflet-icons";
 import { colorForDataset, formatDatasetLabel } from "@/features/analyses/analysis-colors";
+
+// Leaflet CSS + default icons are set up here (lazily, when this map component
+// loads) instead of at app boot, keeping Leaflet out of the initial bundle.
+setupLeafletDefaultIcons();
 import {
   buildUcsLegendItems,
   getUcsLegendCode,

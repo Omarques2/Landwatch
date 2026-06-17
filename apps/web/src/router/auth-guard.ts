@@ -1,12 +1,13 @@
 import type { RouteLocationNormalized } from "vue-router";
 import { isLocalAuthBypassEnabled } from "@/auth/local-bypass";
-import type { AccessMeResponse, AppFeature } from "@/auth/me";
+import type { AccessMeResponse, AppFeature, MeOutcome } from "@/auth/me";
 import { hydrateActiveOrgFromMemberships } from "@/state/org-context";
 
 type AuthGuardDeps = {
   ensureSession: () => Promise<unknown | null>;
   exchangeSession: () => Promise<unknown>;
   getMeCached: (force?: boolean) => Promise<{ status?: string } | null>;
+  getMeResult: (force?: boolean) => Promise<MeOutcome>;
   getAccessStatus: () => Promise<{ status?: string } | null>;
   getAccessCached: (force?: boolean) => Promise<AccessMeResponse | null>;
 };
@@ -39,9 +40,21 @@ type EnsureSessionOptions = {
 
 export function createAuthNavigationGuard(deps: AuthGuardDeps) {
   async function enforceAccess(to: RouteLocationNormalized) {
-    const me = (await deps.getMeCached(false)) ?? (await deps.getAccessStatus());
+    // Cache-first: getMeResult serves a known identity immediately (and
+    // revalidates in background) instead of re-hitting the network on every
+    // navigation. enforceAccess is only reached after a valid session was
+    // established upstream, so a transient /me failure means the endpoint
+    // blipped — keep the user in rather than bouncing to /pending.
+    const meOutcome = await deps.getMeResult(false);
+    if (meOutcome.kind === "transient") return true;
+
+    const me =
+      meOutcome.kind === "ok" || meOutcome.kind === "inactive"
+        ? meOutcome.me
+        : await deps.getAccessStatus();
     if (!me) return "/pending";
     if (!canAccessApp(me)) return "/pending";
+    // Hydrate the active org BEFORE fetching access (access is org-scoped).
     hydrateActiveOrgFromMemberships((me as any).memberships);
     const access = await deps.getAccessCached(false);
     if (!canAccessRoute(to, access)) {

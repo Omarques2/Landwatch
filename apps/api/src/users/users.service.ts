@@ -39,6 +39,14 @@ export class UsersService {
 
     const existingByIdentity = await this.findByIdentityUserId(identityUserId);
     if (existingByIdentity) {
+      // Avoid a write (and row lock) on every authenticated request: only
+      // UPDATE when something actually changes — a new email or a lastLoginAt
+      // bump. The hot path (ActiveUserGuard, touchLastLoginAt:false, unchanged
+      // email) becomes read-only.
+      const emailChanged = email != null && email !== existingByIdentity.email;
+      if (!emailChanged && !now) {
+        return existingByIdentity;
+      }
       return this.prisma.user.update({
         where: { id: existingByIdentity.id },
         data: {

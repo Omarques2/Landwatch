@@ -37,6 +37,8 @@
 1. **Bundle único 1,83 MB** (≈519 KB gzip) com `maplibre-gl`+`leaflet`+`pmtiles`, sem code splitting — baixa/parseia tudo antes de qualquer pixel. Evidência: `dist/assets/index-*.js` = 1 chunk.
 2. **Guard do router bloqueia o 1º paint** num waterfall serial (`refresh → /users/me → /access/me`, cada um com até 3 retries) e o `<router-view>` fica **em branco** ([App.vue:1-7](../../../apps/web/src/App.vue), [auth-guard.ts:41-52](../../../apps/web/src/router/auth-guard.ts)).
 3. **Trabalho redundante por rota:** AppShell refaz `/me`+`/access/me` com `force=true` e `await` no mv-status ([AppShellView.vue:237-286](../../../apps/web/src/views/AppShellView.vue)); backend faz **~7 round-trips sequenciais** + 1 write por request antes do handler ([active-user.guard.ts](../../../apps/api/src/auth/active-user.guard.ts), [actor-context.service.ts:78-236](../../../apps/api/src/auth/actor-context.service.ts), [access.service.ts:34-37](../../../apps/api/src/auth/access.service.ts)).
+4. **(HAR 2026-06-16, 4 capturas) Preflight CORS dobra as requisições:** front em `localhost:5173` chama API em `localhost:3001` (cross-origin via `VITE_API_BASE_URL`, [http.ts:13-18](../../../apps/web/src/api/http.ts#L13)); `enableCors` **sem `maxAge`** ([main.ts:60-63](../../../apps/api/src/main.ts#L60)) → cada chamada autenticada vira **OPTIONS + GET**. O "/me 2x" que o usuário vê = preflight + GET, não dois GET.
+5. **(HAR) Refetch de `/me`+`/access/me` por navegação:** `NavegandoAbasDetalhesLandwatch.har` mostra **5× GET /users/me + 5× GET /access/me**. Causa: o guard roda em todo `beforeEach` ([auth-guard.ts:42-46](../../../apps/web/src/router/auth-guard.ts#L42)) e o TTL é só **5s** ([me.ts:59](../../../apps/web/src/auth/me.ts#L59)); navegações com >5s de intervalo refazem tudo. O AppShell **não** duplica mais (efeito da Correção 3A já aplicada — load/reload/gerar-análise = 1× cada no HAR). **Importante:** `/me` é UX (sidebar, org ativa, status, redirects), **não** a trava de segurança — esta já está nos endpoints (guard global + actor/feature/org). O front deve confiar no `401/403` dos endpoints reais, não revalidar `/me` a cada clique.
 
 ## File Structure
 
@@ -66,15 +68,31 @@
 
 ---
 
-## Ordem de execução e dependências (revisada)
-1. **Correção 1** (bundle) — independente, baixo risco, maior ganho percebido. Pode ir sozinha. **GO.**
-2. **Correção 2.1** (skeleton) — independente; entrega o ganho de "não-branco" mesmo sem 2.2/2.3. **GO.**
-3. **Correção 3A** (AppShell cache + não-await mv-status + gate do botão) — trivial, independente. **GO.**
-4. **Correção 2.2/2.3/2.4** (guard) — **nesta ordem interna**: 2.2 single-flight do token → 2.3 discriminar transient (não cortar retries) → 2.4 accessCache por org → só então subir TTL de access. Mais delicado; testar bastante.
-5. **Correção 3B.1 → 3B.2 → 3B.3 → índices (3B.5)** — backend, independente do front. **GO.**
-6. **Correção 3B.4** (cache cross-request authz) — **DEFERIDO**: implementar só após medir 4/5 e confirmar que ainda há necessidade.
+## Ordem de execução e dependências (revisada) + STATUS
 
-Cada correção é entregável isolado e reversível. Os GO podem ir já; o grupo 4 e o 3B.4 exigem o cuidado descrito nas Plan Review Corrections.
+**Levas já implementadas e verificadas (2026-06-16):**
+- ✅ **Correção 1** (bundle): rotas lazy + Leaflet fora do boot + `manualChunks`. **Medido:** entry chunk **519 KB → 31,68 KB gzip**; maplibre/leaflet em chunks próprios. *(Task 1.2 `defineAsyncComponent` foi revertida — quebrava testes e era redundante com 1.1+1.4.)*
+- ✅ **Correção 2.1** (skeleton + RouteProgressBar).
+- ✅ **Correção 3A** (AppShell `getMeCached(false)` + mv-status sem await + gate do botão). *(HAR confirma: load/reload/gerar-análise agora fazem 1× GET /me, não 2×.)*
+- ✅ **Correção 3B.1/3B.2/3B.3** (write condicional; memo por-request via WeakMap; `fromSubject` paralelizado 4→2 RTT).
+- ✅ **Correção 3B.5** índices: schema + arquivo de migration criados (**migration NÃO aplicada** — manual).
+- ✅ **Correção 4 — CORS preflight** (4.1 `maxAge` + 4.2 proxy same-origin em dev).
+- ✅ **Grupo do guard — 2.2/2.3/2.4/2.5** (single-flight do token; `getMeResult` discriminado + TTL 45s; `accessCache` por org; guard cache-first + SWR; não-bounce em transient).
+- ✅ **Correção 5 — Cache SWR de listas** (AnalysesView + FarmsView via `features/shared/list-cache.ts`): cache-first + revalidação em background, key por org+params. **205 testes web** verdes.
+- Verificação acumulada: **205 testes web** + **290 testes API** + build + vue-tsc + eslint, todos verdes.
+
+**Pendente:**
+1. **Correção 3B.4** (cache cross-request authz no backend) — **DEFERIDO/dispensável**: medição no HAR pós-migration mostrou que `/me` e `/access/me` já são background (SWR), e a lentidão restante (listas) foi resolvida pela Correção 5. Só reconsiderar se medição em **produção** (RTT baixo) provar necessidade — e mesmo aí, pooling vem antes.
+
+**Analisado e NÃO recomendado:**
+- **2.5 / endpoint único de bootstrap (`/me` + `/access/me`)** — **descartado após análise**. Motivos verificados no código: (a) `activeOrgId` **não é persistido** ([org-context.ts](../../../apps/web/src/state/org-context.ts)) — em cold boot a org só é conhecida após hidratar de `me.memberships`; (b) `/access/me` só retorna features **quando há `X-Org-Id`** ([access.controller.ts:40-51](../../../apps/api/src/auth/access.controller.ts#L40)) → um bootstrap em paralelo no cold boot devolveria **features vazias** e o guard misrotearia. O cold boot atual já é mínimo (1 `/me` + 1 `/access/me` sequenciais, com a org correta via hydrate síncrono) e a navegação quente é 0-rede (SWR). Logo o unify **não captura ganho real** e adicionaria risco. Alternativa real (se algum dia quiser o ganho de cold boot): **persistir a org ativa** — mas o ganho é marginal.
+
+**Fora de escopo de performance (achados, decisão do usuário):**
+- **Fornecedores 503** — `FABRIC_SQLCLIENT_BRIDGE_NOT_AVAILABLE` (driver Fabric `sqlclient_bridge` exige PowerShell, ausente no dev Linux). É **config/ambiente**, não regressão. Mitigar com `FABRIC_SQL_QUERY_DRIVER=mssql_tedious` (+ credenciais Fabric) ou aceitar indisponível localmente. Robustez opcional no front: `try/catch` no `refreshAll` de `FornecedoresView` para não gerar unhandled-rejection.
+
+**Operacional (manual, você):** reiniciar a API p/ aplicar `maxAge` do CORS; aplicar a migration de índices; commitar.
+
+Cada correção é entregável isolado e reversível.
 
 ---
 
@@ -324,6 +342,19 @@ function accessKey() { return getActiveOrgId() ?? "__no_org__"; }
 - [ ] **Passo 2:** Só **depois** desta task, subir o TTL de `access` para 30–60s. `setActiveOrgId`/troca de perfil já chamam `clearMeCache()` ([AppShellView.vue:277](../../../apps/web/src/views/AppShellView.vue#L277)); garantir que **qualquer** troca de org ativa invalide/seleciona a chave correta.
 - [ ] **Passo 3:** Teste: com org A em cache, trocar para org B retorna features de B (não de A) mesmo dentro do TTL.
 
+### Task 2.5 — Guard cache-first + stale-while-revalidate (parar de revalidar `/me` a cada navegação)
+**Files:** `apps/web/src/router/auth-guard.ts`, `apps/web/src/auth/me.ts`
+
+> **NOVA (achado HAR):** `NavegandoAbasDetalhesLandwatch.har` mostra **5× /me + 5× /access/me** ao navegar entre abas/detalhes, porque o guard revalida em todo `beforeEach` e o TTL é 5s. O TTL maior (Task 2.3 Passo 3 + Task 2.4) já reduz isso, mas a estratégia robusta é o guard **confiar no cache** e revalidar em background, deixando a autorização real para os endpoints (que retornam `401/403`).
+
+- [ ] **Passo 1 — cache-first no guard:** em `enforceAccess`, se já existe um `me`/`access` em cache (mesmo expirado), **decidir a navegação com o valor em cache imediatamente** (sem aguardar rede). Não bloquear a troca de aba numa ida à rede quando já sabemos quem é o usuário.
+- [ ] **Passo 2 — stale-while-revalidate:** quando o cache está "stale" (passou o TTL), servir o valor atual e **revalidar em background** (`void getMeCached(true)` / `void getAccessCached(true)` sem `await`), atualizando o estado reativo quando a resposta chega. A navegação não espera por isso.
+- [ ] **Passo 3 — confiar no 401/403 dos endpoints:** documentar/garantir que a expulsão de sessão acontece pelo **interceptor HTTP** ao receber `401` de qualquer endpoint de negócio (já há tratamento de erro em [http.ts](../../../apps/web/src/api/http.ts)), não por revalidação preventiva de `/me`. `/me`/`/access/me` passam a ser buscados só em: **boot, login, refresh manual e troca de org** (não em toda navegação).
+- [ ] **Passo 4 — opcional (maior ganho):** unificar `/users/me` + `/access/me` num único endpoint de bootstrap (`GET /v1/access/me` já traz org/role/features; faltaria `status`/`memberships`) para 1 ida em vez de 2. Avaliar após medir.
+- [ ] **Passo 5 — testes:** guard navega usando cache sem nova chamada quando `me`/`access` já conhecidos; ao receber `401` de um endpoint, o interceptor redireciona para `/login`.
+
+> **Segurança:** nenhuma mudança de authz. O backend continua autorizando cada operação; o guard passa a ser apenas UX (decide menu/redirect com o que já sabe). Risco: se uma permissão for revogada, o front pode mostrar um item de menu por até o TTL — mas a ação real é barrada pelo endpoint (`403`). Aceitável e alinhado a "segurança no backend".
+
 ### Verificação Correção 2
 - [ ] `apps/web/src/router/__tests__/auth-guard.test.ts`: adicionar casos — (a) caminho feliz chama `getMeCached` e `getAccessCached` em paralelo (mock resolve ambos, navegação `true`); (b) `getMeCached` null → usa `getAccessStatus` → `/pending` se sem status; (c) sem `access` da feature → redireciona `/analyses/new`/`/403`.
 - [ ] Smoke: cold load mostra o skeleton imediatamente (não tela branca) e troca para o conteúdo quando auth resolve; com backend lento, continua mostrando skeleton (não trava em branco).
@@ -452,11 +483,88 @@ CREATE INDEX IF NOT EXISTS analysis_schedule_org_created_idx ON app.analysis_sch
 
 ---
 
+# Correção 4 — Reduzir preflight CORS (OPTIONS) — corta ~metade das requisições
+
+> **NOVA (achado HAR):** cada chamada autenticada gera **OPTIONS (preflight) + GET** porque o front (`localhost:5173`) chama a API (`localhost:3001`) cross-origin com headers `Authorization`/`X-Org-Id`, e o `enableCors` **não define `maxAge`** → o browser re-preflighta a cada ~5s. É o "/me 2x" que o usuário vê. Sem impacto de segurança.
+
+### Task 4.1 — `maxAge` no CORS do backend
+**Files:** `apps/api/src/main.ts`
+
+- [ ] **Passo 1:** Adicionar `maxAge` (segundos) ao `enableCors` ([main.ts:60-63](../../../apps/api/src/main.ts#L60)) para o browser cachear o preflight e parar de re-emitir OPTIONS a cada chamada:
+```ts
+app.enableCors({
+  origin: origin.length ? origin : false,
+  credentials: parseBoolean(process.env.CORS_CREDENTIALS),
+  maxAge: parseNumber(process.env.CORS_MAX_AGE, 600), // 10 min (Chrome limita a 7200s)
+});
+```
+- [ ] **Passo 2:** Garantir que os headers usados (`Authorization`, `X-Org-Id`, `Content-Type`, `If-None-Match`) estão em `allowedHeaders` (ou que o default reflete a request). Conferir que o preflight responde 204 com `Access-Control-Max-Age`.
+
+### Task 4.2 — Dev: usar o proxy same-origin (elimina preflight no dev)
+**Files:** `apps/web/.env`/config, `apps/web/src/api/http.ts`, `apps/web/vite.config.ts`
+
+- [ ] **Passo 1:** O `vite.config.ts` já tem proxy de `/v1` → API. Em **dev**, apontar o `http` para caminho **relativo** (`/v1`, mesma origem) em vez de `VITE_API_BASE_URL` absoluto, removendo o cross-origin (e portanto o preflight) localmente. Ex.: `baseURL: import.meta.env.DEV ? "" : apiBaseUrl` (usa o proxy do Vite em dev).
+- [ ] **Passo 2:** Em produção, manter `maxAge` (Task 4.1) — se front e API ficarem em domínios diferentes, o preflight ainda existe, mas cacheado.
+
+### Verificação Correção 4
+- [ ] HAR de navegação: número de `OPTIONS` cai drasticamente (idealmente ~1 por endpoint dentro da janela de `maxAge`); em dev com proxy, `OPTIONS` some.
+- [ ] Login/refresh/chamadas autenticadas seguem funcionando (CORS não quebrou).
+
+---
+
+# Correção 5 — Cache SWR de listas (analyses/farms/…): mostrar cache na hora + atualizar ao vivo
+
+> **NOVA (pedido do usuário):** telas de lista (`/analyses`, `/farms`, e afins) refazem a busca do zero a cada abertura e ficam "carregando". Objetivo: **mostrar a lista cacheada imediatamente** e **revalidar em background**, atualizando a lista ao vivo quando a API responder (stale-while-revalidate). Viável e baixo risco — já existe o padrão em [analysis-map-cache.ts](../../../apps/web/src/features/analyses/analysis-map-cache.ts) (memória + sessionStorage, versionado) e no SWR do `me.ts`.
+
+**Arquivos:**
+- Create: `apps/web/src/features/shared/list-cache.ts` (cache genérico versionado) **ou** um composable `useSwrResource`.
+- Modify: `apps/web/src/views/AnalysesView.vue`, `apps/web/src/views/FarmsView.vue` (e, se quiser, `SchedulesView`, `FornecedoresView`).
+
+### Task 5.1 — Cache genérico de lista (memória + sessionStorage, por org + query)
+- [ ] **Passo 1:** Criar um cache versionado (espelhar `analysis-map-cache.ts`): `get/set/clear` keyed por uma string que inclui **rota + params + org ativa** (`getActiveOrgId()`), pois a lista é org-scoped. Versão (`v1`) no key invalida tudo ao mudar o formato; `clearMeCache`/reset da app também limpam.
+```ts
+// key = `landwatch:list:v1:${getActiveOrgId() ?? "no_org"}:${name}:${JSON.stringify(params)}`
+export function getListCache<T>(key: string, ttlMs?: number): T | null
+export function setListCache<T>(key: string, value: T): void
+export function clearListCache(prefix?: string): void
+```
+- [ ] **Passo 2:** TTL curto (ex.: 60s) só para decidir "fresh vs stale"; mesmo stale, exibir e revalidar.
+
+### Task 5.2 — Aplicar SWR na AnalysesView/FarmsView
+- [ ] **Passo 1:** No `onMounted`/load: ler o cache **primeiro**; se houver, **popular a lista na hora** (sem spinner bloqueante) e marcar `revalidating=true`. Disparar a busca real; ao responder, **substituir os dados e gravar no cache**. Em erro transitório, **manter o cache** (não esvaziar) e sinalizar discretamente.
+```ts
+onMounted(async () => {
+  const cached = getListCache<Row[]>(key);
+  if (cached) { rows.value = cached; loading.value = false; }
+  else { loading.value = true; }
+  try {
+    const fresh = await fetchList();
+    rows.value = fresh; setListCache(key, fresh);
+  } catch (e) {
+    if (!cached) showError(e); // só erra se não havia cache
+  } finally { loading.value = false; }
+});
+```
+- [ ] **Passo 2 — invalidação após mutação:** ao criar/editar/excluir (nova análise, nova farm, etc.), **invalidar o cache da lista** correspondente (`clearListCache("analyses")`) para a próxima visita refletir; ou revalidar imediatamente. Evita mostrar lista desatualizada após uma ação do usuário.
+- [ ] **Passo 3 — paginação:** o cache é por conjunto de params (inclui `page`/`pageSize`/filtros). Cachear pelo menos a primeira página/estado default (maior ganho percebido). Páginas seguintes podem seguir sem cache.
+
+### Verificação Correção 5
+- [ ] Abrir `/analyses` → lista aparece instantânea (cache) e atualiza ao vivo quando a API responde.
+- [ ] Trocar de org → lista da org correta (key inclui org), sem vazar dados da org anterior.
+- [ ] Criar uma análise → ao voltar para `/analyses`, a nova aparece (invalidação/revalidação).
+- [ ] Erro de rede com cache presente → lista não some; com cache ausente → estado de erro.
+- [ ] `vitest` das views continua verde (ajustar mocks de `sessionStorage`/cache).
+
+> **Robustez:** dados de negócio com SWR têm janela de staleness curta; ações de escrita invalidam. Não é dado sensível de authz — é lista de negócio já autorizada pelo backend. Aceitável e padrão de mercado (TanStack Query/SWR fazem exatamente isso).
+
+---
+
 ## Critérios de sucesso (mensuráveis)
-- Entry chunk: **1,83 MB → < ~300 KB gzip**; maplibre/leaflet em chunks separados, ausentes em `/login` e `/dashboard`.
+- Entry chunk: **1,83 MB → < ~300 KB gzip** ✅ (medido: **31,68 KB**); maplibre/leaflet em chunks separados, ausentes em `/login` e `/dashboard` ✅.
 - 1º paint: **skeleton visível < 1s** (sem tela branca), mesmo com backend lento.
-- Overhead de auth por request: **~7 RTT → ≤ 2 RTT** (após 3B.1–3B.3); navegações repetidas com cache feature em memória.
-- Navegação entre rotas já visitadas: sem refetch bloqueante perceptível.
+- Overhead de auth por request: **~7 RTT → ≤ 2 RTT** (3B.1–3B.3 ✅ reduzem write+queries; restante depende do cache).
+- Navegação entre rotas já visitadas: sem refetch bloqueante perceptível (Task 2.5).
+- **Requisições por navegação (HAR):** hoje 5× `/me` + 5× `/access/me` (+ OPTIONS de cada) ao navegar abas → alvo **≈0 refetch** dentro do TTL (Task 2.3/2.4/2.5) e **OPTIONS ≈0** em dev / cacheado em prod (Correção 4).
 
 ## Riscos e rollback
 - **Lazy routes (1.1):** risco de "flash" entre chunks — mitigado pelo skeleton/RouteProgressBar (2.1). Rollback: reverter para imports estáticos.

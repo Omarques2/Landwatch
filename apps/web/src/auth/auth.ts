@@ -57,13 +57,34 @@ export async function hardResetAuthState(): Promise<void> {
   authClient.clearSession();
 }
 
+// Single-flight guard for the non-forced token acquisition. Concurrent callers
+// (e.g. getMeCached + getAccessCached firing in parallel on boot, or several
+// HTTP requests at once) share ONE in-flight acquisition instead of each
+// running exchangeSession()/refresh in parallel (which would race the refresh
+// token). The token is app-wide, so a single shared result is correct.
+let tokenInflight: Promise<string> | null = null;
+
 export async function acquireApiToken(
   options: AcquireApiTokenOptions = {},
 ): Promise<string> {
   if (isLocalAuthBypassEnabled()) {
     return "";
   }
+  // A forced refresh explicitly wants a fresh token and must not piggy-back on
+  // (or be deduped with) an ongoing non-forced acquisition.
+  if (options.forceRefresh) {
+    return acquireApiTokenInner(options);
+  }
+  if (tokenInflight) return tokenInflight;
+  tokenInflight = acquireApiTokenInner(options).finally(() => {
+    tokenInflight = null;
+  });
+  return tokenInflight;
+}
 
+async function acquireApiTokenInner(
+  options: AcquireApiTokenOptions = {},
+): Promise<string> {
   if (options.forceRefresh) {
     try {
       await authClient.refreshSession();

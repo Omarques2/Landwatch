@@ -55,6 +55,85 @@ describe('UsersService', () => {
     expect(result.id).toBe('user-1');
   });
 
+  it('does not UPDATE when email is unchanged and lastLoginAt is not touched', async () => {
+    const existing = {
+      id: 'user-1',
+      identityUserId: '6f8cfca5-cb58-4f83-b7a5-8d1dd43d00d5',
+      email: 'user@example.com',
+      status: 'active',
+    };
+    const prisma = {
+      user: {
+        findUnique: jest.fn().mockResolvedValue(existing),
+        findFirst: jest.fn(),
+        update: jest.fn(),
+        create: jest.fn(),
+      },
+    } as unknown as PrismaService;
+
+    const service = new UsersService(prisma);
+
+    const result = await service.upsertFromClaims(
+      {
+        sub: '6f8cfca5-cb58-4f83-b7a5-8d1dd43d00d5',
+        sid: 'sid-1',
+        amr: 'password',
+        email: 'user@example.com',
+        emailVerified: true,
+        globalStatus: 'active',
+        apps: [],
+        ver: 1,
+      },
+      { touchLastLoginAt: false },
+    );
+
+    // Hot path (guard): nothing changed → no write/lock issued.
+    expect(prisma.user.update).not.toHaveBeenCalled();
+    expect(result).toBe(existing);
+  });
+
+  it('UPDATES when the email changed', async () => {
+    const existing = {
+      id: 'user-1',
+      identityUserId: '6f8cfca5-cb58-4f83-b7a5-8d1dd43d00d5',
+      email: 'old@example.com',
+      status: 'active',
+    };
+    const prisma = {
+      user: {
+        findUnique: jest.fn().mockResolvedValue(existing),
+        findFirst: jest.fn(),
+        update: jest
+          .fn()
+          .mockResolvedValue({ ...existing, email: 'new@example.com' }),
+        create: jest.fn(),
+      },
+    } as unknown as PrismaService;
+
+    const service = new UsersService(prisma);
+
+    await service.upsertFromClaims(
+      {
+        sub: '6f8cfca5-cb58-4f83-b7a5-8d1dd43d00d5',
+        sid: 'sid-1',
+        amr: 'password',
+        email: 'new@example.com',
+        emailVerified: true,
+        globalStatus: 'active',
+        apps: [],
+        ver: 1,
+      },
+      { touchLastLoginAt: false },
+    );
+
+    expect(prisma.user.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'user-1' },
+        data: expect.objectContaining({ email: 'new@example.com' }),
+      }),
+    );
+  });
+
   it('rejects when email is linked to another identity', async () => {
     const prisma = {
       user: {

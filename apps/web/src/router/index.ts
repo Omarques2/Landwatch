@@ -1,102 +1,97 @@
 import { createRouter, createWebHistory } from "vue-router";
 import { authClient } from "../auth/sigfarm-auth";
-import { getAccessCached, getAccessStatus, getMeCached } from "../auth/me";
+import {
+  getAccessCached,
+  getAccessStatus,
+  getMeCached,
+  getMeResult,
+} from "../auth/me";
 import { createAuthNavigationGuard } from "./auth-guard";
 
-import LoginView from "../views/LoginView.vue";
-import CallbackView from "../views/CallbackView.vue";
-import PendingView from "../views/PendingView.vue";
-import AppShellView from "../views/AppShellView.vue";
-import DashboardView from "../views/DashboardView.vue";
-import FarmsView from "../views/FarmsView.vue";
-import FarmDetailView from "../views/FarmDetailView.vue";
-import AnalysesView from "../views/AnalysesView.vue";
-import NewAnalysisView from "../views/NewAnalysisView.vue";
-import AnalysisDetailView from "../views/AnalysisDetailView.vue";
-import AnalysisPublicView from "../views/AnalysisPublicView.vue";
-import SchedulesView from "../views/SchedulesView.vue";
-import FornecedoresView from "../views/FornecedoresView.vue";
-import AttachmentsView from "../views/AttachmentsView.vue";
-import AdminView from "../views/AdminView.vue";
-import AccessDeniedView from "../views/AccessDeniedView.vue";
-
+// Lazy-loaded views: each view (and its heavy deps like maplibre/leaflet) is
+// split into its own chunk so the initial bundle stays small and routes that
+// never render a map don't download map libraries.
 const router = createRouter({
   history: createWebHistory(),
   routes: [
-    { path: "/login", component: LoginView },
-    { path: "/auth/callback", component: CallbackView },
-    { path: "/pending", component: PendingView, meta: { requiresAuth: true } },
+    { path: "/login", component: () => import("../views/LoginView.vue") },
+    { path: "/auth/callback", component: () => import("../views/CallbackView.vue") },
+    {
+      path: "/pending",
+      component: () => import("../views/PendingView.vue"),
+      meta: { requiresAuth: true },
+    },
     {
       path: "/",
-      component: AppShellView,
+      component: () => import("../views/AppShellView.vue"),
       meta: { requiresAuth: true },
       children: [
         { path: "", redirect: "/analyses/new" },
         {
           path: "dashboard",
-          component: DashboardView,
+          component: () => import("../views/DashboardView.vue"),
           meta: { title: "Dashboard", platformOnly: true },
         },
         {
           path: "farms",
-          component: FarmsView,
+          component: () => import("../views/FarmsView.vue"),
           meta: { title: "Fazendas", feature: "FARMS" },
         },
         {
           path: "farms/:id",
-          component: FarmDetailView,
+          component: () => import("../views/FarmDetailView.vue"),
           meta: { title: "Detalhe da fazenda", feature: "FARMS" },
         },
         {
           path: "analyses",
-          component: AnalysesView,
+          component: () => import("../views/AnalysesView.vue"),
           meta: { title: "Análises", feature: "ANALYSES" },
         },
         {
           path: "analyses/new",
-          component: NewAnalysisView,
+          component: () => import("../views/NewAnalysisView.vue"),
           meta: { title: "Nova análise", feature: "ANALYSIS_CREATE" },
         },
         {
           path: "analyses/search",
-          component: NewAnalysisView,
+          component: () => import("../views/NewAnalysisView.vue"),
           meta: { title: "Buscar CAR", feature: "CAR_SEARCH" },
         },
         {
           path: "analyses/:id",
-          component: AnalysisDetailView,
+          component: () => import("../views/AnalysisDetailView.vue"),
           meta: { title: "Detalhe da análise", feature: "ANALYSES" },
         },
         {
           path: "schedules",
-          component: SchedulesView,
+          component: () => import("../views/SchedulesView.vue"),
           meta: { title: "Agendamento", feature: "SCHEDULES" },
         },
         {
           path: "attachments",
-          component: AttachmentsView,
+          component: () => import("../views/AttachmentsView.vue"),
           meta: { title: "Anexos", platformOnly: true },
         },
         {
           path: "admin",
-          component: AdminView,
+          component: () => import("../views/AdminView.vue"),
           meta: { title: "Painel Admin", platformOnly: true },
         },
         {
           path: "fornecedores",
-          component: FornecedoresView,
+          component: () => import("../views/FornecedoresView.vue"),
           meta: { title: "Fornecedores", platformOnly: true },
         },
         {
           path: "403",
-          component: AccessDeniedView,
+          component: () => import("../views/AccessDeniedView.vue"),
           meta: { title: "Acesso negado" },
         },
       ],
     },
     {
       path: "/analyses/:id/public",
-      component: AnalysisPublicView,
+      component: () => import("../views/AnalysisPublicView.vue"),
       meta: { requiresAuth: false, title: "Análise pública" },
     },
     { path: "/:pathMatch(.*)*", redirect: "/" },
@@ -108,6 +103,7 @@ router.beforeEach(
     ensureSession: () => authClient.ensureSession(),
     exchangeSession: () => authClient.exchangeSession(),
     getMeCached,
+    getMeResult,
     getAccessStatus,
     getAccessCached,
   }),

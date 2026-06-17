@@ -19,7 +19,7 @@
           :on-logout="onLogout"
           :on-select="navigate"
           :on-new-analysis="goNewAnalysis"
-          :disable-new-analysis="mvBusy || !canCreateAnalysis"
+          :disable-new-analysis="!mvStatusResolved || mvBusy || !canCreateAnalysis"
           @toggle-collapsed="sidebarOpen = !sidebarOpen"
         />
       </aside>
@@ -42,7 +42,7 @@
           :on-logout="onLogout"
           :on-select="navigate"
           :on-new-analysis="goNewAnalysis"
-          :disable-new-analysis="mvBusy || !canCreateAnalysis"
+          :disable-new-analysis="!mvStatusResolved || mvBusy || !canCreateAnalysis"
           @close="drawerOpen = false"
         />
       </UiSheet>
@@ -140,6 +140,7 @@ import {
 import {
   fetchLandwatchStatus,
   mvBusy,
+  mvStatusResolved,
   startLandwatchStatusPolling,
   stopLandwatchStatusPolling,
 } from "@/state/landwatch-status";
@@ -237,9 +238,11 @@ const pageSubtitle = computed(() => {
 async function loadMe() {
   meLoading.value = true;
   try {
-    me.value = await getMeCached(true);
+    // Use the cache the navigation guard just populated (force=false) instead
+    // of forcing a second /me + /access/me round-trip on shell mount.
+    me.value = await getMeCached(false);
     hydrateActiveOrgFromMemberships(me.value?.memberships as any);
-    access.value = await getAccessCached(true);
+    access.value = await getAccessCached(false);
   } catch {
     me.value = null;
     access.value = null;
@@ -281,7 +284,9 @@ function switchDevProfile() {
 
 onMounted(async () => {
   await loadMe();
-  await fetchLandwatchStatus();
+  // Don't block the shell on the MV status; it resolves asynchronously and the
+  // "Nova análise" button stays gated via mvStatusResolved until it arrives.
+  void fetchLandwatchStatus();
   startLandwatchStatusPolling();
 });
 

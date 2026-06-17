@@ -20,17 +20,27 @@ function route(path: string, requiresAuth = true): MockRoute {
   return { path, fullPath: path, meta: { requiresAuth } };
 }
 
+// Helper to build a getMeResult mock returning the discriminated outcome.
+function meResult(outcome: unknown) {
+  return vi.fn().mockResolvedValue(outcome);
+}
+
 function makeDeps(overrides: Partial<{
   ensureSession: ReturnType<typeof vi.fn>;
   exchangeSession: ReturnType<typeof vi.fn>;
   getMeCached: ReturnType<typeof vi.fn>;
+  getMeResult: ReturnType<typeof vi.fn>;
   getAccessStatus: ReturnType<typeof vi.fn>;
   getAccessCached: ReturnType<typeof vi.fn>;
 }> = {}) {
   return {
     ensureSession: overrides.ensureSession ?? vi.fn().mockResolvedValue(null),
     exchangeSession: overrides.exchangeSession ?? vi.fn().mockResolvedValue(null),
+    // getMeCached is still used by the /login branch of the guard.
     getMeCached: overrides.getMeCached ?? vi.fn().mockResolvedValue(null),
+    // enforceAccess uses the discriminated getMeResult; default to unauthorized
+    // so the access-status fallback path runs (matches old null default).
+    getMeResult: overrides.getMeResult ?? meResult({ kind: "unauthorized" }),
     getAccessStatus: overrides.getAccessStatus ?? vi.fn().mockResolvedValue(null),
     getAccessCached:
       overrides.getAccessCached ??
@@ -54,7 +64,10 @@ describe("createAuthNavigationGuard", () => {
     vi.stubEnv("VITE_AUTH_BYPASS_LOCALHOST", "true");
 
     const deps = makeDeps({
-      getMeCached: vi.fn().mockResolvedValue({ status: "active", memberships: [] }),
+      getMeResult: meResult({
+        kind: "ok",
+        me: { status: "active", memberships: [] },
+      }),
     });
     const guard = createAuthNavigationGuard(deps);
 
@@ -66,14 +79,14 @@ describe("createAuthNavigationGuard", () => {
     expect(result).toBe("/analyses/new");
     expect(deps.ensureSession).not.toHaveBeenCalled();
     expect(deps.exchangeSession).not.toHaveBeenCalled();
-    expect(deps.getMeCached).toHaveBeenCalledWith(false);
+    expect(deps.getMeResult).toHaveBeenCalledWith(false);
     expect(deps.getAccessStatus).not.toHaveBeenCalled();
   });
 
   it("redirects protected route to pending when session exists but account is pending", async () => {
     const deps = makeDeps({
       ensureSession: vi.fn().mockResolvedValue({ data: { sessionId: "sid" } }),
-      getMeCached: vi.fn().mockResolvedValue(null),
+      getMeResult: meResult({ kind: "unauthorized" }),
       getAccessStatus: vi.fn().mockResolvedValue({ status: "pending" }),
     });
 
@@ -81,7 +94,7 @@ describe("createAuthNavigationGuard", () => {
     const result = await guard(route("/dashboard") as any);
 
     expect(result).toBe("/pending");
-    expect(deps.getMeCached).toHaveBeenCalledWith(false);
+    expect(deps.getMeResult).toHaveBeenCalledWith(false);
     expect(deps.getAccessStatus).toHaveBeenCalledWith();
   });
 
@@ -155,7 +168,7 @@ describe("createAuthNavigationGuard", () => {
         .mockResolvedValueOnce(null)
         .mockResolvedValueOnce({ data: { sessionId: "sid" } }),
       exchangeSession: vi.fn().mockResolvedValue({ session: { accessToken: "token" } }),
-      getMeCached: vi.fn().mockResolvedValue({ status: "active" }),
+      getMeResult: meResult({ kind: "ok", me: { status: "active" } }),
     });
 
     const guard = createAuthNavigationGuard(deps);
@@ -220,7 +233,7 @@ describe("createAuthNavigationGuard", () => {
   it("redirects direct access to disabled routes to new analysis", async () => {
     const deps = makeDeps({
       ensureSession: vi.fn().mockResolvedValue({ data: { sessionId: "sid" } }),
-      getMeCached: vi.fn().mockResolvedValue({ status: "active" }),
+      getMeResult: meResult({ kind: "ok", me: { status: "active" } }),
       getAccessCached: vi.fn().mockResolvedValue({
         isPlatformAdmin: false,
         features: ["FARMS"],
@@ -239,7 +252,7 @@ describe("createAuthNavigationGuard", () => {
   it("redirects tenant dashboard access to new analysis", async () => {
     const deps = makeDeps({
       ensureSession: vi.fn().mockResolvedValue({ data: { sessionId: "sid" } }),
-      getMeCached: vi.fn().mockResolvedValue({ status: "active" }),
+      getMeResult: meResult({ kind: "ok", me: { status: "active" } }),
       getAccessCached: vi.fn().mockResolvedValue({
         isPlatformAdmin: false,
         features: ["FARMS"],
@@ -258,9 +271,12 @@ describe("createAuthNavigationGuard", () => {
   it("hydrates active org from memberships before loading access", async () => {
     const deps = makeDeps({
       ensureSession: vi.fn().mockResolvedValue({ data: { sessionId: "sid" } }),
-      getMeCached: vi.fn().mockResolvedValue({
-        status: "active",
-        memberships: [{ orgId: "org-1", role: "member" }],
+      getMeResult: meResult({
+        kind: "ok",
+        me: {
+          status: "active",
+          memberships: [{ orgId: "org-1", role: "member" }],
+        },
       }),
     });
 
@@ -274,5 +290,19 @@ describe("createAuthNavigationGuard", () => {
       { orgId: "org-1", role: "member" },
     ]);
     expect(deps.getAccessCached).toHaveBeenCalledWith(false);
+  });
+
+  it("does not bounce on a transient /me failure (keeps the user in)", async () => {
+    const deps = makeDeps({
+      ensureSession: vi.fn().mockResolvedValue({ data: { sessionId: "sid" } }),
+      getMeResult: meResult({ kind: "transient" }),
+    });
+
+    const guard = createAuthNavigationGuard(deps);
+    const result = await guard(route("/dashboard") as any);
+
+    // Session is valid; a transient identity blip must not redirect to /pending.
+    expect(result).toBe(true);
+    expect(deps.getAccessStatus).not.toHaveBeenCalled();
   });
 });

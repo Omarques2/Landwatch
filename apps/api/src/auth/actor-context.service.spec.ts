@@ -149,6 +149,32 @@ describe('ActorContextService', () => {
     ).rejects.toMatchObject({ response: { code: 'ORG_ACCESS_DENIED' } });
   });
 
+  it('memoizes the actor per request for the same orgMode+orgId', async () => {
+    const prisma = makePrismaMock();
+    prisma.user.findFirst.mockResolvedValue({ id: 'user-1', status: 'active' });
+    prisma.orgMembership.findFirst.mockResolvedValue(null);
+    prisma.org.findUnique.mockResolvedValue({
+      id: '00000000-0000-4000-8000-000000000001',
+      status: 'active',
+      kind: 'TENANT',
+    });
+    prisma.orgMembership.findUnique.mockResolvedValue({ role: 'member' });
+
+    const service = new ActorContextService(prisma as any);
+    const req = {
+      user: { sub: 'subject-1' },
+      headers: { 'x-org-id': '00000000-0000-4000-8000-000000000001' },
+    } as any;
+
+    const a = await service.fromRequest(req, { orgMode: 'tenant' });
+    const b = await service.fromRequest(req, { orgMode: 'tenant' });
+
+    expect(b).toBe(a); // same cached object
+    // Resolution queries ran only once despite two fromRequest calls.
+    expect(prisma.user.findFirst).toHaveBeenCalledTimes(1);
+    expect(prisma.org.findUnique).toHaveBeenCalledTimes(1);
+  });
+
   it('rejects tenant api keys without org id', async () => {
     const prisma = makePrismaMock();
     const service = new ActorContextService(prisma as any);

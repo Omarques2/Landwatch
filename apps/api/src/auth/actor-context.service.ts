@@ -30,6 +30,13 @@ const UUID_REGEX =
 
 @Injectable()
 export class ActorContextService {
+  // Per-request actor memoization. Keyed by the request object so entries are
+  // garbage-collected once the request is done (no manual cleanup / no leak).
+  private readonly actorCacheByRequest = new WeakMap<
+    object,
+    Map<string, ActorContext>
+  >();
+
   constructor(private readonly prisma: PrismaService) {}
 
   private platformAdminSubjects() {
@@ -154,10 +161,21 @@ export class ActorContextService {
         message: 'Missing user claims',
       });
     }
-    return this.fromSubject(subject, {
-      ...options,
-      orgId: this.normalizeHeader(req.headers['x-org-id']),
-    });
+    const orgId = this.normalizeHeader(req.headers['x-org-id']);
+    // Per-request memoization (keyed by the request object via WeakMap, so it
+    // is GC'd with the request): if a guard/controller already resolved this
+    // actor for the same (orgMode, orgId) in this request, reuse it.
+    const cacheKey = `${options.orgMode}:${orgId ?? ''}`;
+    let cache = this.actorCacheByRequest.get(req);
+    if (!cache) {
+      cache = new Map<string, ActorContext>();
+      this.actorCacheByRequest.set(req, cache);
+    }
+    const cached = cache.get(cacheKey);
+    if (cached) return cached;
+    const actor = await this.fromSubject(subject, { ...options, orgId });
+    cache.set(cacheKey, actor);
+    return actor;
   }
 
   async fromSubject(
@@ -170,10 +188,70 @@ export class ActorContextService {
     const user = platformByEnv
       ? await this.resolveOrProvisionPlatformUser(subject)
       : await this.resolveUser(subject);
+    const requestedOrg = options.orgId ?? null;
+
+    // Org-scoped path: the platform-membership, org and tenant-membership
+    // lookups are independent given (user.id, requestedOrg), so run them in a
+    // single parallel batch instead of 3 serial round-trips. The check ORDER
+    // below is preserved exactly (not-found → disabled → platform-context →
+    // membership), so behavior is unchanged.
+    if (options.orgMode !== 'platform' && requestedOrg) {
+      const [platformMembership, org, membership] = await Promise.all([
+        this.platformMembership(user.id),
+        this.prisma.org.findUnique({
+          where: { id: requestedOrg },
+          select: { id: true, status: true, kind: true },
+        }),
+        this.prisma.orgMembership.findUnique({
+          where: { orgId_userId: { orgId: requestedOrg, userId: user.id } },
+          select: { role: true },
+        }),
+      ]);
+      const isPlatformOrgAdmin = Boolean(platformMembership);
+      const isPlatformAdmin = platformByEnv || isPlatformOrgAdmin;
+
+      if (!org) {
+        throw new ForbiddenException({
+          code: 'ORG_NOT_FOUND',
+          message: 'Organization not found',
+        });
+      }
+      if (org.status !== OrgStatus.active) {
+        throw new ForbiddenException({
+          code: 'ORG_DISABLED',
+          message: 'Organization disabled',
+        });
+      }
+      // A non-admin member of the PLATFORM org must never get tenant-scoped
+      // access to legacy data backfilled into the platform org.
+      if (org.kind === OrgKind.PLATFORM && !isPlatformAdmin) {
+        throw new ForbiddenException({
+          code: 'ORG_ACCESS_DENIED',
+          message: 'User cannot use platform organization as tenant context',
+        });
+      }
+      if (!membership && !isPlatformAdmin) {
+        throw new ForbiddenException({
+          code: 'ORG_ACCESS_DENIED',
+          message: 'User is not a member of this organization',
+        });
+      }
+
+      return {
+        userId: user.id,
+        subject,
+        orgId: requestedOrg,
+        orgRole: membership?.role ?? null,
+        isPlatformAdmin,
+        isPlatformOrgAdmin,
+        source: 'user',
+      };
+    }
+
+    // Platform mode or no requested org: only platform-membership is needed.
     const platformMembership = await this.platformMembership(user.id);
     const isPlatformOrgAdmin = Boolean(platformMembership);
     const isPlatformAdmin = platformByEnv || isPlatformOrgAdmin;
-    const requestedOrg = options.orgId ?? null;
 
     if (options.orgMode === 'platform') {
       return {
@@ -187,69 +265,21 @@ export class ActorContextService {
       };
     }
 
-    if (!requestedOrg) {
-      if (options.orgMode === 'optional' || isPlatformAdmin) {
-        return {
-          userId: user.id,
-          subject,
-          orgId: null,
-          orgRole: null,
-          isPlatformAdmin,
-          isPlatformOrgAdmin,
-          source: 'user',
-        };
-      }
-      throw new ForbiddenException({
-        code: 'ORG_REQUIRED',
-        message: 'X-Org-Id is required',
-      });
+    if (options.orgMode === 'optional' || isPlatformAdmin) {
+      return {
+        userId: user.id,
+        subject,
+        orgId: null,
+        orgRole: null,
+        isPlatformAdmin,
+        isPlatformOrgAdmin,
+        source: 'user',
+      };
     }
-
-    const org = await this.prisma.org.findUnique({
-      where: { id: requestedOrg },
-      select: { id: true, status: true, kind: true },
+    throw new ForbiddenException({
+      code: 'ORG_REQUIRED',
+      message: 'X-Org-Id is required',
     });
-    if (!org) {
-      throw new ForbiddenException({
-        code: 'ORG_NOT_FOUND',
-        message: 'Organization not found',
-      });
-    }
-    if (org.status !== OrgStatus.active) {
-      throw new ForbiddenException({
-        code: 'ORG_DISABLED',
-        message: 'Organization disabled',
-      });
-    }
-    // A non-admin member of the PLATFORM org must never get tenant-scoped
-    // access to legacy data backfilled into the platform org.
-    if (org.kind === OrgKind.PLATFORM && !isPlatformAdmin) {
-      throw new ForbiddenException({
-        code: 'ORG_ACCESS_DENIED',
-        message: 'User cannot use platform organization as tenant context',
-      });
-    }
-
-    const membership = await this.prisma.orgMembership.findUnique({
-      where: { orgId_userId: { orgId: requestedOrg, userId: user.id } },
-      select: { role: true },
-    });
-    if (!membership && !isPlatformAdmin) {
-      throw new ForbiddenException({
-        code: 'ORG_ACCESS_DENIED',
-        message: 'User is not a member of this organization',
-      });
-    }
-
-    return {
-      userId: user.id,
-      subject,
-      orgId: requestedOrg,
-      orgRole: membership?.role ?? null,
-      isPlatformAdmin,
-      isPlatformOrgAdmin,
-      source: 'user',
-    };
   }
 
   /**

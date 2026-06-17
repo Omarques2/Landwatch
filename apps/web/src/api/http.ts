@@ -14,8 +14,15 @@ export const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? DEFAULT_API_BASE_
 const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+// In dev, route XHR through the Vite same-origin proxy (it proxies /v1 and
+// /health) by using a relative baseURL. Same-origin requests skip the CORS
+// preflight (OPTIONS) that cross-origin calls with Authorization/X-Org-Id would
+// otherwise trigger on every request. The exported `apiBaseUrl` stays absolute
+// for callers that need a full URL (resolveApiUrl, map tiles, PDF/downloads).
+const httpBaseURL = import.meta.env.DEV ? "" : apiBaseUrl;
+
 export const http = axios.create({
-  baseURL: apiBaseUrl,
+  baseURL: httpBaseURL,
 });
 
 function isAbsoluteUrl(value: string): boolean {

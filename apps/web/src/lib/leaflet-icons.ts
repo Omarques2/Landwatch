@@ -14,7 +14,12 @@ const markerShadowUrl = new URL(
   import.meta.url,
 ).toString();
 
+let configured = false;
+
 export function setupLeafletDefaultIcons() {
+  // Idempotent: safe to call from every Leaflet-using component on mount.
+  if (configured) return;
+  configured = true;
   const defaultIcon = L.icon({
     iconUrl: markerIconUrl,
     iconRetinaUrl: markerIconRetinaUrl,

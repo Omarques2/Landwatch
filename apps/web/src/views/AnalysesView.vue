@@ -240,6 +240,11 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from "vue";
 import { useRouter } from "vue-router";
 import {
+  listCacheKey,
+  readListCache,
+  writeListCache,
+} from "@/features/shared/list-cache";
+import {
   Button as UiButton,
   Dialog as UiDialog,
   DialogDescription as UiDialogDescription,
@@ -332,6 +337,24 @@ async function handleForbidden(error: unknown) {
   await router.push("/analyses/new");
 }
 
+// Cache key for the list snapshot (page 1), scoped by active org + filters.
+function analysesCacheKey() {
+  return listCacheKey("analyses", {
+    farmId: filters.farmId,
+    carKey: filters.carKey,
+    startDate: filters.startDate,
+    endDate: filters.endDate,
+    pageSize: pageSize.value,
+  });
+}
+
+type AnalysesSnapshot = {
+  rows: AnalysisRow[];
+  total: number;
+  page: number;
+  pageSize: number;
+};
+
 async function fetchAnalyses(pageToLoad: number) {
   const res = await http.get<ApiEnvelope<AnalysisRow[]>>("/v1/analyses", {
     params: {
@@ -346,10 +369,17 @@ async function fetchAnalyses(pageToLoad: number) {
   return unwrapPaged(res.data);
 }
 
-async function loadAnalyses(options?: { reset?: boolean; append?: boolean }) {
+async function loadAnalyses(options?: {
+  reset?: boolean;
+  append?: boolean;
+  background?: boolean;
+}) {
   const shouldReset = options?.reset;
   const shouldAppend = options?.append;
-  if (shouldReset) {
+  // background = revalidate without clearing the visible list or showing a
+  // blocking spinner (used after rendering cached data).
+  const background = options?.background;
+  if (shouldReset && !background) {
     page.value = 1;
     analyses.value = [];
     total.value = 0;
@@ -357,11 +387,12 @@ async function loadAnalyses(options?: { reset?: boolean; append?: boolean }) {
   }
   if (shouldAppend) {
     loadingMore.value = true;
-  } else {
+  } else if (!background) {
     loadingAnalyses.value = true;
   }
+  const pageToLoad = shouldReset ? 1 : page.value;
   try {
-    const paged = await fetchAnalyses(page.value);
+    const paged = await fetchAnalyses(pageToLoad);
     if (shouldAppend) {
       analyses.value = [...analyses.value, ...paged.rows];
     } else {
@@ -370,6 +401,15 @@ async function loadAnalyses(options?: { reset?: boolean; append?: boolean }) {
     total.value = paged.total;
     page.value = paged.page;
     pageSize.value = paged.pageSize;
+    // Cache the list snapshot (not append/pagination growth) for SWR.
+    if (!shouldAppend) {
+      writeListCache<AnalysesSnapshot>(analysesCacheKey(), {
+        rows: analyses.value,
+        total: total.value,
+        page: total.value > 0 ? 1 : page.value,
+        pageSize: pageSize.value,
+      });
+    }
   } finally {
     if (shouldAppend) {
       loadingMore.value = false;
@@ -489,11 +529,29 @@ function setupObserver() {
 }
 
 onMounted(async () => {
-  try {
-    await loadAnalyses({ reset: true });
-    await loadFarms();
-  } catch (error) {
-    await handleForbidden(error);
+  // Cache-first: render the cached list snapshot instantly, then revalidate in
+  // the background (live update) without blanking the list.
+  const cached = readListCache<AnalysesSnapshot>(analysesCacheKey());
+  if (cached) {
+    analyses.value = cached.value.rows;
+    total.value = cached.value.total;
+    page.value = cached.value.page;
+    pageSize.value = cached.value.pageSize;
+    analysesLoaded.value = true;
+    // Reflect "not loading" so polling/load-more guards (which early-return on
+    // loadingAnalyses) aren't blocked after rendering from cache.
+    loadingAnalyses.value = false;
+    void loadAnalyses({ reset: true, background: true }).catch((error) => {
+      void handleForbidden(error).catch(() => undefined);
+    });
+    void loadFarms();
+  } else {
+    try {
+      await loadAnalyses({ reset: true });
+      await loadFarms();
+    } catch (error) {
+      await handleForbidden(error);
+    }
   }
   startPolling();
   setupObserver();

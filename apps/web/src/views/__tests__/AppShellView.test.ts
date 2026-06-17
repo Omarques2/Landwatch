@@ -19,6 +19,7 @@ vi.mock("@/auth/me", () => ({
 
 vi.mock("@/state/landwatch-status", () => ({
   mvBusy: ref(false),
+  mvStatusResolved: ref(true),
   fetchLandwatchStatus: vi.fn().mockResolvedValue(null),
   startLandwatchStatusPolling: vi.fn(),
   stopLandwatchStatusPolling: vi.fn(),
@@ -75,7 +76,7 @@ describe("AppShellView", () => {
     expect(wrapper.text()).toContain("Base geoespacial em atualização");
   });
 
-  it("loads profile through getMeCached with retry-capable path", async () => {
+  it("loads profile reusing the guard cache (force=false)", async () => {
     (getMeCached as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
       email: "user@example.com",
       displayName: "User",
@@ -92,8 +93,10 @@ describe("AppShellView", () => {
     });
 
     await Promise.resolve();
-    expect(getMeCached).toHaveBeenCalledWith(true);
-    expect(getAccessCached).toHaveBeenCalledWith(true);
+    // Shell reuses the cache the navigation guard just populated instead of
+    // forcing a second round-trip.
+    expect(getMeCached).toHaveBeenCalledWith(false);
+    expect(getAccessCached).toHaveBeenCalledWith(false);
   });
 
   it("renders the Agendamento item in navigation", async () => {
