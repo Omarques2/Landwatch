@@ -124,6 +124,35 @@ describe('SchedulesService', () => {
     expect(prisma.analysisSchedule.create).not.toHaveBeenCalled();
   });
 
+  it('lists schedules of all orgs for a platform operator (no org filter)', async () => {
+    const prisma = makePrismaMock();
+    prisma.analysisSchedule.count.mockResolvedValue(0);
+    prisma.analysisSchedule.findMany.mockResolvedValue([]);
+    const service = new SchedulesService(
+      prisma,
+      { createScheduled: jest.fn() } as any,
+      () => now,
+    );
+
+    await service.listForActor(
+      {
+        userId: 'op',
+        subject: 's',
+        orgId: 'org-platform',
+        orgRole: 'member',
+        isPlatformAdmin: false,
+        isPlatformUser: true,
+        isPlatformOrgAdmin: false,
+        source: 'user',
+      } as any,
+      { page: 1, pageSize: 20 },
+    );
+
+    expect(prisma.analysisSchedule.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: {} }),
+    );
+  });
+
   it('runs due schedules and creates analyses', async () => {
     const prisma = makePrismaMock();
     prisma.analysisSchedule.findMany.mockResolvedValue([

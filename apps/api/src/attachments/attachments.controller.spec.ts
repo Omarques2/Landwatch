@@ -44,6 +44,7 @@ function makeServiceMock() {
 function makeAccessMock() {
   return {
     requirePlatformAdmin: jest.fn(),
+    requirePlatformUser: jest.fn(),
     assertCanReadAnalysis: jest.fn().mockResolvedValue(undefined),
   };
 }
@@ -94,7 +95,9 @@ describe('AttachmentsController', () => {
       'org-1',
     );
     expect(service.getDatasets).toHaveBeenCalled();
-    expect(access.requirePlatformAdmin).toHaveBeenCalledWith(
+    // The anexos module gate is now platform-USER (members allowed); structural
+    // admin ops stay guarded inside the service.
+    expect(access.requirePlatformUser).toHaveBeenCalledWith(
       expect.objectContaining({ orgId: 'org-1' }),
     );
   });

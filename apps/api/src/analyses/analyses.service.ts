@@ -504,13 +504,14 @@ export class AnalysesService {
     },
   ) {
     const { carKey, farmId, startDate, endDate, page, pageSize } = params;
-    // Org scoping is mandatory. Platform admins see everything; everyone else
-    // is restricted to their org. In tenant mode the controller guarantees a
+    // Global operators (platform admin/user) see analyses of all orgs; tenants
+    // are restricted to their org. In tenant mode the controller guarantees a
     // resolved org, so a null orgId here only matches (now non-existent) public
     // analyses rather than leaking cross-org data.
-    const where: Prisma.AnalysisWhereInput = actor.isPlatformAdmin
-      ? {}
-      : { orgId: actor.orgId };
+    const where: Prisma.AnalysisWhereInput =
+      actor.isPlatformAdmin || actor.isPlatformUser
+        ? {}
+        : { orgId: actor.orgId };
     if (carKey) where.carKey = carKey;
     if (farmId) where.farmId = farmId;
     const dateRange = this.buildDateRange(startDate, endDate);

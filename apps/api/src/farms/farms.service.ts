@@ -174,10 +174,10 @@ export class FarmsService {
     const skip = (page - 1) * pageSize;
     const digits = q ? q.replace(/\D/g, '') : '';
 
-    // Org scoping is mandatory: platform admins see everything, tenants see
-    // their own org plus public farms, and an org-less non-admin sees only
-    // public farms. There is no unscoped path.
-    const scopedWhere = actor.isPlatformAdmin
+    // Org scoping is mandatory: global operators (platform admin/user) see
+    // everything, tenants see their own org plus public farms, and an org-less
+    // non-operator sees only public farms. There is no unscoped path.
+    const scopedWhere = actor.isPlatformAdmin || actor.isPlatformUser
       ? {}
       : actor.orgId
         ? { OR: [{ orgId: actor.orgId }, { orgId: null }] }
@@ -256,7 +256,7 @@ export class FarmsService {
     // Explicit branches instead of a fake-UUID sentinel: platform admins see
     // any farm; an org actor sees its own org plus public farms; an org-less
     // actor sees only public farms.
-    const where = actor.isPlatformAdmin
+    const where = actor.isPlatformAdmin || actor.isPlatformUser
       ? { id }
       : actor.orgId
         ? { id, OR: [{ orgId: actor.orgId }, { orgId: null }] }
@@ -301,7 +301,9 @@ export class FarmsService {
     const carKey = this.normalizeCarKey(carKeyInput);
     let farm: Awaited<ReturnType<typeof this.prisma.farm.findFirst>> | null =
       null;
-    if (actor.isPlatformAdmin && !actor.orgId) {
+    if (actor.isPlatformAdmin || actor.isPlatformUser) {
+      // Global operators resolve the CAR across all orgs. Ambiguity (the CAR
+      // exists in multiple scopes) is a 400, not a silent pick.
       const matches = await this.prisma.farm.findMany({
         where: { carKey },
         take: 2,

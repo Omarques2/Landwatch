@@ -57,6 +57,7 @@ type ActorContext = {
   userId: string;
   orgId: string | null;
   isPlatformAdmin: boolean;
+  isPlatformUser: boolean;
   subject: string;
 };
 
@@ -1241,6 +1242,7 @@ export class AttachmentsService {
       userId: user.id,
       orgId: apiKey.orgId,
       isPlatformAdmin: apiKey.kind === 'PLATFORM',
+      isPlatformUser: apiKey.kind === 'PLATFORM',
       subject,
     } satisfies ActorContext;
   }
@@ -1267,6 +1269,7 @@ export class AttachmentsService {
       userId: actor.userId,
       orgId: actor.orgId,
       isPlatformAdmin: actor.isPlatformAdmin,
+      isPlatformUser: actor.isPlatformUser,
       subject: actor.subject,
     } satisfies ActorContext;
   }

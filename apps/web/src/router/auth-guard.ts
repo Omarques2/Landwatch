@@ -31,10 +31,30 @@ function canAccessRoute(
 ): boolean {
   if (to.path === "/403") return true;
   if (to.meta.platformOnly) return Boolean(access?.isPlatformAdmin);
+  if (to.meta.platformUserOnly) return Boolean(access?.isPlatformAdmin || access?.isPlatformUser);
   const feature = to.meta.feature as AppFeature | undefined;
   if (!feature) return true;
   if (access?.isPlatformAdmin) return true;
   return Boolean(access?.features?.includes(feature));
+}
+
+// A route the user can actually reach, used as the redirect target when they
+// hit a forbidden route. Ordered by product priority. Returns null only when
+// the user has no usable feature at all (a real /403).
+const FEATURE_ROUTE: Array<{ feature: AppFeature; path: string }> = [
+  { feature: "ANALYSIS_CREATE", path: "/analyses/new" },
+  { feature: "CAR_SEARCH", path: "/analyses/search" },
+  { feature: "ANALYSES", path: "/analyses" },
+  { feature: "FARMS", path: "/farms" },
+  { feature: "SCHEDULES", path: "/schedules" },
+];
+
+function landingRouteFor(access: AccessMeResponse | null): string | null {
+  if (access?.isPlatformAdmin) return "/dashboard";
+  for (const { feature, path } of FEATURE_ROUTE) {
+    if (access?.features?.includes(feature)) return path;
+  }
+  return null;
 }
 
 type EnsureSessionOptions = {
@@ -60,9 +80,26 @@ export function createAuthNavigationGuard(deps: AuthGuardDeps) {
     if (!canAccessApp(me)) return "/pending";
     // Hydrate the active org BEFORE fetching access (access is org-scoped).
     hydrateActiveOrgFromMemberships((me as any).memberships);
-    const access = await deps.getAccessCached(false);
+    let access = await deps.getAccessCached(false);
+    if (!access) {
+      // Access could not be resolved — usually a stale/non-member active org
+      // (e.g. left over from a previous session, or a membership that changed).
+      // A 403 marks that org rejected; refresh identity, re-pick a usable org
+      // from current memberships, and retry once before giving up.
+      const fresh = await deps.getMeResult(true);
+      const freshMe =
+        fresh.kind === "ok" || fresh.kind === "inactive" ? fresh.me : null;
+      if (freshMe && (freshMe as any).memberships?.length) {
+        hydrateActiveOrgFromMemberships((freshMe as any).memberships);
+        access = await deps.getAccessCached(true);
+      }
+    }
     if (!canAccessRoute(to, access)) {
-      if (to.path !== "/analyses/new") return "/analyses/new";
+      // Land the user on a route they CAN reach (not a hardcoded one that may
+      // itself require a permission they lack — the old /analyses/new bounce
+      // sent users without ANALYSIS_CREATE straight to /403).
+      const landing = landingRouteFor(access);
+      if (landing && to.path !== landing) return landing;
       return "/403";
     }
     return true;

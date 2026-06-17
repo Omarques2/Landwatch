@@ -83,7 +83,11 @@ export class AttachmentsController {
       String(req.user.sub),
       req.headers['x-org-id'],
     );
-    this.access.requirePlatformAdmin(actor);
+    // Module gate: platform users (incl. PLATFORM `member`) may use the anexos
+    // module. Structural admin (categories, reviewers) stays guarded by
+    // ensurePlatformAdminForAttachmentAdmin, and approve/reject by
+    // ensureCanReview (ATTACHMENT_REVIEW), both checked in the service.
+    this.access.requirePlatformUser(actor);
     return actor;
   }
 

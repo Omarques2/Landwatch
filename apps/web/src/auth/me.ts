@@ -4,7 +4,7 @@ import { unwrapData, type ApiEnvelope } from "@/api/envelope";
 import { isRetryableHttpError, runWithRetryBackoff } from "./resilience";
 import { acquireApiToken } from "./auth";
 import { isLocalAuthBypassEnabled } from "./local-bypass";
-import { getActiveOrgId } from "@/state/org-context";
+import { getActiveOrgId, markOrgRejected } from "@/state/org-context";
 
 export type MeResponse = {
   id?: string;
@@ -36,6 +36,7 @@ export type AccessMeResponse = {
   activeOrgId: string | null;
   orgRole: "owner" | "admin" | "member" | null;
   isPlatformAdmin: boolean;
+  isPlatformUser: boolean;
   isPlatformOrgAdmin: boolean;
   features: AppFeature[];
   permissions: string[];
@@ -193,6 +194,14 @@ function startAccessRevalidate(key: string): Promise<AccessMeResponse | null> {
     } catch (error: any) {
       const status = error?.response?.status;
       if (status === 401) {
+        accessCacheByOrg.set(key, { value: null, fetchedAt: Date.now() });
+        return null;
+      }
+      if (status === 403) {
+        // Org-scoped denial (not a member / org disabled / platform-as-tenant).
+        // Reject this org so selection moves to a usable one; don't keep stale
+        // access. The guard re-hydrates + retries with a valid org.
+        if (key !== "__no_org__") markOrgRejected(key);
         accessCacheByOrg.set(key, { value: null, fetchedAt: Date.now() });
         return null;
       }

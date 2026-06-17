@@ -11,6 +11,7 @@ describe('FarmsService', () => {
         findUnique: jest.fn(),
         findFirst: jest.fn(),
         findMany: jest.fn(),
+        count: jest.fn(),
         update: jest.fn(),
       },
       farmDocument: {
@@ -160,6 +161,68 @@ describe('FarmsService', () => {
       await expect(
         service.getByCarKeyForActor(tenantActor, 'CAR-MISSING'),
       ).rejects.toMatchObject({ response: { code: 'FARM_NOT_FOUND' } });
+    });
+  });
+
+  describe('platform operator read scope', () => {
+    const operatorActor = {
+      userId: 'operator-1',
+      subject: 'operator-sub',
+      orgId: 'org-platform',
+      orgRole: 'member',
+      isPlatformAdmin: false,
+      isPlatformUser: true,
+      isPlatformOrgAdmin: false,
+      source: 'user',
+    } as any;
+
+    it('lists farms across all orgs without an org filter', async () => {
+      const prisma = makePrismaMock();
+      prisma.farm.count.mockResolvedValue(0);
+      prisma.farm.findMany.mockResolvedValue([]);
+      const service = new FarmsService(prisma);
+
+      await service.list(operatorActor, { page: 1, pageSize: 20 });
+
+      expect(prisma.farm.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: {} }),
+      );
+    });
+
+    it('reads a farm from another org', async () => {
+      const prisma = makePrismaMock();
+      prisma.farm.findFirst.mockResolvedValue({
+        id: 'farm-tenant',
+        name: 'Tenant Farm',
+        carKey: 'CAR-1',
+        orgId: 'org-client',
+        documents: [],
+        _count: { documents: 0 },
+      });
+      const service = new FarmsService(prisma);
+
+      await expect(
+        service.getByIdForActor(operatorActor, 'farm-tenant'),
+      ).resolves.toMatchObject({ id: 'farm-tenant', orgId: 'org-client' });
+
+      expect(prisma.farm.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 'farm-tenant' } }),
+      );
+    });
+
+    it('does not edit a farm from another org', async () => {
+      const prisma = makePrismaMock();
+      prisma.farm.findUnique.mockResolvedValue({
+        id: 'farm-tenant',
+        orgId: 'org-client',
+      });
+      const service = new FarmsService(prisma);
+
+      await expect(
+        service.updateForActor(operatorActor, 'farm-tenant', { name: 'Novo nome' }),
+      ).rejects.toMatchObject({ response: { code: 'FARM_EDIT_FORBIDDEN' } });
+
+      expect(prisma.farm.update).not.toHaveBeenCalled();
     });
   });
 });

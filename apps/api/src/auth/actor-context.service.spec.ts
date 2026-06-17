@@ -149,6 +149,36 @@ describe('ActorContextService', () => {
     ).rejects.toMatchObject({ response: { code: 'ORG_ACCESS_DENIED' } });
   });
 
+  it('allows a PLATFORM org member as a platform user (operational, not admin)', async () => {
+    const prisma = makePrismaMock();
+    prisma.user.findFirst.mockResolvedValue({ id: 'user-1', status: 'active' });
+    // findFirst serves two queries: platformMembership (role owner/admin) and
+    // anyPlatformMembership (any role). Owner/admin → none; any-role → member.
+    prisma.orgMembership.findFirst.mockImplementation((args: any) =>
+      args?.where?.role ? null : { role: 'member' },
+    );
+    prisma.org.findUnique.mockResolvedValue({
+      id: 'org-platform',
+      status: 'active',
+      kind: 'PLATFORM',
+    });
+    // And IS a member of the requested org.
+    prisma.orgMembership.findUnique.mockResolvedValue({ role: 'member' });
+
+    const service = new ActorContextService(prisma as any);
+    const actor = await service.fromSubject('subject-1', {
+      orgMode: 'tenant',
+      orgId: 'org-platform',
+    });
+
+    expect(actor).toMatchObject({
+      orgId: 'org-platform',
+      orgRole: 'member',
+      isPlatformAdmin: false,
+      isPlatformUser: true,
+    });
+  });
+
   it('memoizes the actor per request for the same orgMode+orgId', async () => {
     const prisma = makePrismaMock();
     prisma.user.findFirst.mockResolvedValue({ id: 'user-1', status: 'active' });

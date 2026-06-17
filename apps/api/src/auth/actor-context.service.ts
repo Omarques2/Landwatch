@@ -17,7 +17,16 @@ export type ActorContext = {
   subject: string;
   orgId: string | null;
   orgRole: OrgRole | null;
+  // Kind of the active org (null when no org context). Lets feature grants stay
+  // scoped: a platform user gets blanket features only when operating in a
+  // PLATFORM-kind org, never in a tenant org they also belong to.
+  orgKind: OrgKind | null;
+  // Owner/admin of the PLATFORM org (or env allowlist): full platform admin,
+  // including /admin and structural management.
   isPlatformAdmin: boolean;
+  // Any active member of the PLATFORM org operating in it (includes plain
+  // `member`): normal operational access to standard features, but NOT /admin.
+  isPlatformUser: boolean;
   isPlatformOrgAdmin: boolean;
   source: ActorSource;
   apiKeyId?: string;
@@ -150,6 +159,19 @@ export class ActorContextService {
     });
   }
 
+  // Any active membership of the PLATFORM org (any role, including `member`).
+  // Drives `isPlatformUser`: operational access to platform tools (dashboard,
+  // anexos, fornecedores) without /admin powers.
+  private async anyPlatformMembership(userId: string) {
+    return this.prisma.orgMembership.findFirst({
+      where: {
+        userId,
+        org: { kind: 'PLATFORM', status: OrgStatus.active },
+      },
+      select: { role: true },
+    });
+  }
+
   async fromRequest(
     req: AuthedRequest,
     options: { orgMode: OrgMode },
@@ -196,19 +218,22 @@ export class ActorContextService {
     // below is preserved exactly (not-found → disabled → platform-context →
     // membership), so behavior is unchanged.
     if (options.orgMode !== 'platform' && requestedOrg) {
-      const [platformMembership, org, membership] = await Promise.all([
-        this.platformMembership(user.id),
-        this.prisma.org.findUnique({
-          where: { id: requestedOrg },
-          select: { id: true, status: true, kind: true },
-        }),
-        this.prisma.orgMembership.findUnique({
-          where: { orgId_userId: { orgId: requestedOrg, userId: user.id } },
-          select: { role: true },
-        }),
-      ]);
+      const [platformMembership, anyPlatformMembership, org, membership] =
+        await Promise.all([
+          this.platformMembership(user.id),
+          this.anyPlatformMembership(user.id),
+          this.prisma.org.findUnique({
+            where: { id: requestedOrg },
+            select: { id: true, status: true, kind: true },
+          }),
+          this.prisma.orgMembership.findUnique({
+            where: { orgId_userId: { orgId: requestedOrg, userId: user.id } },
+            select: { role: true },
+          }),
+        ]);
       const isPlatformOrgAdmin = Boolean(platformMembership);
       const isPlatformAdmin = platformByEnv || isPlatformOrgAdmin;
+      const isPlatformUser = isPlatformAdmin || Boolean(anyPlatformMembership);
 
       if (!org) {
         throw new ForbiddenException({
@@ -222,14 +247,10 @@ export class ActorContextService {
           message: 'Organization disabled',
         });
       }
-      // A non-admin member of the PLATFORM org must never get tenant-scoped
-      // access to legacy data backfilled into the platform org.
-      if (org.kind === OrgKind.PLATFORM && !isPlatformAdmin) {
-        throw new ForbiddenException({
-          code: 'ORG_ACCESS_DENIED',
-          message: 'User cannot use platform organization as tenant context',
-        });
-      }
+      // Membership is required to use any org as tenant context (admins excepted).
+      // A plain `member` of the PLATFORM org IS allowed to operate in it — that
+      // is the "platform user" (normal app access, no /admin). Only NON-members
+      // are denied.
       if (!membership && !isPlatformAdmin) {
         throw new ForbiddenException({
           code: 'ORG_ACCESS_DENIED',
@@ -242,16 +263,23 @@ export class ActorContextService {
         subject,
         orgId: requestedOrg,
         orgRole: membership?.role ?? null,
+        orgKind: org.kind,
         isPlatformAdmin,
+        isPlatformUser,
         isPlatformOrgAdmin,
         source: 'user',
       };
     }
 
-    // Platform mode or no requested org: only platform-membership is needed.
-    const platformMembership = await this.platformMembership(user.id);
+    // Platform mode or no requested org: platform-membership drives admin, and
+    // any PLATFORM membership drives platform-user (operational tools).
+    const [platformMembership, anyPlatformMembership] = await Promise.all([
+      this.platformMembership(user.id),
+      this.anyPlatformMembership(user.id),
+    ]);
     const isPlatformOrgAdmin = Boolean(platformMembership);
     const isPlatformAdmin = platformByEnv || isPlatformOrgAdmin;
+    const isPlatformUser = isPlatformAdmin || Boolean(anyPlatformMembership);
 
     if (options.orgMode === 'platform') {
       return {
@@ -259,7 +287,9 @@ export class ActorContextService {
         subject,
         orgId: null,
         orgRole: null,
+        orgKind: null,
         isPlatformAdmin,
+        isPlatformUser,
         isPlatformOrgAdmin,
         source: 'user',
       };
@@ -271,7 +301,9 @@ export class ActorContextService {
         subject,
         orgId: null,
         orgRole: null,
+        orgKind: null,
         isPlatformAdmin,
+        isPlatformUser,
         isPlatformOrgAdmin,
         source: 'user',
       };
@@ -372,7 +404,9 @@ export class ActorContextService {
       subject,
       orgId: effectiveOrgId,
       orgRole: null,
+      orgKind: null,
       isPlatformAdmin: apiKey.kind === 'PLATFORM',
+      isPlatformUser: apiKey.kind === 'PLATFORM',
       isPlatformOrgAdmin: false,
       source: 'apiKey',
       apiKeyId: apiKey.id,

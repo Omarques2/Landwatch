@@ -7,6 +7,7 @@ import {
 } from "./sigfarm-auth";
 import { AuthApiError } from "@sigfarm/auth-client-vue";
 import { isLocalAuthBypassEnabled } from "./local-bypass";
+import { clearRejectedOrgs, setActiveOrgId } from "@/state/org-context";
 
 type AcquireApiTokenOptions = {
   forceRefresh?: boolean;
@@ -48,6 +49,7 @@ export async function logout(): Promise<void> {
     signOutBetterAuthSessionBestEffort(),
   ]);
   clearApiTokenCache();
+  resetOrgState();
   authClient.clearSession();
   if (typeof window !== "undefined") {
     window.location.assign("/login");
@@ -56,7 +58,15 @@ export async function logout(): Promise<void> {
 
 export async function hardResetAuthState(): Promise<void> {
   clearApiTokenCache();
+  resetOrgState();
   authClient.clearSession();
+}
+
+// Drop the active org + session-rejected orgs so one account's org context can
+// never leak into the next session/login.
+function resetOrgState(): void {
+  setActiveOrgId(null);
+  clearRejectedOrgs();
 }
 
 // Single-flight guard for the non-forced token acquisition. Concurrent callers

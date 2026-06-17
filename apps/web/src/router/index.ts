@@ -31,7 +31,7 @@ const router = createRouter({
         {
           path: "dashboard",
           component: () => import("../views/DashboardView.vue"),
-          meta: { title: "Dashboard", platformOnly: true },
+          meta: { title: "Dashboard", platformUserOnly: true },
         },
         {
           path: "farms",
@@ -71,7 +71,7 @@ const router = createRouter({
         {
           path: "attachments",
           component: () => import("../views/AttachmentsView.vue"),
-          meta: { title: "Anexos", platformOnly: true },
+          meta: { title: "Anexos", platformUserOnly: true },
         },
         {
           path: "admin",
@@ -81,7 +81,7 @@ const router = createRouter({
         {
           path: "fornecedores",
           component: () => import("../views/FornecedoresView.vue"),
-          meta: { title: "Fornecedores", platformOnly: true },
+          meta: { title: "Fornecedores", platformUserOnly: true },
         },
         {
           path: "403",

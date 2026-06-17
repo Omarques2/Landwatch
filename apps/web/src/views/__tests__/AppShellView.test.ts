@@ -4,6 +4,7 @@ import { ref } from "vue";
 import AppShellView from "@/views/AppShellView.vue";
 import { getAccessCached, getMeCached } from "@/auth/me";
 import { mvBusy } from "@/state/landwatch-status";
+import { getActiveOrgId, setActiveOrgId, clearRejectedOrgs } from "@/state/org-context";
 
 vi.mock("@/auth/auth", () => ({
   logout: vi.fn(),
@@ -32,6 +33,8 @@ vi.mock("vue-router", () => ({
 
 describe("AppShellView", () => {
   beforeEach(() => {
+    setActiveOrgId(null);
+    clearRejectedOrgs();
     (getMeCached as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
       email: "user@example.com",
       displayName: "User",
@@ -146,5 +149,73 @@ describe("AppShellView", () => {
     expect(wrapper.text()).toContain("Fazendas");
     expect(wrapper.text()).not.toContain("Fornecedores");
     expect(wrapper.text()).not.toContain("Painel Admin");
+  });
+
+  it("shows the active org as a label when the user has one membership", async () => {
+    (getMeCached as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      email: "user@example.com",
+      displayName: "User",
+      status: "active",
+      memberships: [
+        {
+          orgId: "11111111-1111-4111-8111-111111111111",
+          role: "member",
+          org: { name: "Org Unica", slug: "org-unica" },
+        },
+      ],
+    });
+
+    const wrapper = mount(AppShellView, {
+      global: {
+        stubs: {
+          RouterView: true,
+          UiSheet: { template: "<div><slot /></div>" },
+        },
+      },
+    });
+
+    await flushPromises();
+
+    expect(wrapper.find('[data-testid="active-org-label"]').text()).toContain("Org Unica");
+    expect(wrapper.find('[data-testid="org-switcher"]').exists()).toBe(false);
+  });
+
+  it("lets a multi-org user switch active org from the topbar", async () => {
+    (getMeCached as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      email: "user@example.com",
+      displayName: "User",
+      status: "active",
+      memberships: [
+        {
+          orgId: "11111111-1111-4111-8111-111111111111",
+          role: "member",
+          org: { name: "Org A", slug: "org-a" },
+        },
+        {
+          orgId: "22222222-2222-4222-8222-222222222222",
+          role: "member",
+          org: { name: "Org B", slug: "org-b" },
+        },
+      ],
+    });
+
+    const wrapper = mount(AppShellView, {
+      global: {
+        stubs: {
+          RouterView: true,
+          UiSheet: { template: "<div><slot /></div>" },
+        },
+      },
+    });
+
+    await flushPromises();
+    const select = wrapper.find('[data-testid="org-switcher"]');
+    expect(select.exists()).toBe(true);
+
+    await select.setValue("22222222-2222-4222-8222-222222222222");
+    await flushPromises();
+
+    expect(getActiveOrgId()).toBe("22222222-2222-4222-8222-222222222222");
+    expect(getAccessCached).toHaveBeenCalledWith(true);
   });
 });

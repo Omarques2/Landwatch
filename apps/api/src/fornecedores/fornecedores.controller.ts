@@ -27,7 +27,7 @@ export class FornecedoresController {
     const actor = await this.actorContext.fromRequest(req, {
       orgMode: 'platform',
     });
-    this.access.requirePlatformAdmin(actor);
+    this.access.requirePlatformUser(actor);
   }
 
   @Get('summary')

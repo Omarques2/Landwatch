@@ -109,7 +109,11 @@ export class SchedulesService {
     },
   ) {
     const where = {
-      ...(actor && !actor.isPlatformAdmin ? { orgId: actor.orgId } : {}),
+      // Global operators (platform admin/user) list schedules of all orgs;
+      // tenants are restricted to their org.
+      ...(actor && !(actor.isPlatformAdmin || actor.isPlatformUser)
+        ? { orgId: actor.orgId }
+        : {}),
       ...(params.farmId ? { farmId: params.farmId } : {}),
       ...(typeof params.isActive === 'boolean'
         ? { isActive: params.isActive }

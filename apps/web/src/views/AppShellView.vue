@@ -78,6 +78,32 @@
               Base geoespacial em atualização
             </div>
 
+            <UiSelect
+              v-if="orgMemberships.length > 1"
+              v-model="selectedOrgId"
+              data-testid="org-switcher"
+              class="hidden h-9 w-44 text-xs md:block"
+              title="Organização ativa"
+              @update:model-value="switchOrg"
+            >
+              <option
+                v-for="membership in orgMemberships"
+                :key="membership.orgId"
+                :value="membership.orgId"
+              >
+                {{ membership.orgName }}
+              </option>
+            </UiSelect>
+
+            <div
+              v-else-if="activeOrgName"
+              data-testid="active-org-label"
+              class="hidden max-w-[11rem] truncate rounded-full border border-border bg-background px-3 py-1.5 text-xs font-medium text-muted-foreground md:block"
+              :title="activeOrgName"
+            >
+              {{ activeOrgName }}
+            </div>
+
             <select
               v-if="localBypassEnabled"
               v-model="devProfileSub"
@@ -105,7 +131,7 @@
         </div>
 
         <div class="flex-1 min-h-0 overflow-auto bg-background">
-          <router-view />
+          <router-view :key="`${route.fullPath}:${selectedOrgId}`" />
         </div>
       </main>
     </div>
@@ -116,7 +142,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { Button as UiButton, Sheet as UiSheet, ToastHost as UiToastHost } from "@/components/ui";
+import { Button as UiButton, Select as UiSelect, Sheet as UiSheet, ToastHost as UiToastHost } from "@/components/ui";
 import {
   LayoutDashboard,
   MapPin,
@@ -144,7 +170,7 @@ import {
   startLandwatchStatusPolling,
   stopLandwatchStatusPolling,
 } from "@/state/landwatch-status";
-import { hydrateActiveOrgFromMemberships, setActiveOrgId } from "@/state/org-context";
+import { getActiveOrgId, hydrateActiveOrgFromMemberships, setActiveOrgId } from "@/state/org-context";
 import SidebarNav from "@/components/SidebarNav.vue";
 import HamburgerIcon from "@/components/icons/HamburgerIcon.vue";
 
@@ -156,6 +182,7 @@ const drawerOpen = ref(false);
 const me = ref<MeResponse | null>(null);
 const access = ref<AccessMeResponse | null>(null);
 const meLoading = ref(true);
+const selectedOrgId = ref("");
 const localBypassEnabled = isLocalAuthBypassEnabled();
 const devProfiles = ref<DevBypassProfile[]>(getDevBypassProfiles());
 const devProfileSub = ref(
@@ -168,16 +195,17 @@ type ShellNavItem = {
   icon: any;
   feature?: AppFeature;
   platformOnly?: boolean;
+  platformUser?: boolean;
   placement?: "main" | "bottom";
 };
 
 const baseNavItems: ShellNavItem[] = [
-  { key: "dashboard", label: "Dashboard", icon: LayoutDashboard, platformOnly: true },
+  { key: "dashboard", label: "Dashboard", icon: LayoutDashboard, platformUser: true },
   { key: "farms", label: "Fazendas", icon: MapPin, feature: "FARMS" },
   { key: "analyses", label: "Análises", icon: FileText, feature: "ANALYSES" },
   { key: "schedules", label: "Agendamento", icon: CalendarClock, feature: "SCHEDULES" },
-  { key: "attachments", label: "Anexos", icon: Paperclip, platformOnly: true },
-  { key: "fornecedores", label: "Fornecedores", icon: Beef, platformOnly: true },
+  { key: "attachments", label: "Anexos", icon: Paperclip, platformUser: true },
+  { key: "fornecedores", label: "Fornecedores", icon: Beef, platformUser: true },
   { key: "new-analysis", label: "Nova análise", icon: ClipboardPlus, feature: "ANALYSIS_CREATE" },
   { key: "car-search", label: "Buscar CAR", icon: LocateFixed, feature: "CAR_SEARCH" },
 ];
@@ -189,6 +217,7 @@ function hasFeature(feature?: AppFeature) {
 }
 
 const isPlatformAdmin = computed(() => Boolean(access.value?.isPlatformAdmin));
+const isPlatformUser = computed(() => Boolean(access.value?.isPlatformUser));
 const canCreateAnalysis = computed(() => hasFeature("ANALYSIS_CREATE"));
 const hideTopbarCta = computed(
   () => activeKey.value === "new-analysis" || activeKey.value === "car-search",
@@ -197,6 +226,7 @@ const hideTopbarCta = computed(
 const navItems = computed(() => {
   const filtered: ShellNavItem[] = baseNavItems.filter((item) => {
     if (item.platformOnly) return isPlatformAdmin.value;
+    if (item.platformUser) return isPlatformAdmin.value || isPlatformUser.value;
     return hasFeature(item.feature);
   });
   if (isPlatformAdmin.value) {
@@ -224,6 +254,31 @@ const activeKey = computed(() => {
   return "dashboard";
 });
 
+const orgMemberships = computed(() => {
+  const memberships = Array.isArray(me.value?.memberships)
+    ? me.value.memberships
+    : [];
+  return memberships
+    .map((membership: any) => {
+      const orgId = typeof membership?.orgId === "string" ? membership.orgId.trim() : "";
+      if (!orgId) return null;
+      const orgName =
+        membership?.org?.name?.trim?.() ||
+        membership?.org?.slug?.trim?.() ||
+        orgId;
+      return { orgId, orgName };
+    })
+    .filter((item): item is { orgId: string; orgName: string } => Boolean(item));
+});
+
+const activeOrgName = computed(() => {
+  if (!selectedOrgId.value) return orgMemberships.value[0]?.orgName ?? "";
+  return (
+    orgMemberships.value.find((membership) => membership.orgId === selectedOrgId.value)
+      ?.orgName ?? ""
+  );
+});
+
 const pageTitle = computed(() => (route.meta.title as string) ?? "LandWatch");
 const pageSubtitle = computed(() => {
   if (activeKey.value === "dashboard") return "Visão geral do portfólio";
@@ -245,6 +300,7 @@ async function loadMe() {
     // of forcing a second /me + /access/me round-trip on shell mount.
     me.value = await getMeCached(false);
     hydrateActiveOrgFromMemberships(me.value?.memberships as any);
+    selectedOrgId.value = getActiveOrgId() ?? orgMemberships.value[0]?.orgId ?? "";
     access.value = await getAccessCached(false);
   } catch {
     me.value = null;
@@ -252,6 +308,13 @@ async function loadMe() {
   } finally {
     meLoading.value = false;
   }
+}
+
+async function switchOrg(orgId: string) {
+  if (!orgId || orgId === getActiveOrgId()) return;
+  setActiveOrgId(orgId);
+  selectedOrgId.value = orgId;
+  access.value = await getAccessCached(true);
 }
 
 async function onLogout() {

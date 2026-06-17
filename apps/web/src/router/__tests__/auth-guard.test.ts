@@ -13,6 +13,7 @@ type MockRoute = {
     requiresAuth?: boolean;
     feature?: string;
     platformOnly?: boolean;
+    platformUserOnly?: boolean;
   };
 };
 
@@ -50,6 +51,7 @@ function makeDeps(overrides: Partial<{
       overrides.getAccessCached ??
       vi.fn().mockResolvedValue({
         isPlatformAdmin: false,
+        isPlatformUser: false,
         features: ["FARMS", "ANALYSES", "ANALYSIS_CREATE", "CAR_SEARCH", "SCHEDULES"],
       }),
   };
@@ -226,9 +228,8 @@ describe("createAuthNavigationGuard", () => {
     expect(deps.getAccessStatus).toHaveBeenCalledWith();
   });
 
-  it("redirects direct access to disabled routes to new analysis", async () => {
+  it("redirects a forbidden route to a route the user can actually access", async () => {
     const deps = makeDeps({
-      ensureSession: vi.fn().mockResolvedValue({ data: { sessionId: "sid" } }),
       getMeResult: meResult({ kind: "ok", me: { status: "active" } }),
       getAccessCached: vi.fn().mockResolvedValue({
         isPlatformAdmin: false,
@@ -242,12 +243,12 @@ describe("createAuthNavigationGuard", () => {
       meta: { requiresAuth: true, feature: "ANALYSES" },
     } as any);
 
-    expect(result).toBe("/analyses/new");
+    // User only has FARMS → land on /farms, never bounce to a route they lack.
+    expect(result).toBe("/farms");
   });
 
-  it("redirects tenant dashboard access to new analysis", async () => {
+  it("redirects a platform-only route for a tenant user to their accessible route", async () => {
     const deps = makeDeps({
-      ensureSession: vi.fn().mockResolvedValue({ data: { sessionId: "sid" } }),
       getMeResult: meResult({ kind: "ok", me: { status: "active" } }),
       getAccessCached: vi.fn().mockResolvedValue({
         isPlatformAdmin: false,
@@ -261,7 +262,66 @@ describe("createAuthNavigationGuard", () => {
       meta: { requiresAuth: true, platformOnly: true },
     } as any);
 
-    expect(result).toBe("/analyses/new");
+    expect(result).toBe("/farms");
+  });
+
+  it("does not bounce a user without ANALYSIS_CREATE to /analyses/new (regression)", async () => {
+    // Reproduces the incident: features lacking ANALYSIS_CREATE must not be
+    // sent to /analyses/new (which requires it) and then to /403.
+    const deps = makeDeps({
+      getMeResult: meResult({ kind: "ok", me: { status: "active" } }),
+      getAccessCached: vi.fn().mockResolvedValue({
+        isPlatformAdmin: false,
+        features: ["FARMS", "ANALYSES", "CAR_SEARCH"],
+      }),
+    });
+
+    const guard = createAuthNavigationGuard(deps);
+    const result = await guard({
+      ...route("/analyses/new"),
+      meta: { requiresAuth: true, feature: "ANALYSIS_CREATE" },
+    } as any);
+
+    expect(result).toBe("/analyses/search");
+  });
+
+  it("sends a user with no usable feature to /403", async () => {
+    const deps = makeDeps({
+      getMeResult: meResult({ kind: "ok", me: { status: "active" } }),
+      getAccessCached: vi.fn().mockResolvedValue({ isPlatformAdmin: false, features: [] }),
+    });
+
+    const guard = createAuthNavigationGuard(deps);
+    const result = await guard({
+      ...route("/analyses"),
+      meta: { requiresAuth: true, feature: "ANALYSES" },
+    } as any);
+
+    expect(result).toBe("/403");
+  });
+
+  it("self-heals a stale active org: refreshes identity and retries access once", async () => {
+    const getAccessCached = vi
+      .fn()
+      .mockResolvedValueOnce(null) // first attempt: stale org → access denied
+      .mockResolvedValueOnce({
+        isPlatformAdmin: false,
+        features: ["FARMS", "ANALYSES", "CAR_SEARCH"],
+      });
+    const getMeResult = vi
+      .fn()
+      .mockResolvedValue({ kind: "ok", me: { status: "active", memberships: [{ orgId: "o" }] } });
+    const deps = makeDeps({ getMeResult, getAccessCached });
+
+    const guard = createAuthNavigationGuard(deps);
+    const result = await guard({
+      ...route("/analyses"),
+      meta: { requiresAuth: true, feature: "ANALYSES" },
+    } as any);
+
+    expect(result).toBe(true);
+    expect(getMeResult).toHaveBeenCalledWith(true); // forced refresh during recovery
+    expect(getAccessCached).toHaveBeenCalledTimes(2); // retried after re-hydrate
   });
 
   it("hydrates active org from memberships before loading access", async () => {
@@ -300,5 +360,44 @@ describe("createAuthNavigationGuard", () => {
     // Session is valid; a transient identity blip must not redirect to /pending.
     expect(result).toBe(true);
     expect(deps.getAccessStatus).not.toHaveBeenCalled();
+  });
+
+  it("allows a platformUserOnly route for a platform user (non-admin)", async () => {
+    const deps = makeDeps({
+      getMeResult: meResult({ kind: "ok", me: { status: "active" } }),
+      getAccessCached: vi.fn().mockResolvedValue({
+        isPlatformAdmin: false,
+        isPlatformUser: true,
+        features: [],
+      }),
+    });
+
+    const guard = createAuthNavigationGuard(deps);
+    const result = await guard({
+      ...route("/dashboard"),
+      meta: { requiresAuth: true, platformUserOnly: true },
+    } as any);
+
+    expect(result).toBe(true);
+  });
+
+  it("redirects a platformUserOnly route for a non-platform user", async () => {
+    const deps = makeDeps({
+      getMeResult: meResult({ kind: "ok", me: { status: "active" } }),
+      getAccessCached: vi.fn().mockResolvedValue({
+        isPlatformAdmin: false,
+        isPlatformUser: false,
+        features: ["FARMS"],
+      }),
+    });
+
+    const guard = createAuthNavigationGuard(deps);
+    const result = await guard({
+      ...route("/dashboard"),
+      meta: { requiresAuth: true, platformUserOnly: true },
+    } as any);
+
+    expect(result).not.toBe(true);
+    expect(result).toBe("/farms");
   });
 });

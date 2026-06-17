@@ -51,13 +51,21 @@ export class AccessController {
         : Promise.resolve([] as { permission: OrgPermission }[]),
     ]);
 
+    // Platform admins, and platform users operating inside a PLATFORM org, get
+    // the full standard feature set. Tenant context (incl. a platform user
+    // operating in a tenant org) respects the per-org feature flags.
+    const grantsAllFeatures =
+      actor.isPlatformAdmin ||
+      (actor.isPlatformUser && activeOrg?.kind === 'PLATFORM');
+
     return {
       activeOrg,
       activeOrgId: actor.orgId,
       orgRole: actor.orgRole,
       isPlatformAdmin: actor.isPlatformAdmin,
+      isPlatformUser: actor.isPlatformUser,
       isPlatformOrgAdmin: actor.isPlatformOrgAdmin,
-      features: actor.isPlatformAdmin
+      features: grantsAllFeatures
         ? TENANT_FEATURES
         : orgFeatures.map((row) => row.feature),
       permissions: actor.isPlatformAdmin

@@ -709,6 +709,60 @@ describe('AnalysesService', () => {
     );
   });
 
+  it('lists analyses of all orgs for a platform operator (no org filter)', async () => {
+    const prisma = makePrismaMock();
+    prisma.analysis.count.mockResolvedValue(0);
+    prisma.analysis.findMany.mockResolvedValue([]);
+    const deps = makeDeps();
+    const service = new AnalysesService(
+      prisma,
+      deps.runner as any,
+      deps.detail as any,
+      deps.cache as any,
+      deps.vectorMap as any,
+      deps.postprocess as any,
+      deps.pdf as any,
+      deps.landwatchStatus as any,
+      () => now,
+    );
+
+    await service.list(
+      { isPlatformAdmin: false, isPlatformUser: true, orgId: 'org-platform' } as any,
+      { page: 1, pageSize: 10 },
+    );
+
+    expect(prisma.analysis.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: {} }),
+    );
+  });
+
+  it('restricts analyses to the active org for a tenant user', async () => {
+    const prisma = makePrismaMock();
+    prisma.analysis.count.mockResolvedValue(0);
+    prisma.analysis.findMany.mockResolvedValue([]);
+    const deps = makeDeps();
+    const service = new AnalysesService(
+      prisma,
+      deps.runner as any,
+      deps.detail as any,
+      deps.cache as any,
+      deps.vectorMap as any,
+      deps.postprocess as any,
+      deps.pdf as any,
+      deps.landwatchStatus as any,
+      () => now,
+    );
+
+    await service.list(
+      { isPlatformAdmin: false, isPlatformUser: false, orgId: 'org-1' } as any,
+      { page: 1, pageSize: 10 },
+    );
+
+    expect(prisma.analysis.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { orgId: 'org-1' } }),
+    );
+  });
+
   it('filters analyses by date range when provided', async () => {
     const prisma = makePrismaMock();
     prisma.analysis.count.mockResolvedValue(1);

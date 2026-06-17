@@ -17,7 +17,7 @@ export class DashboardController {
     const actor = await this.actorContext.fromRequest(req, {
       orgMode: 'platform',
     });
-    this.access.requirePlatformAdmin(actor);
+    this.access.requirePlatformUser(actor);
     return this.dashboard.getSummary();
   }
 }

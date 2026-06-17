@@ -23,8 +23,35 @@ export class AccessService {
     });
   }
 
+  // Platform USER tier: any active member of the PLATFORM org (incl. plain
+  // `member`) or a platform admin. Gates operational platform tools (dashboard,
+  // anexos, fornecedores) — NOT /admin or structural management.
+  requirePlatformUser(
+    actor: Pick<ActorContext, 'isPlatformAdmin' | 'isPlatformUser'>,
+  ): void {
+    if (actor.isPlatformAdmin || actor.isPlatformUser) return;
+    throw new ForbiddenException({
+      code: 'PLATFORM_USER_REQUIRED',
+      message: 'Platform access required',
+    });
+  }
+
+  // Global operational READ access (data of all orgs). Platform admins and
+  // platform users (PLATFORM-org members = global operators) qualify. This is a
+  // READ grant ONLY — it must never be used to authorize writes or structural
+  // management (those stay org-scoped / admin-only).
+  canReadAllOperationalData(
+    actor: Pick<ActorContext, 'isPlatformAdmin' | 'isPlatformUser'>,
+  ): boolean {
+    return actor.isPlatformAdmin || actor.isPlatformUser;
+  }
+
   async requireTenantFeature(actor: ActorContext, feature: AppFeature) {
+    // Platform admins always pass. Platform users get the standard operational
+    // features WITHOUT per-org flags only while operating inside a PLATFORM org
+    // (never blanket-granted in a tenant org they also belong to).
     if (actor.isPlatformAdmin) return;
+    if (actor.isPlatformUser && actor.orgKind === 'PLATFORM') return;
     if (!actor.orgId) {
       throw new ForbiddenException({
         code: 'ORG_REQUIRED',
@@ -60,7 +87,7 @@ export class AccessService {
   }
 
   async assertCanReadAnalysis(
-    actor: Pick<ActorContext, 'isPlatformAdmin' | 'orgId'>,
+    actor: Pick<ActorContext, 'isPlatformAdmin' | 'isPlatformUser' | 'orgId'>,
     analysisId: string,
   ) {
     const analysis = await this.prisma.analysis.findUnique({
@@ -73,6 +100,9 @@ export class AccessService {
         message: 'Analysis not found',
       });
     }
+    // Global operators (platform admin/user) read any org's analysis; tenants
+    // are restricted to their own org.
+    if (this.canReadAllOperationalData(actor)) return analysis;
     this.requireSameOrgOrPlatform(actor, analysis.orgId);
     return analysis;
   }
@@ -89,6 +119,8 @@ export class AccessService {
       });
     }
     if (farm.orgId === null) return farm;
+    // Global operators read any org's farm; tenants only their own org.
+    if (this.canReadAllOperationalData(actor)) return farm;
     this.requireSameOrgOrPlatform(actor, farm.orgId);
     return farm;
   }
@@ -113,7 +145,14 @@ export class AccessService {
       include?: Record<string, unknown>;
     },
   ) {
-    if (!actor.isPlatformAdmin && actor.orgId) {
+    // Global operators (platform admin/user) resolve a CAR across all orgs.
+    if (this.canReadAllOperationalData(actor)) {
+      return this.prisma.farm.findFirst({
+        where: { carKey },
+        ...(options ?? {}),
+      } as any);
+    }
+    if (actor.orgId) {
       const orgFarm = await this.prisma.farm.findFirst({
         where: { orgId: actor.orgId, carKey },
         ...(options ?? {}),

@@ -17,6 +17,7 @@ describe('FornecedoresController', () => {
         provide: AccessService,
         useValue: {
           requirePlatformAdmin: jest.fn().mockResolvedValue(undefined),
+          requirePlatformUser: jest.fn().mockResolvedValue(undefined),
         },
       },
     ];
