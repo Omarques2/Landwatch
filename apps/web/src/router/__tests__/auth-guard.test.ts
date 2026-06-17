@@ -26,6 +26,7 @@ function meResult(outcome: unknown) {
 }
 
 function makeDeps(overrides: Partial<{
+  acquireToken: ReturnType<typeof vi.fn>;
   ensureSession: ReturnType<typeof vi.fn>;
   exchangeSession: ReturnType<typeof vi.fn>;
   getMeCached: ReturnType<typeof vi.fn>;
@@ -34,6 +35,9 @@ function makeDeps(overrides: Partial<{
   getAccessCached: ReturnType<typeof vi.fn>;
 }> = {}) {
   return {
+    // Protected routes use the cached token as the session signal; default to a
+    // valid token so the "happy path" reaches enforceAccess.
+    acquireToken: overrides.acquireToken ?? vi.fn().mockResolvedValue("token"),
     ensureSession: overrides.ensureSession ?? vi.fn().mockResolvedValue(null),
     exchangeSession: overrides.exchangeSession ?? vi.fn().mockResolvedValue(null),
     // getMeCached is still used by the /login branch of the guard.
@@ -149,25 +153,23 @@ describe("createAuthNavigationGuard", () => {
     expect(result).toBe(true);
   });
 
-  it("redirects protected route to /login when no session is available", async () => {
+  it("redirects protected route to /login when no token is available", async () => {
     const deps = makeDeps({
-      exchangeSession: vi.fn().mockRejectedValue(new Error("no session")),
+      acquireToken: vi.fn().mockRejectedValue(new Error("no session")),
     });
 
     const guard = createAuthNavigationGuard(deps);
     const result = await guard(route("/dashboard") as any);
 
     expect(result).toBe("/login?returnTo=%2Fdashboard");
-    expect(deps.getAccessStatus).toHaveBeenCalledWith();
+    // No per-navigation session bootstrap / access-status churn.
+    expect(deps.exchangeSession).not.toHaveBeenCalled();
+    expect(deps.getAccessStatus).not.toHaveBeenCalled();
   });
 
-  it("tries session exchange before allowing protected route", async () => {
+  it("allows a protected route when a cached token is available", async () => {
     const deps = makeDeps({
-      ensureSession: vi
-        .fn()
-        .mockResolvedValueOnce(null)
-        .mockResolvedValueOnce({ data: { sessionId: "sid" } }),
-      exchangeSession: vi.fn().mockResolvedValue({ session: { accessToken: "token" } }),
+      acquireToken: vi.fn().mockResolvedValue("token"),
       getMeResult: meResult({ kind: "ok", me: { status: "active" } }),
     });
 
@@ -175,22 +177,16 @@ describe("createAuthNavigationGuard", () => {
     const result = await guard(route("/dashboard") as any);
 
     expect(result).toBe(true);
-    expect(deps.exchangeSession).toHaveBeenCalledTimes(1);
-    expect(deps.ensureSession).toHaveBeenCalledTimes(2);
+    expect(deps.acquireToken).toHaveBeenCalledTimes(1);
+    // The guard no longer re-bootstraps the session on every navigation.
+    expect(deps.exchangeSession).not.toHaveBeenCalled();
+    expect(deps.ensureSession).not.toHaveBeenCalled();
   });
 
-  it("retries session exchange after transient failure before redirecting", async () => {
+  it("sends a token-holding but pending account to /pending", async () => {
     const deps = makeDeps({
-      ensureSession: vi
-        .fn()
-        .mockResolvedValueOnce(null)
-        .mockResolvedValueOnce(null)
-        .mockResolvedValueOnce({ data: { sessionId: "sid" } }),
-      exchangeSession: vi
-        .fn()
-        .mockRejectedValueOnce(new Error("temporary failure"))
-        .mockResolvedValueOnce({ session: { accessToken: "token" } }),
-      getMeCached: vi.fn().mockResolvedValue(null),
+      acquireToken: vi.fn().mockResolvedValue("token"),
+      getMeResult: meResult({ kind: "unauthorized" }),
       getAccessStatus: vi.fn().mockResolvedValue({ status: "pending" }),
     });
 
@@ -198,7 +194,7 @@ describe("createAuthNavigationGuard", () => {
     const result = await guard(route("/dashboard") as any);
 
     expect(result).toBe("/pending");
-    expect(deps.exchangeSession).toHaveBeenCalledTimes(1);
+    expect(deps.exchangeSession).not.toHaveBeenCalled();
   });
 
   it("falls back to access-status when /v1/auth/session stays unavailable", async () => {

@@ -4,6 +4,11 @@ import type { AccessMeResponse, AppFeature, MeOutcome } from "@/auth/me";
 import { hydrateActiveOrgFromMemberships } from "@/state/org-context";
 
 type AuthGuardDeps = {
+  // Session signal for protected routes: a cached, reusable access token. The
+  // token cache lives in auth.ts, so navigating between routes no longer
+  // re-bootstraps the session (no per-nav refresh / access-status churn).
+  acquireToken: () => Promise<string>;
+  // Cold-boot/login bootstrap only.
   ensureSession: () => Promise<unknown | null>;
   exchangeSession: () => Promise<unknown>;
   getMeCached: (force?: boolean) => Promise<{ status?: string } | null>;
@@ -14,7 +19,6 @@ type AuthGuardDeps = {
 
 type AuthGuardResult = true | string;
 
-const EXCHANGE_RETRY_ATTEMPTS = 2;
 const LOGIN_EXCHANGE_RETRY_ATTEMPTS = 1;
 
 function canAccessApp(me: { status?: string } | null): boolean {
@@ -135,11 +139,16 @@ export function createAuthNavigationGuard(deps: AuthGuardDeps) {
 
     if (!to.meta.requiresAuth) return true;
 
-    const session = await ensureSessionWithExchange({
-      attempts: EXCHANGE_RETRY_ATTEMPTS,
-      allowProfileFallback: true,
-    });
-    if (!session) return `/login?returnTo=${encodeURIComponent(to.fullPath || to.path)}`;
+    // Reuse the cached access token as the session signal. acquireToken
+    // bootstraps once on cold boot (exchange + cookie-session fallback) and
+    // then serves from cache, so route changes don't re-hit auth.
+    let token: string | null = null;
+    try {
+      token = await deps.acquireToken();
+    } catch {
+      token = null;
+    }
+    if (!token) return `/login?returnTo=${encodeURIComponent(to.fullPath || to.path)}`;
 
     if (to.path === "/pending") {
       return true;

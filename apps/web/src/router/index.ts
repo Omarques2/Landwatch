@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from "vue-router";
 import { authClient } from "../auth/sigfarm-auth";
+import { acquireApiToken } from "../auth/auth";
 import {
   getAccessCached,
   getAccessStatus,
@@ -100,6 +101,7 @@ const router = createRouter({
 
 router.beforeEach(
   createAuthNavigationGuard({
+    acquireToken: () => acquireApiToken({ reason: "auth-guard" }),
     ensureSession: () => authClient.ensureSession(),
     exchangeSession: () => authClient.exchangeSession(),
     getMeCached,

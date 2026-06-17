@@ -47,6 +47,7 @@ export async function logout(): Promise<void> {
     revokeSigfarmSessionBestEffort(),
     signOutBetterAuthSessionBestEffort(),
   ]);
+  clearApiTokenCache();
   authClient.clearSession();
   if (typeof window !== "undefined") {
     window.location.assign("/login");
@@ -54,6 +55,7 @@ export async function logout(): Promise<void> {
 }
 
 export async function hardResetAuthState(): Promise<void> {
+  clearApiTokenCache();
   authClient.clearSession();
 }
 
@@ -64,22 +66,66 @@ export async function hardResetAuthState(): Promise<void> {
 // token). The token is app-wide, so a single shared result is correct.
 let tokenInflight: Promise<string> | null = null;
 
+// In-memory access-token cache. The app's working token path in some
+// environments is the cookie-session refresh fallback, whose token the auth
+// client does not retain — without this cache every request/navigation would
+// trigger a fresh /v1/auth/refresh. We key freshness off the token's own expiry
+// (JWT `exp`, falling back to a conservative TTL) minus a safety margin.
+type CachedToken = { token: string; expMs: number };
+let cachedToken: CachedToken | null = null;
+const TOKEN_EXP_MARGIN_MS = 60_000;
+const TOKEN_DEFAULT_TTL_MS = 900_000;
+
+function decodeJwtExpMs(token: string): number | null {
+  const parts = token.split(".");
+  if (parts.length < 2) return null;
+  try {
+    const json = JSON.parse(atob(parts[1]!.replace(/-/g, "+").replace(/_/g, "/")));
+    return typeof json?.exp === "number" ? json.exp * 1000 : null;
+  } catch {
+    return null;
+  }
+}
+
+function storeToken(token: string): string {
+  const expMs = decodeJwtExpMs(token) ?? Date.now() + TOKEN_DEFAULT_TTL_MS;
+  cachedToken = { token, expMs };
+  return token;
+}
+
+function cachedTokenIfFresh(): string | null {
+  if (!cachedToken) return null;
+  if (Date.now() < cachedToken.expMs - TOKEN_EXP_MARGIN_MS) return cachedToken.token;
+  return null;
+}
+
+export function clearApiTokenCache(): void {
+  cachedToken = null;
+}
+
 export async function acquireApiToken(
   options: AcquireApiTokenOptions = {},
 ): Promise<string> {
   if (isLocalAuthBypassEnabled()) {
     return "";
   }
-  // A forced refresh explicitly wants a fresh token and must not piggy-back on
-  // (or be deduped with) an ongoing non-forced acquisition.
+  // A forced refresh explicitly wants a fresh token and must not return (or be
+  // deduped with) the cached/ongoing non-forced acquisition.
   if (options.forceRefresh) {
-    return acquireApiTokenInner(options);
+    cachedToken = null;
+    return acquireAndStore(options);
   }
+  const fresh = cachedTokenIfFresh();
+  if (fresh) return fresh;
   if (tokenInflight) return tokenInflight;
-  tokenInflight = acquireApiTokenInner(options).finally(() => {
+  tokenInflight = acquireAndStore(options).finally(() => {
     tokenInflight = null;
   });
   return tokenInflight;
+}
+
+async function acquireAndStore(options: AcquireApiTokenOptions): Promise<string> {
+  return storeToken(await acquireApiTokenInner(options));
 }
 
 async function acquireApiTokenInner(
