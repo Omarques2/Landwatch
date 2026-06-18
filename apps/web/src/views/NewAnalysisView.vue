@@ -1246,6 +1246,17 @@ onMounted(() => {
     }
     if (parsed.radiusKm !== null) searchRadiusKm.value = parsed.radiusKm;
     if (parsed.carKey) analysisForm.carKey = maskCarKey(parsed.carKey);
+    // Deep-link / refresh restore: arriving on /analyses/search with valid
+    // coordinates re-runs the search so the map (with results) is shown instead
+    // of the initial "Onde buscar?" panel. activeSearch is in-memory only, so a
+    // fresh mount has none until we re-fetch.
+    if (parsed.lat !== null && parsed.lng !== null && !mvBusy.value) {
+      void runCarSearch({
+        lat: parsed.lat,
+        lng: parsed.lng,
+        radiusMeters: (parsed.radiusKm ?? searchRadiusKm.value) * 1000,
+      });
+    }
   }
 });
 

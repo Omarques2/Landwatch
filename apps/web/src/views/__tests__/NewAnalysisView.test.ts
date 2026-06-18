@@ -6,6 +6,7 @@ import { http } from "@/api/http";
 import { mvBusy } from "@/state/landwatch-status";
 
 let routePath = "/analyses/new";
+let routeQuery: Record<string, string> = {};
 
 vi.mock("@/api/http", () => ({
   http: {
@@ -16,7 +17,7 @@ vi.mock("@/api/http", () => ({
 
 vi.mock("vue-router", () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
-  useRoute: () => ({ path: routePath, query: {} }),
+  useRoute: () => ({ path: routePath, query: routeQuery }),
 }));
 
 vi.mock("@/state/landwatch-status", () => ({
@@ -34,8 +35,43 @@ vi.mock("@/components/maps/CarSelectMap.vue", () => ({
 describe("NewAnalysisView", () => {
   beforeEach(() => {
     routePath = "/analyses/new";
+    routeQuery = {};
     mvBusy.value = false;
     vi.clearAllMocks();
+  });
+
+  it("re-runs the search on mount when arriving with coordinates (deep-link restore)", async () => {
+    routePath = "/analyses/search";
+    routeQuery = { lat: "-21.1746", lng: "-47.7996", radius: "5" };
+    (http.post as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      data: {
+        data: {
+          searchId: "s1",
+          expiresAt: "",
+          renderMode: "mvt",
+          stats: { totalFeatures: 3 },
+          vectorSource: {
+            tiles: [],
+            bounds: [0, 0, 0, 0],
+            minzoom: 0,
+            maxzoom: 14,
+            sourceLayer: "cars",
+          },
+          searchCenter: { lat: -21.1746, lng: -47.7996 },
+          searchRadiusMeters: 5000,
+        },
+      },
+    });
+
+    mount(NewAnalysisView);
+    await flushPromises();
+
+    // Arriving on the search route with coords must restore the map by
+    // re-running the search (so the user never lands back on the entry panel).
+    expect(http.post).toHaveBeenCalledWith(
+      "/v1/cars/map-searches",
+      expect.objectContaining({ radiusMeters: 5000 }),
+    );
   });
 
   it("preenche coordenadas com GPS na busca de CAR", async () => {
@@ -59,6 +95,19 @@ describe("NewAnalysisView", () => {
       value: { getCurrentPosition },
       configurable: true,
     });
+    (http.post as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      data: {
+        data: {
+          searchId: "gps-1",
+          expiresAt: "",
+          renderMode: "mvt",
+          stats: { totalFeatures: 1 },
+          vectorSource: { tiles: [], bounds: [0, 0, 0, 0], minzoom: 0, maxzoom: 14, sourceLayer: "cars" },
+          searchCenter: { lat: -10.123457, lng: -50.765432 },
+          searchRadiusMeters: 5000,
+        },
+      },
+    });
 
     const wrapper = mount(NewAnalysisView);
     const button = wrapper.find('[data-testid="gps-button"]');
@@ -69,6 +118,12 @@ describe("NewAnalysisView", () => {
     const lngInput = wrapper.find('[data-testid="gps-lng"]').element as HTMLInputElement;
     expect(latInput.value).toBe("-10.123457");
     expect(lngInput.value).toBe("-50.765432");
+    // "Usar minha localização" must auto-run the search right after the GPS fix
+    // resolves (the reported real-device failure was this step not happening).
+    expect(http.post).toHaveBeenCalledWith(
+      "/v1/cars/map-searches",
+      expect.objectContaining({ radiusMeters: 5000 }),
+    );
   });
 
   it("cria uma busca vetorial com raio de 5 km por padrão", async () => {

@@ -131,7 +131,10 @@
         </div>
 
         <div class="flex-1 min-h-0 overflow-auto bg-background">
-          <router-view :key="`${route.fullPath}:${selectedOrgId}`" />
+          <!-- Key by PATH (not fullPath) + active org: a query change (e.g. the
+               selected carKey synced to the URL) must NOT remount the view and
+               wipe in-memory state. Path/param or org changes still remount. -->
+          <router-view :key="`${route.path}:${selectedOrgId}`" />
         </div>
       </main>
     </div>
