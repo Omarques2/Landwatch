@@ -7,16 +7,13 @@
 --   staging tables são UNLOGGED e recriadas por dataset.
 
 -- =========================================================
--- 1) Staging - CSV (exemplo)
+-- 1) Staging
 -- =========================================================
--- Crie a staging antes de COPY:
--- CREATE UNLOGGED TABLE landwatch.stg_csv (
---   row_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
---   payload JSONB NOT NULL,
---   geom_wkt TEXT
--- );
---
--- COPY landwatch.stg_csv(payload, geom_wkt) FROM STDIN WITH (FORMAT csv, DELIMITER ';', HEADER true);
+-- O staging (landwatch.stg_payload) é montado pelo bulk_ingest.py
+-- (create_stg_payload_from_raw_shp / _csv) e expõe:
+--   row_id BIGINT, payload JSONB, geom geometry, feature_key_override TEXT
+-- A geom já vem como `geometry` (SHP: direto do ogr2ogr; CSV: WKT parseado uma
+-- vez no estágio de payload) — sem round-trip WKT dentro deste arquivo.
 
 -- =========================================================
 -- 2) Normalização e hashes
@@ -25,7 +22,7 @@
 -- attr_hash   = hash do JSON completo
 -- geom_hash   = hash do WKB
 --
--- Este bloco assume que payload contém todas as colunas do CSV já normalizadas.
+-- Este bloco assume que payload contém todas as colunas já normalizadas.
 
 DROP TABLE IF EXISTS __stg_norm_raw;
 CREATE TEMP TABLE __stg_norm_raw AS
@@ -39,9 +36,11 @@ SELECT
     md5(s.payload::text) AS attr_hash,
     md5({{ATTR_COMPARE_JSON_SQL}}::text) AS attr_compare_hash,
     md5({{TOOLTIP_JSON_SQL}}::text) AS tooltip_hash,
-    s.payload AS attr_json,
-    s.geom_wkt
+    s.payload AS attr_json
 FROM {{STG_TABLE}} s;
+-- P3: a geom NÃO entra aqui — fica fora do sort de dedup e é trazida só nas
+-- linhas vencedoras (join por row_id em __stg_norm), evitando arrastar o
+-- binário da geometria de 1.16M feições pelo ORDER BY.
 
 -- Deduplica por feature_key para evitar colisões no mapeamento de feature_id.
 -- Mantém a linha mais recente (maior row_id) quando houver duplicatas.
@@ -54,13 +53,14 @@ SELECT
     r.attr_compare_hash,
     r.tooltip_hash,
     r.attr_json,
-    r.geom_wkt
+    p.geom
 FROM (
     SELECT
         r.*,
         ROW_NUMBER() OVER (PARTITION BY r.feature_key ORDER BY r.row_id DESC) AS __rn
     FROM __stg_norm_raw r
 ) r
+JOIN {{STG_TABLE}} p ON p.row_id = r.row_id
 WHERE r.__rn = 1;
 
 -- doc_normalized + date_closed (para CSVs de CPF/CNPJ)
@@ -70,8 +70,8 @@ ALTER TABLE __stg_norm ADD COLUMN date_closed DATE;
 
 {{DOC_DATE_SQL}}
 
--- Geometria (se houver WKT)
-ALTER TABLE __stg_norm ADD COLUMN geom geometry;
+-- Geometria: a coluna geom ja vem do join com stg_payload (P1/P3, sem
+-- round-trip WKT). So falta validar e hashear (bloco GEOM_SQL abaixo).
 ALTER TABLE __stg_norm ADD COLUMN geom_hash TEXT;
 
 {{GEOM_SQL}}
@@ -104,6 +104,7 @@ JOIN landwatch.lw_feature f
  AND f.feature_key = n.feature_key;
 
 CREATE UNIQUE INDEX ON __stg_map(feature_id);
+ANALYZE __stg_map;
 
 -- =========================================================
 -- 4) Diff vs estado atual
@@ -121,6 +122,7 @@ FROM landwatch.lw_feature_state
 WHERE dataset_id = :dataset_id;
 
 CREATE UNIQUE INDEX ON __prev_state(feature_id);
+ANALYZE __prev_state;
 
 -- novos
 DROP TABLE IF EXISTS __new_features;
@@ -134,6 +136,11 @@ SELECT
 FROM __stg_map m
 LEFT JOIN __prev_state p ON p.feature_id = m.feature_id
 WHERE p.feature_id IS NULL;
+
+-- P2: índice + ANALYZE para os EXISTS/joins (attr_pack, geom_store) usarem
+-- lookup por feature_id em vez de seq scan (crítico na 1ª carga, ~1.16M novos).
+CREATE INDEX ON __new_features(feature_id);
+ANALYZE __new_features;
 
 -- alterados
 DROP TABLE IF EXISTS __changed_features;
@@ -155,23 +162,29 @@ WHERE p.geom_hash IS DISTINCT FROM m.geom_hash
    OR p.tooltip_hash IS DISTINCT FROM m.tooltip_hash
    OR p.is_present IS DISTINCT FROM TRUE;
 
+CREATE INDEX ON __changed_features(feature_id);
+ANALYZE __changed_features;
+
 DROP TABLE IF EXISTS __geom_changed_features;
 CREATE TEMP TABLE __geom_changed_features AS
 SELECT feature_id
 FROM __changed_features
 WHERE geom_changed OR became_present;
+CREATE INDEX ON __geom_changed_features(feature_id);
 
 DROP TABLE IF EXISTS __attr_changed_features;
 CREATE TEMP TABLE __attr_changed_features AS
 SELECT feature_id
 FROM __changed_features
 WHERE attr_changed OR became_present;
+CREATE INDEX ON __attr_changed_features(feature_id);
 
 DROP TABLE IF EXISTS __tooltip_changed_features;
 CREATE TEMP TABLE __tooltip_changed_features AS
 SELECT feature_id
 FROM __changed_features
 WHERE tooltip_changed OR became_present;
+CREATE INDEX ON __tooltip_changed_features(feature_id);
 
 -- desaparecidos (estavam presentes e não vieram no snapshot)
 DROP TABLE IF EXISTS __disappeared;
@@ -180,6 +193,7 @@ SELECT p.feature_id
 FROM __prev_state p
 LEFT JOIN __stg_map m ON m.feature_id = p.feature_id
 WHERE p.is_present = TRUE AND m.feature_id IS NULL;
+CREATE INDEX ON __disappeared(feature_id);
 
 -- Persistir delta fino por versão para atualização incremental das caches.
 -- Mantém o delta na mesma transação da ingestão: se a ingestão falhar, o delta também some.

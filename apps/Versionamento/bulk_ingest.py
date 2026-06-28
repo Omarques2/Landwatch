@@ -863,11 +863,16 @@ def _is_skipinvalid_line(line: str) -> bool:
     )
 
 
-def create_stg_payload_from_raw_csv(conn, geom_col: Optional[str]):
+def create_stg_payload_from_raw_csv(conn, geom_col: Optional[str], srid: int):
     drop_table(conn, "landwatch.stg_payload")
-    geom_select = "NULL::text AS geom_wkt"
+    # stg_payload expõe `geom geometry` (não mais WKT texto). Para CSV a geom vem
+    # de uma coluna WKT, então parseamos UMA vez aqui com a MESMA função safe
+    # (mesmo SRID, NULL em erro) que o ingest.sql usava — comportamento idêntico.
+    geom_select = "NULL::geometry AS geom"
     if geom_col:
-        geom_select = f"t.{sql.Identifier(geom_col).as_string(conn)} AS geom_wkt"
+        exec_sql(conn, _safe_geom_from_wkt_fn_sql())
+        col = sql.Identifier(geom_col).as_string(conn)
+        geom_select = f"pg_temp.safe_geom_from_wkt(t.{col}, {int(srid)}) AS geom"
 
     query = f"""
         CREATE UNLOGGED TABLE landwatch.stg_payload AS
@@ -890,12 +895,15 @@ def create_stg_payload_from_raw_shp(conn, natural_id_col: Optional[str]):
             feature_expr = f"t.{sql.Identifier(col).as_string(conn)}::text AS feature_key_override"
         else:
             log_warn(f"natural_id_col '{natural_id_col}' não encontrado em stg_raw; usando hash completo.")
+    # P1: carrega a geom como `geometry` direto do stg_raw (ogr2ogr já gravou
+    # geometry válida). Sem ST_AsText/round-trip WKT. O geom_hash final é idêntico
+    # (round-trip WKT verificado lossless), então o delta não muda.
     query = """
         CREATE UNLOGGED TABLE landwatch.stg_payload AS
         SELECT
           row_number() OVER ()::bigint AS row_id,
           to_jsonb(t) - 'geom' AS payload,
-          ST_AsText(t.geom) AS geom_wkt,
+          t.geom AS geom,
           {feature_expr}
         FROM landwatch.stg_raw t
     """.format(feature_expr=feature_expr)
@@ -1012,10 +1020,12 @@ def build_doc_date_sql(doc_col: Optional[str], date_col: Optional[str]) -> str:
     return ";\n".join(stmts) + ";"
 
 
-def build_geom_sql(srid: int, is_spatial: bool) -> str:
-    if not is_spatial:
-        return "UPDATE __stg_norm SET geom = NULL, geom_hash = NULL;"
-    return f"""
+def _safe_geom_from_wkt_fn_sql() -> str:
+    """Função idempotente (pg_temp) que parseia WKT->geometry sem estourar em WKT
+    inválido (retorna NULL). Usada no estágio de stg_payload (CSV) para fazer o
+    parse UMA vez, preservando exatamente o comportamento antigo (SRID + NULL em
+    erro). O path SHP já carrega `geometry` e não precisa dela."""
+    return """
         CREATE OR REPLACE FUNCTION pg_temp.safe_geom_from_wkt(wkt text, srid int)
         RETURNS geometry
         LANGUAGE plpgsql
@@ -1029,11 +1039,19 @@ def build_geom_sql(srid: int, is_spatial: bool) -> str:
             RETURN NULL;
         END;
         $$;
+    """
 
-        UPDATE __stg_norm
-        SET geom = pg_temp.safe_geom_from_wkt(geom_wkt, {int(srid)})
-        WHERE geom_wkt IS NOT NULL AND geom_wkt <> '';
 
+def build_geom_sql(srid: int, is_spatial: bool) -> str:
+    # geom já chega como `geometry` em __stg_norm (vinda do stg_payload via join
+    # por row_id), sem round-trip WKT. Só falta validar e hashear. O geom_hash
+    # (md5 do WKB) é idêntico ao do pipeline antigo — round-trip WKT verificado
+    # lossless, então o delta não muda. `srid` mantido na assinatura por
+    # compatibilidade (a geom já vem com SRID do stg_raw/parse).
+    _ = srid
+    if not is_spatial:
+        return "UPDATE __stg_norm SET geom = NULL, geom_hash = NULL;"
+    return """
         UPDATE __stg_norm
         SET geom = ST_MakeValid(geom)
         WHERE geom IS NOT NULL AND NOT ST_IsValid(geom);
@@ -1134,7 +1152,7 @@ def process_csv(conn, dataset_id: int, dataset_code: str, csv_path: Path, snapsh
     log_debug(f"CSV doc_col='{doc_col}' date_col='{date_col}' geom_col='{geom_col}'")
 
     create_stg_raw_csv(conn, csv_path, delimiter, encoding)
-    create_stg_payload_from_raw_csv(conn, geom_col)
+    create_stg_payload_from_raw_csv(conn, geom_col, int(cfg["srid"]))
 
     sql_start = time.time()
     run_ingest_sql(
