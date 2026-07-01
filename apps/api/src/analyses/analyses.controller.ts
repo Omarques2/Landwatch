@@ -57,6 +57,7 @@ export class AnalysesController {
       endDate: query.endDate,
       page,
       pageSize,
+      orgId: query.orgId,
     });
   }
 

@@ -8,6 +8,19 @@
         </div>
       </div>
       <div class="flex flex-wrap items-center gap-2">
+        <div v-if="isOperator" class="space-y-1">
+          <UiLabel for="farms-filter-org" class="text-xs">Organização</UiLabel>
+          <UiSelect
+            id="farms-filter-org"
+            v-model="orgFilter"
+            data-testid="farms-filter-org"
+          >
+            <option value="">Todas as organizações</option>
+            <option v-for="org in orgs" :key="org.id" :value="org.id">
+              {{ org.name }}
+            </option>
+          </UiSelect>
+        </div>
         <UiButton size="sm" @click="openCreate">Nova fazenda</UiButton>
         <UiButton variant="outline" size="sm" @click="loadFarms">Atualizar</UiButton>
       </div>
@@ -45,7 +58,16 @@
             >
               <div class="flex flex-col gap-3">
                 <div class="min-w-0">
-                  <div class="font-semibold">{{ farm.name }}</div>
+                  <div class="flex flex-wrap items-center gap-2">
+                    <span class="font-semibold">{{ farm.name }}</span>
+                    <span
+                      v-if="isOperator && farm.orgName"
+                      class="inline-flex items-center rounded-full border border-border px-2 py-0.5 text-[11px] text-muted-foreground"
+                      data-testid="farm-org-badge"
+                    >
+                      {{ farm.orgName }}
+                    </span>
+                  </div>
                   <div class="break-all text-xs text-muted-foreground">
                     <span class="font-mono">{{ farm.carKey }}</span> · {{ formatDocumentsSummary(farm) }}
                   </div>
@@ -256,7 +278,7 @@
 
 <script setup lang="ts">
 import axios from "axios";
-import { computed, onMounted, reactive, ref } from "vue";
+import { computed, onMounted, reactive, ref, watch } from "vue";
 import {
   listCacheKey,
   readListCache,
@@ -273,10 +295,12 @@ import {
   DialogTitle as UiDialogTitle,
   Input as UiInput,
   Label as UiLabel,
+  Select as UiSelect,
   Skeleton as UiSkeleton,
 } from "@/components/ui";
 import { http } from "@/api/http";
 import { unwrapData, unwrapPaged, type ApiEnvelope } from "@/api/envelope";
+import { getAccessCached, type OrgOption } from "@/auth/me";
 import { isValidCpfCnpj, sanitizeDoc } from "@/lib/doc-utils";
 
 type FarmDocument = {
@@ -289,6 +313,8 @@ type Farm = {
   id: string;
   name: string;
   carKey: string;
+  orgId?: string | null;
+  orgName?: string | null;
   documentsCount?: number;
   documents?: FarmDocument[];
 };
@@ -297,6 +323,11 @@ const router = useRouter();
 const farms = ref<Farm[]>([]);
 const loadingFarms = ref(true);
 const farmsLoaded = ref(false);
+// Org filter: only meaningful for platform operators (who see every org's
+// farms). A plain tenant only ever sees its own org, so the filter stays hidden.
+const isOperator = ref(false);
+const orgs = ref<OrgOption[]>([]);
+const orgFilter = ref<string>("");
 const createOpen = ref(false);
 const savingFarm = ref(false);
 const farmForm = reactive({ name: "", carKey: "", documents: [] as string[] });
@@ -407,7 +438,45 @@ function closeCreate() {
 }
 
 function farmsCacheKey() {
-  return listCacheKey("farms", { pageSize: 100, includeDocs: true });
+  return listCacheKey("farms", {
+    pageSize: 100,
+    includeDocs: true,
+    orgId: orgFilter.value || "",
+  });
+}
+
+async function loadOrgs() {
+  try {
+    const res = await http.get<ApiEnvelope<OrgOption[]>>("/v1/access/orgs");
+    orgs.value = unwrapData(res.data) ?? [];
+  } catch {
+    orgs.value = [];
+  }
+}
+
+// Reload when the org filter changes. A watcher (not @change) guarantees we read
+// the committed orgFilter: UiSelect forwards the parent @change as a native
+// listener that fires BEFORE its own update:modelValue, so an @change handler
+// would read the previous selection (off-by-one).
+watch(orgFilter, () => {
+  void loadFarms();
+});
+
+async function resolveOperatorContext() {
+  // Only gates the optional org filter, so it runs in the background and must
+  // never block the cache-first list render.
+  const access = await getAccessCached().catch(() => null);
+  // Mirror backend grantsAllFeatures (access.controller.ts): operator UI shows
+  // only for platform admins, or platform users actually operating inside a
+  // PLATFORM org. A platform user acting in a tenant org is scoped to that org
+  // and must not see the cross-org filter/badges.
+  isOperator.value = Boolean(
+    access?.isPlatformAdmin ||
+      (access?.isPlatformUser && access?.activeOrg?.kind === "PLATFORM"),
+  );
+  if (isOperator.value) {
+    await loadOrgs();
+  }
 }
 
 async function loadFarms(options?: { background?: boolean }) {
@@ -415,7 +484,12 @@ async function loadFarms(options?: { background?: boolean }) {
   if (!options?.background) loadingFarms.value = true;
   try {
     const res = await http.get<ApiEnvelope<Farm[]>>("/v1/farms", {
-      params: { page: 1, pageSize: 100, includeDocs: true },
+      params: {
+        page: 1,
+        pageSize: 100,
+        includeDocs: true,
+        orgId: orgFilter.value || undefined,
+      },
     });
     farms.value = unwrapPaged(res.data).rows;
     // loadFarms is also called after create/edit, so this keeps the cache fresh
@@ -528,6 +602,9 @@ async function goDetail(farm: Farm) {
 }
 
 onMounted(() => {
+  // Operator status + org list resolve in the background; they only gate the
+  // optional org filter, so they must not delay the cached list render below.
+  void resolveOperatorContext();
   // Cache-first: show the cached list instantly, then revalidate in background.
   const cached = readListCache<Farm[]>(farmsCacheKey());
   if (cached) {

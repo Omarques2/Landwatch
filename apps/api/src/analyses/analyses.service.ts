@@ -501,17 +501,22 @@ export class AnalysesService {
       endDate?: string;
       page: number;
       pageSize: number;
+      orgId?: string;
     },
   ) {
     const { carKey, farmId, startDate, endDate, page, pageSize } = params;
-    // Global operators (platform admin/user) see analyses of all orgs; tenants
-    // are restricted to their org. In tenant mode the controller guarantees a
-    // resolved org, so a null orgId here only matches (now non-existent) public
-    // analyses rather than leaking cross-org data.
-    const where: Prisma.AnalysisWhereInput =
-      actor.isPlatformAdmin || actor.isPlatformUser
-        ? {}
-        : { orgId: actor.orgId };
+    // Global operators (platform admin/user) see analyses of all orgs, optionally
+    // narrowed to a single org via params.orgId; tenants are restricted to their
+    // org. The orgId filter is operator-only so a tenant can't peek into other
+    // orgs by passing an arbitrary orgId. In tenant mode the controller
+    // guarantees a resolved org, so a null orgId here only matches (now
+    // non-existent) public analyses rather than leaking cross-org data.
+    const isOperator = actor.isPlatformAdmin || actor.isPlatformUser;
+    const where: Prisma.AnalysisWhereInput = isOperator
+      ? params.orgId
+        ? { orgId: params.orgId }
+        : {}
+      : { orgId: actor.orgId };
     if (carKey) where.carKey = carKey;
     if (farmId) where.farmId = farmId;
     const dateRange = this.buildDateRange(startDate, endDate);
@@ -527,16 +532,18 @@ export class AnalysesService {
         take: pageSize,
         include: {
           farm: { select: { name: true } },
+          org: { select: { id: true, name: true } },
         },
       }),
     ]);
 
     const shaped = rows.map((row) => {
-      const { farm, ...rest } = row;
+      const { farm, org, ...rest } = row;
       return {
         ...rest,
         pdfPath: undefined,
         farmName: row.farmNameSnapshot ?? farm?.name ?? null,
+        orgName: org?.name ?? null,
       };
     });
 

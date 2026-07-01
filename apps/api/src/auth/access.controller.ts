@@ -73,4 +73,27 @@ export class AccessController {
         : orgPermissions.map((row) => row.permission),
     };
   }
+
+  // Orgs available to the current actor for filtering the Farms/Analyses lists.
+  // Platform operators (admin or PLATFORM-org member) get every org so they can
+  // tell which org a farm/analysis belongs to and narrow the view; a plain
+  // tenant can only ever "filter" to its own active org, so we return just that.
+  @Get('orgs')
+  async orgs(@Req() req: AuthedRequest) {
+    const actor = await this.actorContext.fromRequest(req, {
+      orgMode: 'optional',
+    });
+    if (actor.isPlatformAdmin || actor.isPlatformUser) {
+      return this.prisma.org.findMany({
+        orderBy: { name: 'asc' },
+        select: { id: true, name: true, kind: true, slug: true },
+      });
+    }
+    if (!actor.orgId) return [];
+    const org = await this.prisma.org.findUnique({
+      where: { id: actor.orgId },
+      select: { id: true, name: true, kind: true, slug: true },
+    });
+    return org ? [org] : [];
+  }
 }

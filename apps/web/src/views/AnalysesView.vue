@@ -37,6 +37,19 @@
             </option>
           </UiSelect>
         </div>
+        <div v-if="isOperator" class="min-w-[220px] space-y-1">
+          <UiLabel for="analysis-filter-org" class="text-xs">Organização</UiLabel>
+          <UiSelect
+            id="analysis-filter-org"
+            v-model="filters.orgId"
+            data-testid="analysis-filter-org"
+          >
+            <option value="">Todas as organizações</option>
+            <option v-for="org in orgs" :key="org.id" :value="org.id">
+              {{ org.name }}
+            </option>
+          </UiSelect>
+        </div>
         <div class="min-w-[220px] space-y-1">
           <UiLabel for="analysis-filter-car" class="text-xs">CAR</UiLabel>
           <UiInput
@@ -118,8 +131,17 @@
         >
           <div class="flex flex-wrap items-center justify-between gap-3">
             <div class="min-w-0">
-              <div class="font-semibold">
-                {{ analysis.farmName ?? "Fazenda sem cadastro" }}
+              <div class="flex flex-wrap items-center gap-2">
+                <span class="font-semibold">
+                  {{ analysis.farmName ?? "Fazenda sem cadastro" }}
+                </span>
+                <span
+                  v-if="isOperator && analysis.orgName"
+                  class="inline-flex items-center rounded-full border border-border px-2 py-0.5 text-[11px] text-muted-foreground"
+                  data-testid="analysis-org-badge"
+                >
+                  {{ analysis.orgName }}
+                </span>
               </div>
               <div class="text-xs text-muted-foreground">
                 {{ formatDate(analysis.analysisDate) }} ·
@@ -194,6 +216,19 @@
             </option>
           </UiSelect>
         </div>
+        <div v-if="isOperator" class="space-y-1">
+          <UiLabel for="analysis-filter-org-mobile">Organização</UiLabel>
+          <UiSelect
+            id="analysis-filter-org-mobile"
+            v-model="filters.orgId"
+            data-testid="analysis-filter-org-mobile"
+          >
+            <option value="">Todas as organizações</option>
+            <option v-for="org in orgs" :key="org.id" :value="org.id">
+              {{ org.name }}
+            </option>
+          </UiSelect>
+        </div>
         <div class="space-y-1">
           <UiLabel for="analysis-filter-car-mobile">CAR</UiLabel>
           <UiInput
@@ -264,7 +299,8 @@ import {
 } from "@/components/ui";
 import { useCoarsePointer } from "@/composables/useCoarsePointer";
 import { http } from "@/api/http";
-import { unwrapPaged, type ApiEnvelope } from "@/api/envelope";
+import { unwrapData, unwrapPaged, type ApiEnvelope } from "@/api/envelope";
+import { getAccessCached, type OrgOption } from "@/auth/me";
 import { filenameFromContentDisposition, saveBlobAsFile } from "@/lib/downloads";
 
 const dynComponents = { UiSheet, UiDialog };
@@ -276,6 +312,8 @@ type AnalysisRow = {
   status: string;
   analysisKind: "STANDARD" | "DETER";
   farmName?: string | null;
+  orgId?: string | null;
+  orgName?: string | null;
   hasIntersections: boolean;
 };
 
@@ -293,12 +331,16 @@ const analysesLoaded = ref(false);
 const loadingMore = ref(false);
 const farms = ref<FarmRow[]>([]);
 const farmsLoading = ref(false);
+// Org filter: only shown for platform operators (who see every org's analyses).
+const isOperator = ref(false);
+const orgs = ref<OrgOption[]>([]);
 const page = ref(1);
 const pageSize = ref(20);
 const total = ref(0);
 const filters = reactive({
   farmId: "",
   carKey: "",
+  orgId: "",
   startDate: "",
   endDate: "",
 });
@@ -352,6 +394,7 @@ function analysesCacheKey() {
   return listCacheKey("analyses", {
     farmId: filters.farmId,
     carKey: filters.carKey,
+    orgId: filters.orgId,
     startDate: filters.startDate,
     endDate: filters.endDate,
     pageSize: pageSize.value,
@@ -370,6 +413,7 @@ async function fetchAnalyses(pageToLoad: number) {
     params: {
       farmId: filters.farmId || undefined,
       carKey: filters.carKey || undefined,
+      orgId: filters.orgId || undefined,
       startDate: filters.startDate || undefined,
       endDate: filters.endDate || undefined,
       page: pageToLoad,
@@ -442,6 +486,32 @@ async function loadFarms() {
   }
 }
 
+async function loadOrgs() {
+  try {
+    const res = await http.get<ApiEnvelope<OrgOption[]>>("/v1/access/orgs");
+    orgs.value = unwrapData(res.data) ?? [];
+  } catch {
+    orgs.value = [];
+  }
+}
+
+async function resolveOperatorContext() {
+  // Only gates the optional org filter, so it runs in the background and must
+  // never block the cache-first list render.
+  const access = await getAccessCached().catch(() => null);
+  // Mirror backend grantsAllFeatures (access.controller.ts): operator UI shows
+  // only for platform admins, or platform users actually operating inside a
+  // PLATFORM org. A platform user acting in a tenant org is scoped to that org
+  // and must not see the cross-org filter/badges.
+  isOperator.value = Boolean(
+    access?.isPlatformAdmin ||
+      (access?.isPlatformUser && access?.activeOrg?.kind === "PLATFORM"),
+  );
+  if (isOperator.value) {
+    await loadOrgs();
+  }
+}
+
 async function applyFilters() {
   if (filtersError.value) return;
   await loadAnalyses({ reset: true });
@@ -450,6 +520,7 @@ async function applyFilters() {
 async function clearFilters() {
   filters.farmId = "";
   filters.carKey = "";
+  filters.orgId = "";
   filters.startDate = "";
   filters.endDate = "";
   await loadAnalyses({ reset: true });
@@ -539,6 +610,9 @@ function setupObserver() {
 }
 
 onMounted(async () => {
+  // Operator status + org list resolve in the background; they only gate the
+  // optional org filter, so they must not delay the cached list render below.
+  void resolveOperatorContext();
   // Cache-first: render the cached list snapshot instantly, then revalidate in
   // the background (live update) without blanking the list.
   const cached = readListCache<AnalysesSnapshot>(analysesCacheKey());

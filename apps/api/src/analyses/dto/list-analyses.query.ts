@@ -18,6 +18,12 @@ export class ListAnalysesQuery {
   @IsUUID()
   farmId?: string;
 
+  // Operator-only filter to a single org. Ignored by the service for
+  // non-operator tenants.
+  @IsOptional()
+  @IsUUID()
+  orgId?: string;
+
   @IsOptional()
   @IsDateString()
   startDate?: string;

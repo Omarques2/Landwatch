@@ -15,6 +15,9 @@ type ListParams = {
   page: number;
   pageSize: number;
   includeDocs?: boolean;
+  // Operator-only org filter. Ignored for non-operator tenants so they can't
+  // peek into other orgs by passing an arbitrary orgId.
+  orgId?: string;
 };
 
 @Injectable()
@@ -59,6 +62,7 @@ export class FarmsService {
     name: string;
     carKey: string;
     orgId?: string | null;
+    org?: { id: string; name: string } | null;
     documents?: Array<{ id: string; docType: string; docNormalized: string }>;
     _count?: { documents: number };
   }) {
@@ -67,6 +71,7 @@ export class FarmsService {
       name: farm.name,
       carKey: farm.carKey,
       orgId: farm.orgId ?? null,
+      orgName: farm.org?.name ?? null,
       isPublic: (farm.orgId ?? null) === null,
       documentsCount: farm._count?.documents ?? farm.documents?.length ?? 0,
       documents: farm.documents?.map((doc) => ({
@@ -175,10 +180,15 @@ export class FarmsService {
     const digits = q ? q.replace(/\D/g, '') : '';
 
     // Org scoping is mandatory: global operators (platform admin/user) see
-    // everything, tenants see their own org plus public farms, and an org-less
-    // non-operator sees only public farms. There is no unscoped path.
-    const scopedWhere = actor.isPlatformAdmin || actor.isPlatformUser
-      ? {}
+    // everything (optionally narrowed to a single org via params.orgId), tenants
+    // see their own org plus public farms, and an org-less non-operator sees only
+    // public farms. There is no unscoped path. The orgId filter is operator-only
+    // so a tenant can't peek into other orgs by passing an arbitrary orgId.
+    const isOperator = actor.isPlatformAdmin || actor.isPlatformUser;
+    const scopedWhere = isOperator
+      ? params.orgId
+        ? { orgId: params.orgId }
+        : {}
       : actor.orgId
         ? { OR: [{ orgId: actor.orgId }, { orgId: null }] }
         : { orgId: null };
@@ -215,6 +225,7 @@ export class FarmsService {
         take: pageSize,
         include: {
           documents: includeDocs ? true : false,
+          org: { select: { id: true, name: true } },
           _count: { select: { documents: true } },
         },
       }),
@@ -228,6 +239,7 @@ export class FarmsService {
           name: base.name,
           carKey: base.carKey,
           orgId: base.orgId,
+          orgName: base.orgName,
           isPublic: base.isPublic,
           documentsCount: base.documentsCount,
         };
@@ -294,42 +306,30 @@ export class FarmsService {
    * actor's scope (instead of throwing 404). Used by the analysis-creation
    * autofill, where "no farm in scope" is a normal, non-error outcome.
    *
-   * Ambiguity (platform admin without org and the CAR exists in multiple
-   * scopes) is NOT a not-found condition — it still throws 400.
+   * The lookup is ALWAYS anchored to the acting org — even for platform
+   * operators. An analysis can only be created against a farm in the acting org
+   * (see the cross-org guard in analyses.service), so resolving a foreign org's
+   * farm here would only surface a farm the actor cannot use and then fail the
+   * create. Anchoring to the acting org lets the platform org (Sigfarm) register
+   * and reuse its own farm for a CAR that other orgs also have. Falls back to
+   * public (null-org) farms when the acting org has none.
    */
   async findByCarKeyForActor(actor: ActorContext, carKeyInput: string) {
     const carKey = this.normalizeCarKey(carKeyInput);
-    let farm: Awaited<ReturnType<typeof this.prisma.farm.findFirst>> | null =
-      null;
-    if (actor.isPlatformAdmin || actor.isPlatformUser) {
-      // Global operators resolve the CAR across all orgs. Ambiguity (the CAR
-      // exists in multiple scopes) is a 400, not a silent pick.
-      const matches = await this.prisma.farm.findMany({
-        where: { carKey },
-        take: 2,
-        select: { id: true },
-      });
-      if (matches.length > 1) {
-        throw new BadRequestException({
-          code: 'FARM_CAR_KEY_AMBIGUOUS',
-          message: 'CAR key exists in multiple scopes',
-        });
-      }
-      farm = await this.prisma.farm.findFirst({
-        where: { carKey },
+    const farm =
+      (actor.orgId
+        ? await this.prisma.farm.findFirst({
+            where: { carKey, orgId: actor.orgId },
+            include: {
+              documents: true,
+              _count: { select: { documents: true } },
+            },
+          })
+        : null) ??
+      (await this.prisma.farm.findFirst({
+        where: { carKey, orgId: null },
         include: { documents: true, _count: { select: { documents: true } } },
-      });
-    } else {
-      farm =
-        (await this.prisma.farm.findFirst({
-          where: { carKey, orgId: actor.orgId },
-          include: { documents: true, _count: { select: { documents: true } } },
-        })) ??
-        (await this.prisma.farm.findFirst({
-          where: { carKey, orgId: null },
-          include: { documents: true, _count: { select: { documents: true } } },
-        }));
-    }
+      }));
     return farm ? this.shapeFarm(farm) : null;
   }
 

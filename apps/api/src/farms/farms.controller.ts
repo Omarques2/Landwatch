@@ -39,6 +39,7 @@ export class FarmsController {
       page,
       pageSize,
       includeDocs: query.includeDocs,
+      orgId: query.orgId,
     });
   }
 

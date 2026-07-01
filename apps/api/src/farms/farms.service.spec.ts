@@ -140,17 +140,36 @@ describe('FarmsService', () => {
       });
     });
 
-    it('still throws 400 on ambiguous CAR for platform admin without org', async () => {
+    it('resolves the CAR scoped to the acting org for a platform operator (no global lookup)', async () => {
+      // The nova-análise autofill is always anchored to the acting org, even for
+      // platform operators: an analysis can only be created against a farm in the
+      // acting org, so resolving a foreign org's farm here would only lead to a
+      // cross-org create failure. It must NOT do a global multi-scope lookup.
       const prisma = makePrismaMock();
-      prisma.farm.findMany.mockResolvedValue([{ id: 'a' }, { id: 'b' }]);
+      prisma.farm.findFirst.mockResolvedValueOnce({
+        id: 'farm-sig',
+        name: 'Fazenda Sig',
+        carKey: 'CAR-DUP',
+        orgId: 'org-platform',
+      });
       const service = new FarmsService(prisma);
 
-      await expect(
-        service.findByCarKeyForActor(
-          { isPlatformAdmin: true, orgId: null } as any,
-          'CAR-DUP',
-        ),
-      ).rejects.toMatchObject({ response: { code: 'FARM_CAR_KEY_AMBIGUOUS' } });
+      const result = await service.findByCarKeyForActor(
+        {
+          isPlatformAdmin: true,
+          isPlatformUser: true,
+          orgId: 'org-platform',
+        } as any,
+        'CAR-DUP',
+      );
+
+      expect(result).toMatchObject({ id: 'farm-sig', orgId: 'org-platform' });
+      expect(prisma.farm.findMany).not.toHaveBeenCalled();
+      expect(prisma.farm.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { carKey: 'CAR-DUP', orgId: 'org-platform' },
+        }),
+      );
     });
 
     it('getByCarKeyForActor still throws 404 when not found', async () => {
@@ -186,6 +205,46 @@ describe('FarmsService', () => {
 
       expect(prisma.farm.findMany).toHaveBeenCalledWith(
         expect.objectContaining({ where: {} }),
+      );
+    });
+
+    it('filters farms to a specific org when an operator passes orgId', async () => {
+      const prisma = makePrismaMock();
+      prisma.farm.count.mockResolvedValue(0);
+      prisma.farm.findMany.mockResolvedValue([]);
+      const service = new FarmsService(prisma);
+
+      await service.list(operatorActor, {
+        page: 1,
+        pageSize: 20,
+        orgId: 'org-client',
+      });
+
+      expect(prisma.farm.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { orgId: 'org-client' } }),
+      );
+    });
+
+    it('ignores the orgId filter for non-operator tenants (cannot peek other orgs)', async () => {
+      const prisma = makePrismaMock();
+      prisma.farm.count.mockResolvedValue(0);
+      prisma.farm.findMany.mockResolvedValue([]);
+      const service = new FarmsService(prisma);
+
+      await service.list(
+        {
+          userId: 'user-1',
+          orgId: 'org-1',
+          isPlatformAdmin: false,
+          isPlatformUser: false,
+        } as any,
+        { page: 1, pageSize: 20, orgId: 'org-other' },
+      );
+
+      expect(prisma.farm.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { OR: [{ orgId: 'org-1' }, { orgId: null }] },
+        }),
       );
     });
 

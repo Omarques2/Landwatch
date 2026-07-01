@@ -25,6 +25,15 @@ export type AppFeature =
   | "ATTACHMENTS"
   | "ATTACHMENTS_REVIEW";
 
+// Org option for the Farms/Analyses org filter (GET /v1/access/orgs). Platform
+// operators get every org; a plain tenant gets only its own active org.
+export type OrgOption = {
+  id: string;
+  name: string;
+  kind: "TENANT" | "PLATFORM";
+  slug: string;
+};
+
 export type AccessMeResponse = {
   activeOrg: {
     id: string;
