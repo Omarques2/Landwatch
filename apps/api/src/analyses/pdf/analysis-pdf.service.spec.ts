@@ -323,6 +323,73 @@ describe('AnalysisPdfService', () => {
     drawTextSpy.mockRestore();
   });
 
+  it('renders center and radius in the header for RADIUS analyses', async () => {
+    const { service } = makeService();
+    const pdfDoc = await PDFDocument.create();
+    const page = pdfDoc.addPage([595.28, 841.89]);
+    const state = {
+      pdfDoc,
+      page,
+      fonts: {
+        regular: await pdfDoc.embedFont(StandardFonts.Helvetica),
+        bold: await pdfDoc.embedFont(StandardFonts.HelveticaBold),
+      },
+      logo: null,
+      y: 820,
+    };
+    const drawTextSpy = jest.spyOn(service as any, 'drawText');
+
+    (service as any).drawHeader(state, {
+      ...completedDetail,
+      subjectType: 'RADIUS',
+      radius: { lat: -15.1, lng: -50.1, m: 5000 },
+      sicarStatus: null,
+      docInfos: [],
+    });
+
+    expect(drawTextSpy).toHaveBeenCalledWith(
+      expect.anything(),
+      'Centro: -15.100000, -50.100000 - Raio: 5000 m',
+      expect.any(Number),
+      expect.any(Number),
+      9,
+      false,
+      '#475569',
+    );
+    drawTextSpy.mockRestore();
+  });
+
+  it('adds a "Raio" legend entry and a radius circle feature for RADIUS analyses', async () => {
+    const { service, map } = makeService({
+      detail: {
+        ...completedDetail,
+        subjectType: 'RADIUS',
+        radius: { lat: -15.1, lng: -50.1, m: 5000 },
+        sicarStatus: null,
+      },
+    });
+
+    await service.generateForUser('analysis-1', {
+      userSubject: 'user-sub',
+      orgHeader: 'org-1',
+    });
+
+    const features = map.renderMap.mock.calls[0][0].features as Array<{
+      datasetCode: string;
+      isSicar: boolean;
+      geometry: { type: string };
+    }>;
+    const circle = features.find((f) => f.datasetCode === 'RADIUS');
+    expect(circle).toBeDefined();
+    expect(circle?.isSicar).toBe(true);
+    expect(circle?.geometry.type).toBe('Polygon');
+
+    const legend = (service as any).buildLegend(features, true) as Array<{
+      label: string;
+    }>;
+    expect(legend[0].label).toBe('Raio');
+  });
+
   it('adds a clickable dataset status icon when a justified dataset has effective attachments', async () => {
     const { service } = makeService({
       detail: {

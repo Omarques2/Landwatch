@@ -55,6 +55,8 @@ import {
 type AnalysisDetail = {
   id: string;
   carKey: string;
+  subjectType?: 'CAR' | 'RADIUS' | string | null;
+  radius?: { lat: number | null; lng: number | null; m: number | null } | null;
   farmName?: string | null;
   municipio?: string | null;
   uf?: string | null;
@@ -181,8 +183,15 @@ export class AnalysisPdfService {
       this.listAttachments(id, context),
     ]);
     const hasAttachments = attachments.length > 0;
-    const mapFeatures = this.geoJsonToMapFeatures(geojson);
-    const legend = this.buildLegend(mapFeatures);
+    const isRadius = detail.subjectType === 'RADIUS';
+    const radiusFeature = isRadius
+      ? this.buildRadiusCircleFeature(detail.radius)
+      : null;
+    const mapFeatures = [
+      ...(radiusFeature ? [radiusFeature] : []),
+      ...this.geoJsonToMapFeatures(geojson),
+    ];
+    const legend = this.buildLegend(mapFeatures, isRadius);
     const mapScale = this.mapScale();
     const mapImage = await this.map.renderMap({
       features: mapFeatures,
@@ -489,10 +498,22 @@ export class AnalysisPdfService {
       state.y -= 30;
     }
 
+    const isRadius = detail.subjectType === 'RADIUS';
     const farm = toTitleCase(detail.farmName) || 'Fazenda sem cadastro';
     const farmLine = `Estabelecimento: ${farm}`;
     this.drawText(state, farmLine, PDF.margin, state.y, 9, false, '#475569');
-    if (detail.sicarStatus) {
+    if (isRadius) {
+      this.drawText(
+        state,
+        this.formatRadiusSummary(detail.radius),
+        PDF.margin,
+        state.y - 14,
+        9,
+        false,
+        '#475569',
+      );
+      state.y -= 14;
+    } else if (detail.sicarStatus) {
       const status = formatStatusLabel(detail.sicarStatus).toUpperCase();
       const farmLineWidth = state.fonts.regular.widthOfTextAtSize(farmLine, 9);
       const badgeText = `SICAR ${detail.carKey} ${status}`;
@@ -555,6 +576,7 @@ export class AnalysisPdfService {
     x: number,
     y: number,
   ) {
+    const isRadius = detail.subjectType === 'RADIUS';
     const sicarAreaHa = this.sicarAreaHa(detail);
     const justified = getJustificationCoverageSummary(detail.datasetGroups);
     const rows = [
@@ -570,13 +592,27 @@ export class AnalysisPdfService {
         'Interseções:',
         `${detail.intersectionCount ?? 0}${justified ? ` • Justificadas: ${justified}` : ''}`,
       ],
-      [
-        'Coordenadas do CAR:',
-        formatCoordinates(detail.sicarCoordinates ?? null),
-        '',
-        '',
-      ],
-      ['Área (ha):', formatAreaHa(sicarAreaHa), '', ''],
+      isRadius
+        ? [
+            'Centro:',
+            detail.radius && detail.radius.lat != null && detail.radius.lng != null
+              ? formatCoordinates({
+                  lat: detail.radius.lat,
+                  lng: detail.radius.lng,
+                })
+              : '-',
+            'Raio:',
+            detail.radius?.m != null ? `${detail.radius.m} m` : '-',
+          ]
+        : [
+            'Coordenadas do CAR:',
+            formatCoordinates(detail.sicarCoordinates ?? null),
+            '',
+            '',
+          ],
+      isRadius
+        ? ['', '', '', '']
+        : ['Área (ha):', formatAreaHa(sicarAreaHa), '', ''],
     ];
     const colW = 245;
     for (const row of rows) {
@@ -1514,9 +1550,9 @@ export class AnalysisPdfService {
       }));
   }
 
-  private buildLegend(features: AnalysisPdfMapFeature[]) {
+  private buildLegend(features: AnalysisPdfMapFeature[], isRadius = false) {
     const entries: Array<{ label: string; color: string }> = [
-      { label: 'CAR', color: '#ef4444' },
+      { label: isRadius ? 'Raio' : 'CAR', color: '#ef4444' },
     ];
     const ucsEntries = buildUcsLegendItems(features);
     const seen = new Set<string>();
@@ -1540,6 +1576,55 @@ export class AnalysisPdfService {
   }) {
     if (item.label) return formatPrintDatasetLabel(item.label);
     return formatPrintDatasetLabel(formatDatasetLabel(item.datasetCode));
+  }
+
+  private formatRadiusSummary(
+    radius?: { lat: number | null; lng: number | null; m: number | null } | null,
+  ) {
+    const center =
+      radius && radius.lat != null && radius.lng != null
+        ? formatCoordinates({ lat: radius.lat, lng: radius.lng })
+        : '-';
+    const meters = radius?.m != null ? `${radius.m} m` : '-';
+    return `Centro: ${center} - Raio: ${meters}`;
+  }
+
+  private buildRadiusCircleFeature(
+    radius?: { lat: number | null; lng: number | null; m: number | null } | null,
+  ): AnalysisPdfMapFeature | null {
+    if (
+      !radius ||
+      radius.lat == null ||
+      radius.lng == null ||
+      radius.m == null ||
+      !(radius.m > 0)
+    ) {
+      return null;
+    }
+    const { lat, lng, m } = radius;
+    const steps = 64;
+    const earthRadius = 6378137; // meters (WGS84)
+    const latRad = (lat * Math.PI) / 180;
+    const dLat = ((m / earthRadius) * 180) / Math.PI;
+    const dLng =
+      ((m / (earthRadius * Math.cos(latRad))) * 180) / Math.PI;
+    const ring: [number, number][] = [];
+    for (let i = 0; i <= steps; i += 1) {
+      const theta = (i / steps) * 2 * Math.PI;
+      ring.push([
+        lng + dLng * Math.cos(theta),
+        lat + dLat * Math.sin(theta),
+      ]);
+    }
+    return {
+      datasetCode: 'RADIUS',
+      categoryCode: null,
+      featureId: null,
+      displayName: null,
+      naturalId: null,
+      isSicar: true,
+      geometry: { type: 'Polygon', coordinates: [ring] },
+    };
   }
 
   private sicarAreaHa(detail: AnalysisDetail) {
