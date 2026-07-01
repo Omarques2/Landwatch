@@ -1054,6 +1054,73 @@ AS $$
   ORDER BY dataset_code, feature_id;
 $$;
 
+CREATE OR REPLACE FUNCTION landwatch.fn_intersections_asof_area_geom(
+  p_subject geometry,
+  p_as_of_date date
+)
+RETURNS TABLE (
+  category_code text,
+  dataset_code text,
+  snapshot_date date,
+  feature_id bigint,
+  geom_id bigint,
+  geom geometry,
+  sicar_area_m2 numeric,
+  feature_area_m2 numeric,
+  overlap_area_m2 numeric,
+  overlap_pct_of_sicar numeric
+)
+LANGUAGE sql
+STABLE
+AS $$
+  WITH subject AS (
+    SELECT p_subject AS geom, ST_Area(p_subject::geography) AS subject_area_m2
+  )
+  SELECT
+    candidates.category_code,
+    candidates.dataset_code,
+    candidates.snapshot_date,
+    candidates.feature_id,
+    candidates.geom_id,
+    candidates.geom,
+    s.subject_area_m2 AS sicar_area_m2,
+    ST_Area(candidates.geom::geography) AS feature_area_m2,
+    ST_Area(overlap.overlap_geom::geography) AS overlap_area_m2,
+    CASE
+      WHEN s.subject_area_m2 = 0 THEN 0
+      ELSE ST_Area(overlap.overlap_geom::geography) / s.subject_area_m2 * 100
+    END AS overlap_pct_of_sicar
+  FROM subject s
+  CROSS JOIN LATERAL (
+    SELECT
+      c.code AS category_code,
+      d.code AS dataset_code,
+      v.snapshot_date AS snapshot_date,
+      f.feature_id,
+      h.geom_id,
+      g.geom
+    FROM landwatch.lw_geom_store g
+    JOIN landwatch.lw_feature_geom_hist h
+      ON h.geom_id = g.geom_id
+     AND h.valid_from <= p_as_of_date
+     AND (h.valid_to IS NULL OR h.valid_to > p_as_of_date)
+    JOIN landwatch.lw_feature f
+      ON f.dataset_id = h.dataset_id
+     AND f.feature_id = h.feature_id
+    JOIN landwatch.lw_dataset d ON d.dataset_id = f.dataset_id
+    JOIN landwatch.lw_category c ON c.category_id = d.category_id
+    JOIN landwatch.lw_dataset_version v ON v.version_id = h.version_id
+    WHERE c.code NOT IN ('SICAR', 'DETER')
+      AND g.geom && s.geom
+      AND ST_Intersects(s.geom, g.geom)
+  ) candidates
+  CROSS JOIN LATERAL (
+    SELECT ST_Intersection(s.geom, candidates.geom) AS overlap_geom
+  ) overlap
+  WHERE NOT ST_IsEmpty(overlap.overlap_geom)
+  ORDER BY dataset_code, feature_id;
+$$;
+
 CREATE OR REPLACE FUNCTION landwatch.fn_intersections_asof_area_legacy(p_cod_imovel text, p_as_of_date date)
 RETURNS TABLE (
   category_code text,
