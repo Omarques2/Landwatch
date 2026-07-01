@@ -600,6 +600,19 @@ function syncRadiusCircle() {
   syncLegendVisibility();
 }
 
+// isStyleLoaded() returns false while a freshly added vector tile source is
+// still loading, and maplibre's addSource throws in that window. The circle is
+// a geojson source added right after the intersection tile source, so defer it
+// to the next idle when the style isn't settled yet (add immediately otherwise).
+function scheduleRadiusCircle() {
+  if (!map) return;
+  if (map.isStyleLoaded()) {
+    syncRadiusCircle();
+  } else {
+    map.once("idle", () => syncRadiusCircle());
+  }
+}
+
 function radiusCircleBounds(): maplibregl.LngLatBounds | null {
   const data = radiusCircleData();
   const geometry = data?.features[0]?.geometry;
@@ -619,7 +632,7 @@ function ensureSourceAndLayers() {
     if (map.getLayer(ANALYSIS_SICAR_OUTLINE_LAYER_ID)) map.removeLayer(ANALYSIS_SICAR_OUTLINE_LAYER_ID);
     if (map.getLayer(SICAR_FILL_LAYER_ID)) map.removeLayer(SICAR_FILL_LAYER_ID);
     if (map.getSource(SOURCE_ID)) map.removeSource(SOURCE_ID);
-    syncRadiusCircle();
+    scheduleRadiusCircle();
     return;
   }
 
@@ -717,7 +730,7 @@ function ensureSourceAndLayers() {
     });
   }
 
-  syncRadiusCircle();
+  scheduleRadiusCircle();
   moveAnalysisSicarOutlineLayersToFront(map);
   syncLegendVisibility();
 }
@@ -854,8 +867,8 @@ watch(
 watch(
   () => props.radius,
   () => {
-    if (!map || !map.isStyleLoaded()) return;
-    syncRadiusCircle();
+    if (!map) return;
+    scheduleRadiusCircle();
     fitToSourceBounds(true);
   },
   { deep: true },
