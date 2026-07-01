@@ -19,8 +19,8 @@ export class CreateRadiusAnalysisDto {
   lng!: number;
 
   @IsInt()
-  @Min(1000)
-  @Max(50000)
+  @Min(100)
+  @Max(5000)
   radiusMeters!: number;
 
   @IsString()

@@ -13,12 +13,15 @@ describe('CreateRadiusAnalysisDto', () => {
   it('accepts a valid radius payload', async () => {
     expect(await errorsFor(base)).toHaveLength(0);
   });
-  it('rejects radius below 1000m', async () => {
-    const errs = await errorsFor({ ...base, radiusMeters: 999 });
+  it('accepts the minimum radius of 100m', async () => {
+    expect(await errorsFor({ ...base, radiusMeters: 100 })).toHaveLength(0);
+  });
+  it('rejects radius below 100m', async () => {
+    const errs = await errorsFor({ ...base, radiusMeters: 99 });
     expect(errs.some((e) => e.property === 'radiusMeters')).toBe(true);
   });
-  it('rejects radius above 50000m', async () => {
-    const errs = await errorsFor({ ...base, radiusMeters: 50001 });
+  it('rejects radius above 5000m', async () => {
+    const errs = await errorsFor({ ...base, radiusMeters: 5001 });
     expect(errs.some((e) => e.property === 'radiusMeters')).toBe(true);
   });
   it('requires a name', async () => {

@@ -122,20 +122,21 @@
                 data-testid="search-radius"
                 class="search-radius-slider"
                 type="range"
-                min="1"
-                max="50"
-                step="1"
+                min="0.1"
+                max="5"
+                step="0.1"
               />
-              <span class="search-radius-pill">{{ searchRadiusKm }} km</span>
+              <span class="search-radius-pill">{{ radiusPillLabel }}</span>
             </div>
           </label>
 
-          <div class="search-map-frame mt-1">
+          <div class="search-map-frame search-map-frame--radius mt-1">
             <CarSelectMap
               v-model:selected-car-key="radiusMapNoop"
               :center="centerValue"
               :radius-circle-meters="searchRadiusKm * 1000"
               :disabled="mvBusy"
+              mode="radius"
               @center-change="updateCenter"
             />
           </div>
@@ -629,6 +630,22 @@ const searchBusy = ref(false);
 const mapLoading = ref(false);
 const pngBusy = ref(false);
 const searchRadiusKm = ref(5);
+// Radius-mode pill: meters below 1 km (e.g. "500 m"), km otherwise ("2 km").
+const radiusPillLabel = computed(() => {
+  const km = searchRadiusKm.value;
+  if (km < 1) return `${Math.round(km * 1000)} m`;
+  return `${km} km`;
+});
+// Radius mode allows 0.1–5 km; CAR-search mode allows 1–50 km. When the mode
+// toggles, clamp so a value valid in one range isn't out-of-range in the other.
+watch(radiusMode, (isRadius) => {
+  if (isRadius) {
+    if (searchRadiusKm.value > 5) searchRadiusKm.value = 5;
+    if (searchRadiusKm.value < 0.1) searchRadiusKm.value = 0.1;
+  } else if (searchRadiusKm.value < 1) {
+    searchRadiusKm.value = 1;
+  }
+});
 const hideUnselectedCars = ref(false);
 const searchAutoZoom = ref(true);
 const activeSearch = ref<CarSearchVectorMapResponse | null>(null);
@@ -1492,6 +1509,16 @@ watch(
 @media (min-width: 768px) {
   .search-map-frame {
     height: clamp(320px, calc(100dvh - 360px), 720px);
+  }
+}
+/* Radius mode packs more fields above the map (name, lat, lng, GPS, radius,
+   submit); keep the map small enough that those stay visible without scroll. */
+.search-map-frame--radius {
+  height: clamp(200px, 32dvh, 340px);
+}
+@media (min-width: 768px) {
+  .search-map-frame--radius {
+    height: clamp(240px, 38dvh, 420px);
   }
 }
 </style>

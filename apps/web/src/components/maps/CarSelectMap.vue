@@ -20,7 +20,7 @@
       </div>
 
       <div
-        v-if="hasRenderableSearch"
+        v-if="hasRenderableSearch && mode !== 'radius'"
         class="absolute right-3 top-3 z-30 rounded-full border border-border bg-background/92 px-3 py-1 text-xs font-semibold shadow-sm"
       >
         {{ featureCountLabel }}
@@ -52,7 +52,7 @@
           class="w-full rounded-md px-2 py-2 text-left font-medium hover:bg-accent"
           @click="searchFromContext"
         >
-          Buscar CARs aqui
+          {{ mode === 'radius' ? 'Analisar aqui' : 'Buscar CARs aqui' }}
         </button>
       </div>
 
@@ -204,6 +204,9 @@ const props = withDefaults(defineProps<{
   // Optional radius circle overlay (radius-analysis mode). When set, draws a
   // circle outline of `radiusMeters` around `center` even without CAR results.
   radiusCircleMeters?: number | null;
+  // UI mode. In "radius" mode the CAR counter badge is hidden and the
+  // context-menu action reads "Analisar aqui" instead of "Buscar CARs aqui".
+  mode?: "search" | "radius";
 }>(), {
   activeSearch: null,
   fallbackFeatures: () => [],
@@ -213,6 +216,7 @@ const props = withDefaults(defineProps<{
   autoZoomOnExport: true,
   showSatellite: true,
   radiusCircleMeters: null,
+  mode: "search",
 });
 
 const emit = defineEmits<{
