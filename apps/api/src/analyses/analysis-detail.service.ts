@@ -379,6 +379,7 @@ export class AnalysisDetailService {
       farmNameSnapshot?: string | null;
       farm?: { name: string | null } | null;
       results?: unknown[];
+      analysisKind?: AnalysisKind;
       [key: string]: unknown;
     } | null,
   ) {
@@ -392,6 +393,7 @@ export class AnalysisDetailService {
       ...rest,
       pdfPath: undefined,
       farmName: resolvedFarmName,
+      analysisKind: analysis.analysisKind,
       subjectType: (analysis.subjectType as string | undefined) ?? null,
       radius: this.buildRadius(
         analysis as {

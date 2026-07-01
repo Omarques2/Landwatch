@@ -140,7 +140,13 @@
         </div>
         <div v-if="isRadiusAnalysis">
           <span class="font-semibold">Centro:</span>
-          {{ formatCoordinates(analysis?.radius ? { lat: analysis.radius.lat, lng: analysis.radius.lng } : null) }}
+          {{
+            formatCoordinates(
+              analysis?.radius?.lat != null && analysis?.radius?.lng != null
+                ? { lat: analysis.radius.lat, lng: analysis.radius.lng }
+                : null,
+            )
+          }}
         </div>
         <div v-if="isRadiusAnalysis">
           <span class="font-semibold">Raio:</span>

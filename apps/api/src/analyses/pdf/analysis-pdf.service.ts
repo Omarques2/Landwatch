@@ -54,7 +54,7 @@ import {
 
 type AnalysisDetail = {
   id: string;
-  carKey: string;
+  carKey: string | null;
   subjectType?: 'CAR' | 'RADIUS' | string | null;
   radius?: { lat: number | null; lng: number | null; m: number | null } | null;
   farmName?: string | null;
