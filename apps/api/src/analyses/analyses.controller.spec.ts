@@ -51,6 +51,75 @@ describe('AnalysesController', () => {
     });
   });
 
+  it('rejects createRadius when user is missing', async () => {
+    const analysesService = { createRadiusForActor: jest.fn() };
+    const module: TestingModule = await Test.createTestingModule({
+      controllers: [AnalysesController],
+      providers: [
+        { provide: AnalysesService, useValue: analysesService },
+        ...accessProviders(),
+      ],
+    }).compile();
+
+    const controller = module.get(AnalysesController);
+    await expect(
+      controller.createRadius({} as any, {
+        lat: -15.5,
+        lng: -47.9,
+        radiusMeters: 5000,
+        name: 'Raio teste',
+      } as any),
+    ).rejects.toMatchObject({
+      response: { code: 'UNAUTHORIZED' },
+    });
+    expect(analysesService.createRadiusForActor).not.toHaveBeenCalled();
+  });
+
+  it('resolves tenant actor, checks feature, and delegates createRadius', async () => {
+    const analysesService = {
+      createRadiusForActor: jest.fn().mockResolvedValue({ analysisId: 'a-1' }),
+    };
+    const actorContext = {
+      fromRequest: jest.fn().mockResolvedValue(actor),
+    };
+    const access = {
+      requireTenantFeature: jest.fn().mockResolvedValue(undefined),
+      assertCanReadAnalysis: jest.fn().mockResolvedValue(undefined),
+    };
+    const module: TestingModule = await Test.createTestingModule({
+      controllers: [AnalysesController],
+      providers: [
+        { provide: AnalysesService, useValue: analysesService },
+        { provide: ActorContextService, useValue: actorContext },
+        { provide: AccessService, useValue: access },
+      ],
+    }).compile();
+
+    const controller = module.get(AnalysesController);
+    const req = { user: { sub: 'user-sub' }, headers: {} } as any;
+    const dto = {
+      lat: -15.5,
+      lng: -47.9,
+      radiusMeters: 5000,
+      name: 'Raio teste',
+    } as any;
+
+    const result = await controller.createRadius(req, dto);
+
+    expect(actorContext.fromRequest).toHaveBeenCalledWith(req, {
+      orgMode: 'tenant',
+    });
+    expect(access.requireTenantFeature).toHaveBeenCalledWith(
+      actor,
+      'ANALYSIS_CREATE',
+    );
+    expect(analysesService.createRadiusForActor).toHaveBeenCalledWith(
+      actor,
+      dto,
+    );
+    expect(result).toEqual({ analysisId: 'a-1' });
+  });
+
   it('forwards map and geojson requests with parsed tolerance', async () => {
     const analysesService = {
       create: jest.fn(),

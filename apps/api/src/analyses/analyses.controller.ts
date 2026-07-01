@@ -16,6 +16,7 @@ import { AccessService } from '../auth/access.service';
 import { ActorContextService } from '../auth/actor-context.service';
 import { AnalysesService } from './analyses.service';
 import { CreateAnalysisDto } from './dto/create-analysis.dto';
+import { CreateRadiusAnalysisDto } from './dto/create-radius-analysis.dto';
 import { ListAnalysesQuery } from './dto/list-analyses.query';
 import { resolveApiOrigin, resolveWebOrigin } from './request-origin';
 
@@ -40,6 +41,24 @@ export class AnalysesController {
     });
     await this.access.requireTenantFeature(actor, 'ANALYSIS_CREATE');
     return this.analyses.createForActor(actor, dto);
+  }
+
+  @Post('radius')
+  async createRadius(
+    @Req() req: AuthedRequest,
+    @Body() dto: CreateRadiusAnalysisDto,
+  ) {
+    if (!req.user) {
+      throw new UnauthorizedException({
+        code: 'UNAUTHORIZED',
+        message: 'Missing user claims',
+      });
+    }
+    const actor = await this.actorContext.fromRequest(req, {
+      orgMode: 'tenant',
+    });
+    await this.access.requireTenantFeature(actor, 'ANALYSIS_CREATE');
+    return this.analyses.createRadiusForActor(actor, dto);
   }
 
   @Get()
