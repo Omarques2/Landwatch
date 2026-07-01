@@ -1023,7 +1023,12 @@ LANGUAGE sql
 STABLE
 AS $$
   WITH subject AS (
-    SELECT p_subject AS geom, ST_Area(p_subject::geography) AS subject_area_m2
+    -- Normalize the subject to the landwatch dataset SRID (4674 / SIRGAS 2000)
+    -- so ST_Intersects/ST_Intersection don't fail on mixed SRIDs. The radius
+    -- circle arrives as 4326 (geography buffer); CAR subjects are already 4674.
+    -- subject_area_m2 is taken from the geography cast (SRID-agnostic, meters).
+    SELECT ST_Transform(p_subject, 4674) AS geom,
+           ST_Area(p_subject::geography) AS subject_area_m2
   )
   SELECT
     c.code AS category_code,
@@ -1074,7 +1079,12 @@ LANGUAGE sql
 STABLE
 AS $$
   WITH subject AS (
-    SELECT p_subject AS geom, ST_Area(p_subject::geography) AS subject_area_m2
+    -- Normalize the subject to the landwatch dataset SRID (4674 / SIRGAS 2000)
+    -- so ST_Intersects/ST_Intersection don't fail on mixed SRIDs. The radius
+    -- circle arrives as 4326 (geography buffer); CAR subjects are already 4674.
+    -- subject_area_m2 is taken from the geography cast (SRID-agnostic, meters).
+    SELECT ST_Transform(p_subject, 4674) AS geom,
+           ST_Area(p_subject::geography) AS subject_area_m2
   )
   SELECT
     candidates.category_code,
