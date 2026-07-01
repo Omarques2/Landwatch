@@ -860,4 +860,46 @@ describe('AnalysesService', () => {
       expect.objectContaining({ where: { orgId: 'org-1' } }),
     );
   });
+
+  it('creates a RADIUS analysis without CAR/farm and enqueues the runner', async () => {
+    const prisma = makePrismaMock();
+    prisma.analysis.create.mockResolvedValue({
+      id: 'an-radius',
+      analysisDate: new Date('2026-07-01'),
+      status: 'pending',
+      analysisKind: 'STANDARD',
+      subjectType: 'RADIUS',
+    });
+    const deps = makeDeps();
+    const service = new AnalysesService(
+      prisma,
+      deps.runner as any,
+      deps.detail as any,
+      deps.cache as any,
+      deps.vectorMap as any,
+      deps.postprocess as any,
+      deps.pdf as any,
+      deps.landwatchStatus as any,
+      () => now,
+    );
+
+    const res = await service.createRadiusForActor(
+      { userId: 'u1', orgId: 'org-1' } as any,
+      { lat: -15.8, lng: -47.9, radiusMeters: 5000, name: 'Área X' },
+    );
+
+    expect(res.analysisId).toBe('an-radius');
+    expect(prisma.analysis.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          subjectType: 'RADIUS',
+          carKey: null,
+          farmId: null,
+          radiusM: 5000,
+          farmNameSnapshot: 'Área X',
+        }),
+      }),
+    );
+    expect(deps.runner.enqueue).toHaveBeenCalledWith('an-radius');
+  });
 });

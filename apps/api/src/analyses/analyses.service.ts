@@ -50,6 +50,15 @@ type CreateActor = {
   isPlatformAdmin?: boolean;
 };
 
+type CreateRadiusAnalysisInput = {
+  lat: number;
+  lng: number;
+  radiusMeters: number;
+  name: string;
+  documents?: string[];
+  analysisDate?: string;
+};
+
 type AnalysisMapRow = {
   categoryCode: string;
   datasetCode: string;
@@ -407,6 +416,83 @@ export class AnalysesService {
       },
       input,
     );
+  }
+
+  async createRadiusForActor(
+    actor: CreateActor,
+    input: CreateRadiusAnalysisInput,
+  ) {
+    const { userId, orgId } = actor;
+    if (!orgId) {
+      throw new ForbiddenException({
+        code: 'ORG_REQUIRED',
+        message: 'Organization context required to create analysis',
+      });
+    }
+
+    const analysisDate = this.normalizeDate(input.analysisDate);
+    const documents = this.normalizeDocuments(input.documents);
+    const name = this.normalizeFarmNameInput(input.name);
+    if (!name) {
+      throw new BadRequestException({
+        code: 'INVALID_ANALYSIS_NAME',
+        message: 'Nome da análise é obrigatório',
+      });
+    }
+
+    if (this.isCurrentAnalysisDate(analysisDate)) {
+      await this.landwatchStatus.assertNotRefreshing();
+    }
+
+    const cnpjDocs = documents
+      .filter((doc) => doc.docType === FarmDocType.CNPJ)
+      .map((doc) => doc.docNormalized);
+
+    const analysis = await this.prisma.analysis.create({
+      data: {
+        subjectType: 'RADIUS',
+        carKey: null,
+        analysisDocs: documents as Prisma.InputJsonValue,
+        analysisDate: new Date(analysisDate),
+        status: 'pending',
+        analysisKind: AnalysisKind.STANDARD,
+        createdByUserId: userId,
+        orgId: orgId ?? undefined,
+        farmId: null,
+        farmNameSnapshot: name,
+        radiusCenterLat: input.lat,
+        radiusCenterLng: input.lng,
+        radiusM: input.radiusMeters,
+        hasIntersections: false,
+        intersectionCount: 0,
+      },
+      select: {
+        id: true,
+        analysisDate: true,
+        status: true,
+        analysisKind: true,
+        subjectType: true,
+      },
+    });
+
+    this.runner.enqueue(analysis.id);
+    await Promise.all(
+      cnpjDocs.map((docNormalized) =>
+        this.postprocess.enqueue({
+          jobType: AnalysisPostprocessJobType.CNPJ_REFRESH,
+          docNormalized,
+          dedupeKey: `cnpj:${docNormalized}`,
+        }),
+      ),
+    );
+
+    return {
+      analysisId: analysis.id,
+      analysisDate: analysis.analysisDate,
+      status: analysis.status,
+      analysisKind: analysis.analysisKind,
+      subjectType: analysis.subjectType,
+    };
   }
 
   private async findScopedFarm(actor: CreateActor, carKey: string) {
