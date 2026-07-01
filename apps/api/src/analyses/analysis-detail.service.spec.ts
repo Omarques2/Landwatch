@@ -1008,6 +1008,57 @@ describe('AnalysisDetailService', () => {
     expect(detail.biomas).toEqual(['Cerrado', 'Amazonia']);
   });
 
+  it('exposes subjectType and radius for RADIUS analyses without SICAR meta lookup', async () => {
+    const prisma = makePrismaMock();
+    prisma.analysis.findUnique.mockResolvedValue({
+      id: 'analysis-radius-1',
+      carKey: null,
+      subjectType: 'RADIUS',
+      radiusCenterLat: -15.7,
+      radiusCenterLng: -47.9,
+      radiusM: 5000,
+      analysisDate: new Date('2026-01-31'),
+      analysisKind: AnalysisKind.STANDARD,
+      analysisDocs: [],
+      status: 'completed',
+      farm: null,
+      results: [],
+    });
+    const docInfo = { buildDocInfo: jest.fn() };
+    const service = new AnalysisDetailService(
+      prisma as any,
+      docInfo as any,
+      () => now,
+    );
+
+    jest
+      .spyOn(service as any, 'fetchSicarCoordinates')
+      .mockResolvedValue(null);
+    jest.spyOn(service as any, 'fetchBiomas').mockResolvedValue([]);
+    const sicarMetaSpy = jest.spyOn(service as any, 'fetchSicarMeta');
+    jest.spyOn(service as any, 'fetchDatasets').mockResolvedValue([]);
+    jest
+      .spyOn(service as any, 'fetchJustificationCoverage')
+      .mockResolvedValue(new Map());
+    jest.spyOn(service as any, 'fetchIndigenaPhases').mockResolvedValue([]);
+    jest.spyOn(service as any, 'fetchUcsCategories').mockResolvedValue([]);
+    jest
+      .spyOn(service as any, 'fetchIndigenaPhaseHits')
+      .mockResolvedValue(new Set());
+    jest
+      .spyOn(service as any, 'fetchUcsCategoryHits')
+      .mockResolvedValue(new Set());
+
+    const detail = await service.getById('analysis-radius-1');
+
+    expect(detail.subjectType).toBe('RADIUS');
+    expect(detail.radius).toEqual({ lat: -15.7, lng: -47.9, m: 5000 });
+    expect(sicarMetaSpy).not.toHaveBeenCalled();
+    expect(detail.municipio).toBeNull();
+    expect(detail.uf).toBeNull();
+    expect(detail.sicarStatus).toBeNull();
+  });
+
   it('keeps DETER dataset labels distinct by dataset code', () => {
     const prisma = makePrismaMock();
     const docInfo = { buildDocInfo: jest.fn() };

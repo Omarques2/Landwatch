@@ -217,6 +217,7 @@ export class AnalysisDetailService {
     const schema = this.getSchema();
     const sicarRow = filteredResults.find((row) => isBaseSicarResult(row));
     const analysisDocs = this.normalizeAnalysisDocs(analysis.analysisDocs);
+    const isRadius = analysis.subjectType === 'RADIUS';
 
     const [
       sicarCoordinates,
@@ -228,12 +229,14 @@ export class AnalysisDetailService {
     ] = await Promise.all([
       this.fetchSicarCoordinates(schema, analysis.carKey ?? '', analysisDate),
       this.fetchBiomas(schema, analysis.carKey ?? '', analysisDate),
-      this.fetchSicarMeta(
-        schema,
-        sicarRow?.datasetCode ?? null,
-        sicarRow?.featureId ?? null,
-        analysisDate,
-      ),
+      isRadius || !analysis.carKey
+        ? Promise.resolve({ municipio: null, uf: null, status: null })
+        : this.fetchSicarMeta(
+            schema,
+            sicarRow?.datasetCode ?? null,
+            sicarRow?.featureId ?? null,
+            analysisDate,
+          ),
       this.fetchDatasets(schema),
       this.fetchJustificationCoverage(schema, analysis.id, analysisDate),
       analysisDocs.length
@@ -246,6 +249,8 @@ export class AnalysisDetailService {
         ...rest,
         pdfPath: undefined,
         farmName: resolvedFarmName,
+        subjectType: analysis.subjectType,
+        radius: this.buildRadius(analysis),
         municipio: sicarMeta.municipio,
         uf: sicarMeta.uf,
         sicarStatus: sicarMeta.status,
@@ -347,6 +352,8 @@ export class AnalysisDetailService {
       ...rest,
       pdfPath: undefined,
       farmName: farm?.name ?? null,
+      subjectType: analysis.subjectType,
+      radius: this.buildRadius(analysis),
       municipio: sicarMeta.municipio,
       uf: sicarMeta.uf,
       sicarStatus: sicarMeta.status,
@@ -385,6 +392,15 @@ export class AnalysisDetailService {
       ...rest,
       pdfPath: undefined,
       farmName: resolvedFarmName,
+      subjectType: (analysis.subjectType as string | undefined) ?? null,
+      radius: this.buildRadius(
+        analysis as {
+          subjectType?: string | null;
+          radiusCenterLat?: unknown;
+          radiusCenterLng?: unknown;
+          radiusM?: number | null;
+        },
+      ),
       municipio: null,
       uf: null,
       sicarStatus: null,
@@ -393,6 +409,26 @@ export class AnalysisDetailService {
       datasetGroups: [],
       docInfos: [],
       results: [],
+    };
+  }
+
+  private buildRadius(analysis: {
+    subjectType?: string | null;
+    radiusCenterLat?: unknown;
+    radiusCenterLng?: unknown;
+    radiusM?: number | null;
+  }): { lat: number | null; lng: number | null; m: number | null } | null {
+    if (analysis.subjectType !== 'RADIUS') return null;
+    return {
+      lat:
+        analysis.radiusCenterLat != null
+          ? Number(analysis.radiusCenterLat)
+          : null,
+      lng:
+        analysis.radiusCenterLng != null
+          ? Number(analysis.radiusCenterLng)
+          : null,
+      m: analysis.radiusM ?? null,
     };
   }
 
