@@ -123,6 +123,10 @@ export class AnalysisRunnerService implements OnModuleInit, OnModuleDestroy {
         select: {
           id: true,
           carKey: true,
+          subjectType: true,
+          radiusCenterLat: true,
+          radiusCenterLng: true,
+          radiusM: true,
           analysisDate: true,
           analysisKind: true,
           analysisDocs: true,
@@ -161,17 +165,32 @@ export class AnalysisRunnerService implements OnModuleInit, OnModuleDestroy {
         }
       }
 
-      const {
-        rows: rawIntersections,
-        strategy,
-        usedFallback,
-      } = await this.executeIntersectionsQuery(
-        schema,
-        analysis.carKey ?? '',
-        analysisDate,
-        kind,
-        analysisId,
-      );
+      let rawIntersections: IntersectionRow[];
+      let strategy: string;
+      let usedFallback = false;
+      if (analysis.subjectType === 'RADIUS') {
+        const r = await this.executeRadiusIntersectionsQuery(
+          schema,
+          Number(analysis.radiusCenterLat),
+          Number(analysis.radiusCenterLng),
+          analysis.radiusM ?? 0,
+          analysisDate,
+          analysisId,
+        );
+        rawIntersections = r.rows;
+        strategy = 'radius_area';
+      } else {
+        const r = await this.executeIntersectionsQuery(
+          schema,
+          analysis.carKey ?? '',
+          analysisDate,
+          kind,
+          analysisId,
+        );
+        rawIntersections = r.rows;
+        strategy = r.strategy;
+        usedFallback = r.usedFallback;
+      }
       const intersections = Array.isArray(rawIntersections)
         ? rawIntersections.filter((row) => this.shouldKeepRow(row, kind))
         : [];
@@ -388,6 +407,78 @@ export class AnalysisRunnerService implements OnModuleInit, OnModuleDestroy {
         ST_GeometryType(i.geom) AS geometry_type
       FROM intersections i
     `;
+  }
+
+  private buildRadiusCurrentAreaQuery(
+    schema: string,
+    lat: number,
+    lng: number,
+    radiusM: number,
+  ) {
+    const fn = Prisma.raw(`"${schema}"."fn_intersections_current_area_geom"`);
+    return Prisma.sql`
+      WITH subject AS (
+        SELECT ST_Buffer(
+          ST_SetSRID(ST_MakePoint(${lng}, ${lat}), 4326)::geography,
+          ${radiusM}
+        )::geometry AS geom
+      ),
+      intersections AS (
+        SELECT * FROM ${fn}((SELECT geom FROM subject))
+      )
+      SELECT
+        i.*,
+        ST_GeometryType(i.geom) AS geometry_type
+      FROM intersections i
+    `;
+  }
+
+  private buildRadiusAsofAreaQuery(
+    schema: string,
+    lat: number,
+    lng: number,
+    radiusM: number,
+    analysisDate: string,
+  ) {
+    const fn = Prisma.raw(`"${schema}"."fn_intersections_asof_area_geom"`);
+    return Prisma.sql`
+      WITH subject AS (
+        SELECT ST_Buffer(
+          ST_SetSRID(ST_MakePoint(${lng}, ${lat}), 4326)::geography,
+          ${radiusM}
+        )::geometry AS geom
+      ),
+      intersections AS (
+        SELECT * FROM ${fn}((SELECT geom FROM subject), ${analysisDate}::date)
+      )
+      SELECT
+        i.*,
+        ST_GeometryType(i.geom) AS geometry_type
+      FROM intersections i
+    `;
+  }
+
+  private async executeRadiusIntersectionsQuery(
+    schema: string,
+    lat: number,
+    lng: number,
+    radiusM: number,
+    analysisDate: string | undefined,
+    analysisId: string,
+  ): Promise<{ rows: IntersectionRow[] }> {
+    const query =
+      analysisDate && !this.isCurrentAnalysisDate(analysisDate)
+        ? this.buildRadiusAsofAreaQuery(schema, lat, lng, radiusM, analysisDate)
+        : this.buildRadiusCurrentAreaQuery(schema, lat, lng, radiusM);
+    const startedAt = process.hrtime.bigint();
+    const rows = await this.prisma.$queryRaw<IntersectionRow[]>(query);
+    this.logEvent('analysis.intersections.query.raw', {
+      analysisId,
+      strategy: 'radius_area',
+      durationMs: this.elapsedMs(startedAt),
+      rowCount: Array.isArray(rows) ? rows.length : 0,
+    });
+    return { rows };
   }
 
   private buildIntersectionsQuery(

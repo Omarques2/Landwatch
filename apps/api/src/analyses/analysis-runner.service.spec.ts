@@ -884,6 +884,75 @@ describe('AnalysisRunnerService', () => {
     );
   });
 
+  it('runs RADIUS analysis against current-area geom function and stores results', async () => {
+    const prisma = makePrismaMock();
+    prisma.analysis.updateMany.mockResolvedValue({ count: 1 });
+    prisma.analysis.findUnique.mockResolvedValue({
+      id: 'analysis-1',
+      carKey: null,
+      subjectType: 'RADIUS',
+      radiusCenterLat: -15.5,
+      radiusCenterLng: -47.8,
+      radiusM: 1000,
+      analysisDate: new Date('2026-02-01'),
+      analysisKind: AnalysisKind.STANDARD,
+      status: 'pending',
+      analysisDocs: [],
+    });
+    prisma.$queryRaw.mockResolvedValueOnce([
+      {
+        category_code: 'PRODES',
+        dataset_code: 'PRODES_AMZ_2024',
+        snapshot_date: '2026-02-01',
+        feature_id: 2n,
+        geom_id: 202n,
+        geometry_type: 'ST_MultiPolygon',
+        sicar_area_m2: null,
+        feature_area_m2: '20',
+        overlap_area_m2: '5',
+        overlap_pct_of_sicar: '5',
+      },
+    ]);
+    const deps = makeDeps();
+
+    const runner = new AnalysisRunnerService(
+      prisma as any,
+      deps.landwatchStatus as any,
+      deps.attachments as any,
+      deps.postprocess as any,
+      () => now,
+    );
+
+    await runner.processAnalysis('analysis-1');
+
+    expect(prisma.$queryRaw).toHaveBeenCalledTimes(1);
+    const radiusSql = extractSqlText(prisma.$queryRaw.mock.calls[0][0]);
+    expect(radiusSql).toContain('"fn_intersections_current_area_geom"');
+    expect(radiusSql).not.toContain('"fn_intersections_asof_area_geom"');
+    expect(radiusSql).toContain('ST_Buffer');
+    expect(prisma.analysisResult.createMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.arrayContaining([
+          expect.objectContaining({
+            categoryCode: 'PRODES',
+            isSicar: false,
+            geomId: 202n,
+          }),
+        ]),
+      }),
+    );
+    expect(prisma.analysis.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'analysis-1' },
+        data: expect.objectContaining({
+          status: 'completed',
+          hasIntersections: true,
+          intersectionCount: 1,
+        }),
+      }),
+    );
+  });
+
   it('builds DETER current query using mv_feature_geom_active for current date', () => {
     const prisma = makePrismaMock();
     const deps = makeDeps();
