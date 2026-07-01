@@ -367,7 +367,13 @@ function syncLegendVisibility() {
     map.setFilter(SELECTED_LINE_LAYER_ID, selectedFilterExpression());
   }
   if (hasRadiusCircle.value) {
-    const radiusVisibility = visibleCodes.has("SICAR") ? "visible" : "none";
+    // The radius circle is the base geometry (the "Raio"/SICAR slot). It is not a
+    // backend legendItem, so it must default to visible when no legend is active
+    // and stay visible while the base is selected — matching the always-on CAR
+    // base. visibleLegendCodes() only ever holds backend dataset codes, never
+    // "SICAR", so keying on it would hide the circle by default.
+    const active = props.activeLegendCode?.trim();
+    const radiusVisibility = !active || active === "SICAR" ? "visible" : "none";
     if (map.getLayer(RADIUS_CIRCLE_FILL_LAYER_ID)) {
       map.setLayoutProperty(RADIUS_CIRCLE_FILL_LAYER_ID, "visibility", radiusVisibility);
     }
