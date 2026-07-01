@@ -167,7 +167,7 @@ export class AnalysisRunnerService implements OnModuleInit, OnModuleDestroy {
         usedFallback,
       } = await this.executeIntersectionsQuery(
         schema,
-        analysis.carKey,
+        analysis.carKey ?? '',
         analysisDate,
         kind,
         analysisId,
@@ -243,7 +243,7 @@ export class AnalysisRunnerService implements OnModuleInit, OnModuleDestroy {
           tx as Prisma.TransactionClient,
           {
             analysisId,
-            carKey: analysis.carKey,
+            carKey: analysis.carKey ?? '',
             orgId: analysis.orgId ?? null,
             analysisDate:
               analysis.analysisDate?.toISOString().slice(0, 10) ??

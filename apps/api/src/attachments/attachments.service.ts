@@ -4914,7 +4914,7 @@ export class AttachmentsService {
     const insertedCount = await this.prisma.$transaction(async (tx) =>
       this.captureEffectiveSnapshotForAnalysisTx(tx, {
         analysisId: analysis.id,
-        carKey: analysis.carKey,
+        carKey: analysis.carKey ?? '',
         orgId: analysis.orgId ?? null,
         analysisDate,
         cutoffAt,

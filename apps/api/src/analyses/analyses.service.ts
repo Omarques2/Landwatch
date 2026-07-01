@@ -71,7 +71,7 @@ type AnalysisCachePayload = {
 
 type AnalysisStatusPayload = {
   id: string;
-  carKey: string;
+  carKey: string | null;
   analysisDate: Date;
   analysisKind: AnalysisKind;
   farmName: string | null;

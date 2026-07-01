@@ -103,7 +103,7 @@ export type AnalysisGeoJsonCollection = {
   type: 'FeatureCollection';
   properties: {
     analysisId: string;
-    carKey: string;
+    carKey: string | null;
     analysisDate: string;
     analysisKind: 'STANDARD' | 'DETER';
     generatedAt: string;
@@ -226,8 +226,8 @@ export class AnalysisDetailService {
       justificationCoverage,
       docMatches,
     ] = await Promise.all([
-      this.fetchSicarCoordinates(schema, analysis.carKey, analysisDate),
-      this.fetchBiomas(schema, analysis.carKey, analysisDate),
+      this.fetchSicarCoordinates(schema, analysis.carKey ?? '', analysisDate),
+      this.fetchBiomas(schema, analysis.carKey ?? '', analysisDate),
       this.fetchSicarMeta(
         schema,
         sicarRow?.datasetCode ?? null,
