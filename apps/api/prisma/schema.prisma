@@ -203,7 +203,11 @@ model FarmDocument {
 
 model Analysis {
   id                String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  carKey            String             @map("car_key")
+  carKey            String?            @map("car_key")
+  subjectType       SubjectType        @default(CAR) @map("subject_type")
+  radiusCenterLat   Decimal?           @map("radius_center_lat")
+  radiusCenterLng   Decimal?           @map("radius_center_lng")
+  radiusM           Int?               @map("radius_m")
   analysisDocs      Json               @default("[]") @map("analysis_docs")
   analysisDate      DateTime           @map("analysis_date") @db.Date
   status            AnalysisStatus     @default(pending)
@@ -728,6 +732,14 @@ enum AnalysisKind {
   DETER
 
   @@map("analysis_kind")
+  @@schema("app")
+}
+
+enum SubjectType {
+  CAR
+  RADIUS
+
+  @@map("subject_type")
   @@schema("app")
 }
 
