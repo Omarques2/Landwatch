@@ -1006,6 +1006,54 @@ AS $$
   ORDER BY dataset_code, feature_id;
 $$;
 
+CREATE OR REPLACE FUNCTION landwatch.fn_intersections_current_area_geom(p_subject geometry)
+RETURNS TABLE (
+  category_code text,
+  dataset_code text,
+  snapshot_date date,
+  feature_id bigint,
+  geom_id bigint,
+  geom geometry,
+  sicar_area_m2 numeric,
+  feature_area_m2 numeric,
+  overlap_area_m2 numeric,
+  overlap_pct_of_sicar numeric
+)
+LANGUAGE sql
+STABLE
+AS $$
+  WITH subject AS (
+    SELECT p_subject AS geom, ST_Area(p_subject::geography) AS subject_area_m2
+  )
+  SELECT
+    c.code AS category_code,
+    d.code AS dataset_code,
+    v.snapshot_date AS snapshot_date,
+    f.feature_id,
+    a.geom_id AS geom_id,
+    a.geom AS geom,
+    s.subject_area_m2 AS sicar_area_m2,
+    ST_Area(a.geom::geography) AS feature_area_m2,
+    ST_Area(ST_Intersection(s.geom, a.geom)::geography) AS overlap_area_m2,
+    CASE
+      WHEN s.subject_area_m2 = 0 THEN 0
+      ELSE ST_Area(ST_Intersection(s.geom, a.geom)::geography)
+           / s.subject_area_m2 * 100
+    END AS overlap_pct_of_sicar
+  FROM subject s
+  JOIN landwatch.mv_feature_geom_active a ON TRUE
+  JOIN landwatch.lw_feature f
+    ON f.dataset_id = a.dataset_id
+   AND f.feature_id = a.feature_id
+  JOIN landwatch.lw_dataset d ON d.dataset_id = f.dataset_id
+  JOIN landwatch.lw_category c ON c.category_id = d.category_id
+  JOIN landwatch.lw_dataset_version v ON v.version_id = a.version_id
+  WHERE c.code NOT IN ('SICAR', 'DETER')
+    AND a.geom && s.geom
+    AND ST_Intersects(s.geom, a.geom)
+  ORDER BY dataset_code, feature_id;
+$$;
+
 CREATE OR REPLACE FUNCTION landwatch.fn_intersections_asof_area_legacy(p_cod_imovel text, p_as_of_date date)
 RETURNS TABLE (
   category_code text,
