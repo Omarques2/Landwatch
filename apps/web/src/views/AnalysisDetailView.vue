@@ -192,6 +192,7 @@
             :legend-items="vectorMap?.legendItems ?? []"
             :active-legend-code="activeLegendCode"
             :car-key="analysis?.carKey ?? null"
+            :radius="isRadiusAnalysis && analysis?.radius ? analysis.radius : null"
             auth-mode="private"
             :enable-context-menu="true"
             @feature-contextmenu="onMapFeatureContextMenu"
@@ -685,7 +686,9 @@ const canDownloadPdf = computed(() => {
   return analysis.value?.status === "completed";
 });
 
-const legendEntries = computed(() => buildAnalysisLegendEntries(vectorMap.value));
+const legendEntries = computed(() =>
+  buildAnalysisLegendEntries(vectorMap.value, isRadiusAnalysis.value),
+);
 const featureContextMenuStyle = computed(() => {
   const width = 196;
   const height = 56;

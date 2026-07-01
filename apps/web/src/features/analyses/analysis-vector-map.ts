@@ -145,13 +145,18 @@ export type AnalysisLegendEntry = {
   color: string;
 };
 
-export function buildAnalysisLegendEntries(vectorMap: AnalysisVectorMap | null | undefined) {
+export function buildAnalysisLegendEntries(
+  vectorMap: AnalysisVectorMap | null | undefined,
+  isRadius = false,
+) {
   const legendItems = vectorMap?.legendItems ?? [];
   const ucsItems = legendItems.filter((item) => item.kind === "ucs");
   const totalUcs = ucsItems.length || 1;
   let ucsIndex = 0;
 
-  const entries: AnalysisLegendEntry[] = [{ code: "SICAR", label: "CAR", color: "#ef4444" }];
+  const entries: AnalysisLegendEntry[] = [
+    { code: "SICAR", label: isRadius ? "Raio" : "CAR", color: "#ef4444" },
+  ];
   for (const item of legendItems) {
     if (item.kind === "ucs") {
       entries.push({

@@ -85,6 +85,7 @@ import {
   getPreferredAnalysisBounds,
   getPreferredAnalysisFitMaxZoom,
 } from "@/features/analyses/analysis-vector-bounds";
+import { buildRadiusCircleGeoJson } from "@/features/analyses/radius-circle";
 import { useCoarsePointer } from "@/composables/useCoarsePointer";
 import { useMapAutoResize } from "@/composables/useMapAutoResize";
 
@@ -129,6 +130,7 @@ const props = withDefaults(defineProps<{
   fitSessionKey?: string | number | null;
   showSatellite?: boolean;
   enableContextMenu?: boolean;
+  radius?: { lat: number; lng: number; m: number } | null;
 }>(), {
   activeLegendCode: null,
   carKey: null,
@@ -137,6 +139,7 @@ const props = withDefaults(defineProps<{
   fitSessionKey: null,
   showSatellite: true,
   enableContextMenu: false,
+  radius: null,
 });
 
 const emit = defineEmits<{
@@ -196,6 +199,18 @@ let hasAutoFitApplied = false;
 const SOURCE_ID = "analysis-vector";
 const SICAR_FILL_LAYER_ID = "analysis-sicar-fill";
 const SELECTED_LINE_LAYER_ID = "analysis-selected-line";
+const RADIUS_CIRCLE_SOURCE_ID = "analysis-radius-circle-source";
+const RADIUS_CIRCLE_FILL_LAYER_ID = "analysis-radius-circle-fill";
+const RADIUS_CIRCLE_LINE_LAYER_ID = "analysis-radius-circle-line";
+
+const hasRadiusCircle = computed(
+  () =>
+    Boolean(props.radius) &&
+    Number.isFinite(props.radius?.lat) &&
+    Number.isFinite(props.radius?.lng) &&
+    typeof props.radius?.m === "number" &&
+    props.radius.m > 0,
+);
 
 const ucsLegendItems = computed(() => props.legendItems.filter((item) => item.kind === "ucs"));
 const colorByLegendCode = computed(() => {
@@ -350,6 +365,15 @@ function syncLegendVisibility() {
   }
   if (map.getLayer(SELECTED_LINE_LAYER_ID)) {
     map.setFilter(SELECTED_LINE_LAYER_ID, selectedFilterExpression());
+  }
+  if (hasRadiusCircle.value) {
+    const radiusVisibility = visibleCodes.has("SICAR") ? "visible" : "none";
+    if (map.getLayer(RADIUS_CIRCLE_FILL_LAYER_ID)) {
+      map.setLayoutProperty(RADIUS_CIRCLE_FILL_LAYER_ID, "visibility", radiusVisibility);
+    }
+    if (map.getLayer(RADIUS_CIRCLE_LINE_LAYER_ID)) {
+      map.setLayoutProperty(RADIUS_CIRCLE_LINE_LAYER_ID, "visibility", radiusVisibility);
+    }
   }
 }
 
@@ -526,6 +550,61 @@ function removeLegendLayers() {
   }
 }
 
+function radiusCircleData() {
+  if (!hasRadiusCircle.value || !props.radius) return null;
+  return buildRadiusCircleGeoJson(
+    { lat: props.radius.lat, lng: props.radius.lng },
+    props.radius.m,
+  );
+}
+
+function removeRadiusCircle() {
+  if (!map) return;
+  if (map.getLayer(RADIUS_CIRCLE_LINE_LAYER_ID)) map.removeLayer(RADIUS_CIRCLE_LINE_LAYER_ID);
+  if (map.getLayer(RADIUS_CIRCLE_FILL_LAYER_ID)) map.removeLayer(RADIUS_CIRCLE_FILL_LAYER_ID);
+  if (map.getSource(RADIUS_CIRCLE_SOURCE_ID)) map.removeSource(RADIUS_CIRCLE_SOURCE_ID);
+}
+
+function syncRadiusCircle() {
+  if (!map || !map.isStyleLoaded()) return;
+  const data = radiusCircleData();
+  if (!data) {
+    removeRadiusCircle();
+    return;
+  }
+  const existing = map.getSource(RADIUS_CIRCLE_SOURCE_ID) as maplibregl.GeoJSONSource | undefined;
+  if (existing) {
+    existing.setData(data);
+  } else {
+    map.addSource(RADIUS_CIRCLE_SOURCE_ID, { type: "geojson", data });
+    map.addLayer({
+      id: RADIUS_CIRCLE_FILL_LAYER_ID,
+      type: "fill",
+      source: RADIUS_CIRCLE_SOURCE_ID,
+      paint: { "fill-color": "#ef4444", "fill-opacity": 0.14 },
+    });
+    map.addLayer({
+      id: RADIUS_CIRCLE_LINE_LAYER_ID,
+      type: "line",
+      source: RADIUS_CIRCLE_SOURCE_ID,
+      paint: { "line-color": "#ef4444", "line-width": 2 },
+    });
+  }
+  moveAnalysisSicarOutlineLayersToFront(map);
+  syncLegendVisibility();
+}
+
+function radiusCircleBounds(): maplibregl.LngLatBounds | null {
+  const data = radiusCircleData();
+  const geometry = data?.features[0]?.geometry;
+  if (!geometry || geometry.type !== "Polygon") return null;
+  const bounds = new maplibregl.LngLatBounds();
+  for (const coord of geometry.coordinates[0] ?? []) {
+    bounds.extend(coord as [number, number]);
+  }
+  return bounds.isEmpty() ? null : bounds;
+}
+
 function ensureSourceAndLayers() {
   if (!map || !map.isStyleLoaded()) return;
   if (!props.vectorSource) {
@@ -534,6 +613,7 @@ function ensureSourceAndLayers() {
     if (map.getLayer(ANALYSIS_SICAR_OUTLINE_LAYER_ID)) map.removeLayer(ANALYSIS_SICAR_OUTLINE_LAYER_ID);
     if (map.getLayer(SICAR_FILL_LAYER_ID)) map.removeLayer(SICAR_FILL_LAYER_ID);
     if (map.getSource(SOURCE_ID)) map.removeSource(SOURCE_ID);
+    syncRadiusCircle();
     return;
   }
 
@@ -631,6 +711,7 @@ function ensureSourceAndLayers() {
     });
   }
 
+  syncRadiusCircle();
   moveAnalysisSicarOutlineLayersToFront(map);
   syncLegendVisibility();
 }
@@ -639,6 +720,14 @@ function fitToSourceBounds(force = false) {
   if (!map || !props.vectorSource) return;
   if (!force && props.autoFitMode === "once" && hasAutoFitApplied) return;
   if (props.autoFitMode === "never") return;
+  if (hasRadiusCircle.value) {
+    const circleBounds = radiusCircleBounds();
+    if (circleBounds) {
+      map.fitBounds(circleBounds, { padding: 32, duration: 0 });
+      hasAutoFitApplied = true;
+      return;
+    }
+  }
   const preferredBounds = getPreferredAnalysisBounds({
     bounds: props.vectorSource.bounds,
     carBounds: props.vectorSource.carBounds,
@@ -754,6 +843,16 @@ watch(
     hasAutoFitApplied = false;
     fitToSourceBounds(true);
   },
+);
+
+watch(
+  () => props.radius,
+  () => {
+    if (!map || !map.isStyleLoaded()) return;
+    syncRadiusCircle();
+    fitToSourceBounds(true);
+  },
+  { deep: true },
 );
 
 onBeforeUnmount(() => {
