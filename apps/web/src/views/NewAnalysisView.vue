@@ -3,7 +3,24 @@
     class="new-analysis-root mx-auto flex max-w-6xl flex-col gap-6 px-4 py-4 sm:px-6 sm:py-6"
   >
     <section v-if="viewMode === 'analysis'" class="rounded-2xl border border-border bg-card p-4 shadow-sm sm:p-6">
-      <div class="text-lg font-semibold">Nova análise</div>
+      <div class="flex flex-wrap items-center justify-between gap-2">
+        <div class="text-lg font-semibold">Nova análise</div>
+        <button
+          type="button"
+          data-testid="radius-mode-toggle"
+          class="inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition"
+          :class="
+            radiusMode
+              ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+              : 'border-border bg-background text-foreground'
+          "
+          :aria-pressed="radiusMode"
+          @click="radiusMode = !radiusMode"
+        >
+          <MapPin class="h-4 w-4" />
+          Análise de Raio
+        </button>
+      </div>
       <div
         v-if="mvBusy"
         class="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700"
@@ -11,42 +28,118 @@
         Base geoespacial em atualização. Aguarde para gerar uma nova análise.
       </div>
       <div class="mt-4 grid gap-3">
-        <UiLabel for="analysis-name">Nome da fazenda</UiLabel>
-        <UiInput
-          id="analysis-name"
-          v-model="analysisForm.farmName"
-          placeholder="Nome da fazenda"
-        />
-        <div class="text-xs text-muted-foreground">
-          Se não informar o nome, a análise será feita apenas com o CAR (sem cadastro).
-        </div>
-
-        <UiLabel for="analysis-car">CAR (cod_imovel)</UiLabel>
-        <div class="flex gap-2">
+        <template v-if="!radiusMode">
+          <UiLabel for="analysis-name">Nome da fazenda</UiLabel>
           <UiInput
-            id="analysis-car"
-            class="flex-1 font-mono"
-            :model-value="analysisForm.carKey"
-            placeholder="Selecione no mapa ou digite"
-            inputmode="text"
-            autocapitalize="characters"
-            maxlength="64"
-            @update:model-value="onCarInput"
-            @blur="onCarCommit"
-            @keydown.enter.prevent="onCarCommit"
+            id="analysis-name"
+            v-model="analysisForm.farmName"
+            placeholder="Nome da fazenda"
           />
-          <UiButton
-            size="icon"
-            variant="outline"
-            class="shrink-0"
-            data-testid="car-search-shortcut"
-            title="Buscar CAR no mapa"
-            aria-label="Buscar CAR no mapa"
-            @click="router.push('/analyses/search')"
-          >
-            <MapPin class="h-4 w-4" />
-          </UiButton>
-        </div>
+          <div class="text-xs text-muted-foreground">
+            Se não informar o nome, a análise será feita apenas com o CAR (sem cadastro).
+          </div>
+        </template>
+
+        <template v-if="!radiusMode">
+          <UiLabel for="analysis-car">CAR (cod_imovel)</UiLabel>
+          <div class="flex gap-2">
+            <UiInput
+              id="analysis-car"
+              class="flex-1 font-mono"
+              :model-value="analysisForm.carKey"
+              placeholder="Selecione no mapa ou digite"
+              inputmode="text"
+              autocapitalize="characters"
+              maxlength="64"
+              @update:model-value="onCarInput"
+              @blur="onCarCommit"
+              @keydown.enter.prevent="onCarCommit"
+            />
+            <UiButton
+              size="icon"
+              variant="outline"
+              class="shrink-0"
+              data-testid="car-search-shortcut"
+              title="Buscar CAR no mapa"
+              aria-label="Buscar CAR no mapa"
+              @click="router.push('/analyses/search')"
+            >
+              <MapPin class="h-4 w-4" />
+            </UiButton>
+          </div>
+        </template>
+
+        <template v-else>
+          <UiLabel for="radius-name">Nome da análise</UiLabel>
+          <UiInput
+            id="radius-name"
+            v-model="radiusName"
+            data-testid="radius-name"
+            placeholder="Nome da análise de raio"
+          />
+
+          <div class="grid gap-3 sm:grid-cols-2">
+            <div>
+              <UiLabel>Latitude</UiLabel>
+              <UiInput
+                :model-value="center.lat"
+                data-testid="gps-lat"
+                placeholder="-10.0000 ou 10° 00' 00&quot; S"
+                @update:model-value="onSearchLatInput"
+              />
+            </div>
+            <div>
+              <UiLabel>Longitude</UiLabel>
+              <div class="flex gap-2">
+                <UiInput
+                  :model-value="center.lng"
+                  data-testid="gps-lng"
+                  placeholder="-50.0000 ou 50° 00' 00&quot; W"
+                  @update:model-value="onSearchLngInput"
+                />
+                <UiButton
+                  size="icon"
+                  variant="outline"
+                  data-testid="gps-button"
+                  class="shrink-0"
+                  :disabled="mvBusy || gpsLoading"
+                  title="Usar minha localização"
+                  aria-label="Usar minha localização"
+                  @click="useMyLocation"
+                >
+                  <Loader2 v-if="gpsLoading" class="h-4 w-4 animate-spin" />
+                  <LocateFixed v-else class="h-4 w-4" />
+                </UiButton>
+              </div>
+            </div>
+          </div>
+
+          <label class="flex min-w-0 flex-col gap-2">
+            <span class="text-sm font-medium">Raio</span>
+            <div class="search-radius-card">
+              <input
+                v-model.number="searchRadiusKm"
+                data-testid="search-radius"
+                class="search-radius-slider"
+                type="range"
+                min="1"
+                max="50"
+                step="1"
+              />
+              <span class="search-radius-pill">{{ searchRadiusKm }} km</span>
+            </div>
+          </label>
+
+          <div class="search-map-frame mt-1">
+            <CarSelectMap
+              v-model:selected-car-key="radiusMapNoop"
+              :center="centerValue"
+              :radius-circle-meters="searchRadiusKm * 1000"
+              :disabled="mvBusy"
+              @center-change="updateCenter"
+            />
+          </div>
+        </template>
 
         <UiLabel for="analysis-doc">Documentos (CPF/CNPJ, opcional)</UiLabel>
         <UiInput
@@ -108,10 +201,10 @@
           @update:model-value="onDateInput"
         />
         <div v-if="dateError" class="text-xs text-red-500">{{ dateError }}</div>
-        <div v-if="autoFillLoading" class="text-xs text-muted-foreground">
+        <div v-if="!radiusMode && autoFillLoading" class="text-xs text-muted-foreground">
           Buscando dados da fazenda...
         </div>
-        <div v-else-if="autoFillMessage" class="text-xs text-muted-foreground">
+        <div v-else-if="!radiusMode && autoFillMessage" class="text-xs text-muted-foreground">
           {{ autoFillMessage }}
         </div>
 
@@ -119,7 +212,7 @@
           class="mt-2 inline-flex w-full items-center justify-center gap-2 sm:w-auto"
           data-testid="analysis-submit"
           :disabled="isSubmitting || mvBusy"
-          @click="submitAnalysis"
+          @click="radiusMode ? submitRadiusAnalysis() : submitAnalysis()"
         >
           <span v-if="isSubmitting" class="inline-flex items-center gap-2">
             <span
@@ -524,6 +617,8 @@ const route = useRoute();
 
 const isSubmitting = ref(false);
 const confirmMissingOpen = ref(false);
+const radiusMode = ref(false);
+const radiusName = ref("");
 
 const center = reactive({ lat: "", lng: "" });
 const parsedCenter = ref({ lat: -15.5, lng: -55.5 });
@@ -539,6 +634,9 @@ const searchAutoZoom = ref(true);
 const activeSearch = ref<CarSearchVectorMapResponse | null>(null);
 const fallbackCars = ref<CarFallbackFeature[]>([]);
 const searchMapRef = ref<InstanceType<typeof CarSelectMap> | null>(null);
+// CarSelectMap requires v-model:selected-car-key; radius mode has no CAR
+// selection, so this sink absorbs the binding without touching analysisForm.
+const radiusMapNoop = ref("");
 const { isCoarsePointer } = useCoarsePointer();
 const adjustSheetOpen = ref(false);
 const mapExpanded = ref(false);
@@ -785,6 +883,63 @@ async function performSubmit() {
       err?.response?.data?.message ??
       "Falha ao criar análise.";
     message.value = apiMessage;
+  } finally {
+    isSubmitting.value = false;
+  }
+}
+
+async function submitRadiusAnalysis() {
+  message.value = "";
+  if (isSubmitting.value) return;
+  commitDocIfValid();
+  if (mvBusy.value) {
+    message.value = "Base geoespacial em atualização. Aguarde para continuar.";
+    return;
+  }
+  const name = radiusName.value.trim();
+  if (!name) {
+    message.value = "Nome da análise é obrigatório.";
+    return;
+  }
+  const lat = parseCoordinate(center.lat, "lat");
+  const lng = parseCoordinate(center.lng, "lng");
+  if (lat === null || lng === null) {
+    message.value = "Informe coordenadas válidas (latitude e longitude).";
+    return;
+  }
+  if (docError.value) {
+    message.value = docError.value;
+    return;
+  }
+  if (dateError.value) {
+    message.value = "Data inválida.";
+    return;
+  }
+  isSubmitting.value = true;
+  message.value = "Criando análise...";
+  const payload = {
+    lat,
+    lng,
+    radiusMeters: Math.round(searchRadiusKm.value * 1000),
+    name,
+    documents: analysisForm.documents.length ? [...analysisForm.documents] : undefined,
+    analysisDate: normalizeAnalysisDate(analysisForm.analysisDate),
+  };
+  try {
+    const res = await http.post<ApiEnvelope<{ analysisId: string }>>(
+      "/v1/analyses/radius",
+      payload,
+    );
+    const created = unwrapData(res.data);
+    message.value = "Análise criada. Aguardando processamento.";
+    if (created?.analysisId) {
+      await router.push(`/analyses/${created.analysisId}`);
+    }
+  } catch (err: any) {
+    message.value =
+      err?.response?.data?.error?.message ??
+      err?.response?.data?.message ??
+      "Falha ao criar análise.";
   } finally {
     isSubmitting.value = false;
   }

@@ -200,6 +200,9 @@ const props = withDefaults(defineProps<{
   loading?: boolean;
   autoZoomOnExport?: boolean;
   showSatellite?: boolean;
+  // Optional radius circle overlay (radius-analysis mode). When set, draws a
+  // circle outline of `radiusMeters` around `center` even without CAR results.
+  radiusCircleMeters?: number | null;
 }>(), {
   activeSearch: null,
   fallbackFeatures: () => [],
@@ -208,6 +211,7 @@ const props = withDefaults(defineProps<{
   loading: false,
   autoZoomOnExport: true,
   showSatellite: true,
+  radiusCircleMeters: null,
 });
 
 const emit = defineEmits<{
@@ -220,8 +224,18 @@ const emit = defineEmits<{
 const mapEl = ref<HTMLDivElement | null>(null);
 const { isCoarsePointer } = useCoarsePointer();
 useMapAutoResize(mapEl, () => map?.resize());
+const hasRadiusCircle = computed(
+  () =>
+    typeof props.radiusCircleMeters === "number" &&
+    props.radiusCircleMeters > 0 &&
+    Number.isFinite(props.center.lat) &&
+    Number.isFinite(props.center.lng),
+);
 const hasRenderableSearch = computed(
-  () => Boolean(props.activeSearch?.vectorSource) || (props.fallbackFeatures?.length ?? 0) > 0,
+  () =>
+    Boolean(props.activeSearch?.vectorSource) ||
+    (props.fallbackFeatures?.length ?? 0) > 0 ||
+    hasRadiusCircle.value,
 );
 const featureCount = computed(() => props.activeSearch?.stats.totalFeatures ?? props.fallbackFeatures.length ?? 0);
 const featureCountLabel = computed(() => `${featureCount.value} CAR${featureCount.value === 1 ? "" : "s"}`);
@@ -234,6 +248,9 @@ const fallbackAreaByFeatureKey = computed(() => {
 });
 
 const SOURCE_ID = "cars-vector-search";
+const RADIUS_CIRCLE_SOURCE_ID = "radius-circle-source";
+const RADIUS_CIRCLE_FILL_LAYER_ID = "radius-circle-fill";
+const RADIUS_CIRCLE_LINE_LAYER_ID = "radius-circle-line";
 const FALLBACK_SOURCE_ID = "cars-search-fallback";
 const FILL_LAYER_ID = "cars-search-fill";
 const LINE_LAYER_ID = "cars-search-line";
@@ -555,6 +572,7 @@ async function initMap() {
   bindMapEvents();
   map.on("load", async () => {
     updateSearchMarker();
+    syncRadiusCircle();
     await syncMapSources();
   });
 }
@@ -602,6 +620,87 @@ function updateSearchMarker() {
     return;
   }
   searchMarker.setLngLat([markerPosition.lng, markerPosition.lat]);
+}
+
+// Approximate a geodesic circle as a 64-vertex polygon around center.
+function buildRadiusCircleGeoJson(
+  center: { lat: number; lng: number },
+  radiusMeters: number,
+): FeatureCollection {
+  const points = 64;
+  const earthRadius = 6_378_137;
+  const latRad = (center.lat * Math.PI) / 180;
+  const coords: Position[] = [];
+  for (let i = 0; i <= points; i += 1) {
+    const angle = (i / points) * 2 * Math.PI;
+    const dx = (radiusMeters * Math.cos(angle)) / (earthRadius * Math.cos(latRad));
+    const dy = (radiusMeters * Math.sin(angle)) / earthRadius;
+    const lng = center.lng + (dx * 180) / Math.PI;
+    const lat = center.lat + (dy * 180) / Math.PI;
+    coords.push([lng, lat]);
+  }
+  return {
+    type: "FeatureCollection",
+    features: [
+      {
+        type: "Feature",
+        properties: {},
+        geometry: { type: "Polygon", coordinates: [coords] },
+      },
+    ],
+  };
+}
+
+function syncRadiusCircle() {
+  if (!map || !map.isStyleLoaded()) return;
+  if (!hasRadiusCircle.value) {
+    removeSourceAndLayer(RADIUS_CIRCLE_SOURCE_ID, [
+      RADIUS_CIRCLE_FILL_LAYER_ID,
+      RADIUS_CIRCLE_LINE_LAYER_ID,
+    ]);
+    return;
+  }
+  const data = buildRadiusCircleGeoJson(
+    props.center,
+    props.radiusCircleMeters as number,
+  );
+  const existing = map.getSource(RADIUS_CIRCLE_SOURCE_ID) as
+    | maplibregl.GeoJSONSource
+    | undefined;
+  if (existing) {
+    existing.setData(data);
+  } else {
+    map.addSource(RADIUS_CIRCLE_SOURCE_ID, { type: "geojson", data });
+    map.addLayer({
+      id: RADIUS_CIRCLE_FILL_LAYER_ID,
+      type: "fill",
+      source: RADIUS_CIRCLE_SOURCE_ID,
+      paint: { "fill-color": "#16a34a", "fill-opacity": 0.1 },
+    });
+    map.addLayer({
+      id: RADIUS_CIRCLE_LINE_LAYER_ID,
+      type: "line",
+      source: RADIUS_CIRCLE_SOURCE_ID,
+      paint: { "line-color": "#16a34a", "line-width": 2, "line-opacity": 0.9 },
+    });
+  }
+  updateSearchMarker();
+  if (!hasRenderableSearchResults()) {
+    const ring = data.features[0]?.geometry;
+    if (ring && ring.type === "Polygon") {
+      const bounds = new maplibregl.LngLatBounds();
+      for (const coord of ring.coordinates[0] as Position[]) {
+        bounds.extend(coord as [number, number]);
+      }
+      if (!bounds.isEmpty()) {
+        map.fitBounds(bounds, { padding: 48, animate: false });
+      }
+    }
+  }
+}
+
+function hasRenderableSearchResults() {
+  return Boolean(props.activeSearch?.vectorSource) || (props.fallbackFeatures?.length ?? 0) > 0;
 }
 
 function removeHoverPopup() {
@@ -959,6 +1058,7 @@ function clearRenderableSources() {
 
 async function syncMapSources(options?: { fitToBounds?: boolean }) {
   if (!map || !map.isStyleLoaded()) return;
+  syncRadiusCircle();
   if (props.activeSearch?.vectorSource) {
     await renderVectorSource(options);
     return;
@@ -1448,8 +1548,17 @@ watch(
   async () => {
     await nextTick();
     updateSearchMarker();
+    syncRadiusCircle();
   },
   { deep: true },
+);
+
+watch(
+  () => props.radiusCircleMeters,
+  async () => {
+    await nextTick();
+    syncRadiusCircle();
+  },
 );
 
 watch(

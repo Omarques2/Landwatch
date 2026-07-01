@@ -138,7 +138,15 @@
             </span>
           </template>
         </div>
-        <div>
+        <div v-if="isRadiusAnalysis">
+          <span class="font-semibold">Centro:</span>
+          {{ formatCoordinates(analysis?.radius ? { lat: analysis.radius.lat, lng: analysis.radius.lng } : null) }}
+        </div>
+        <div v-if="isRadiusAnalysis">
+          <span class="font-semibold">Raio:</span>
+          {{ formatRadiusKm(analysis?.radius?.m) }}
+        </div>
+        <div v-else>
           <span class="font-semibold">Coordenadas do CAR:</span>
           {{ formatCoordinates(analysis?.sicarCoordinates ?? null) }}
         </div>
@@ -418,6 +426,8 @@ type DocInfo = {
 type AnalysisDetail = {
   id: string;
   carKey: string;
+  subjectType?: "CAR" | "RADIUS";
+  radius?: { lat: number; lng: number; m: number } | null;
   analysisKind?: "STANDARD" | "DETER";
   farmName?: string | null;
   municipio?: string | null;
@@ -705,6 +715,13 @@ function formatBiomas(biomas?: string[] | null) {
 function formatCoordinates(coords?: { lat: number; lng: number } | null) {
   if (!coords) return "-";
   return `${coords.lat.toFixed(6)}, ${coords.lng.toFixed(6)}`;
+}
+
+const isRadiusAnalysis = computed(() => analysis.value?.subjectType === "RADIUS");
+
+function formatRadiusKm(meters?: number | null) {
+  if (typeof meters !== "number" || !Number.isFinite(meters)) return "-";
+  return `${(meters / 1000).toFixed(meters % 1000 === 0 ? 0 : 1)} km`;
 }
 
 const sicarAreaHa = computed(() => {
