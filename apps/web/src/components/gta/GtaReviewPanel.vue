@@ -88,24 +88,25 @@
             v-model="selectedCandidateId"
           />
           <span class="min-w-0 flex-1">
-            <span class="flex items-center justify-between gap-2">
-              <span class="truncate text-sm font-medium">
-                {{ c.estabelecimento || c.nome }}
-              </span>
-              <span
-                class="shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium"
-                :class="
-                  c.car
-                    ? 'bg-emerald-100 text-emerald-700'
-                    : 'bg-muted text-muted-foreground'
-                "
-              >
-                {{ c.car ? "com CAR" : "sem CAR" }}
-              </span>
+            <span class="block truncate text-sm font-medium">
+              {{ c.estabelecimento || c.nome }}
             </span>
             <span class="mt-0.5 block truncate text-xs text-muted-foreground">
               {{ [c.municipio, c.uf].filter(Boolean).join("-") || "—" }}
               · cód. {{ c.codigoEstabelecimento ?? "—" }}
+            </span>
+            <span
+              v-if="c.car"
+              class="mt-1 block truncate font-mono text-xs text-foreground"
+              :title="c.car"
+            >
+              {{ c.car }}
+            </span>
+            <span
+              v-else
+              class="mt-1 inline-block rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700"
+            >
+              sem CAR
             </span>
           </span>
         </label>

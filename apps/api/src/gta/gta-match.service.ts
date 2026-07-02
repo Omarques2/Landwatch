@@ -42,7 +42,10 @@ export class GtaMatchService {
     }
 
     // Keep only exact CPF/CNPJ matches (repo filter is LIKE-based), then dedupe
-    // by fornecedor id — the lakehouse export can carry duplicated rows.
+    // by CONTENT — the lakehouse export carries rows that are identical in every
+    // field but the id. Two rows that differ only by id are the same supplier
+    // registered twice, so we collapse them (keeping the first). Rows that
+    // differ in a real field (e.g. a different CAR) are kept as distinct.
     const seen = new Set<string>();
     const rows: FornecedorCandidate[] = (result.rows as any[])
       .filter((r) => sanitizeDoc(String(r.cpfCnpj ?? '')) === cpf)
@@ -59,8 +62,9 @@ export class GtaMatchService {
         car: r.car ? String(r.car) : null,
       }))
       .filter((r) => {
-        if (seen.has(r.idFornecedor)) return false;
-        seen.add(r.idFornecedor);
+        const key = contentKey(r);
+        if (seen.has(key)) return false;
+        seen.add(key);
         return true;
       });
 
@@ -99,4 +103,17 @@ export class GtaMatchService {
 function digitsBlock(value: string | null | undefined): string {
   const match = (value ?? '').match(/\d+/);
   return match ? match[0] : '';
+}
+
+/** Identity of a supplier by its meaningful fields (ignores id). Two rows with
+ *  the same content are the same supplier registered more than once. */
+function contentKey(c: FornecedorCandidate): string {
+  const norm = (v: string | null): string => (v ?? '').trim().toUpperCase();
+  return [
+    norm(c.estabelecimento),
+    norm(c.codigoEstabelecimento),
+    norm(c.municipio),
+    norm(c.uf),
+    norm(c.car),
+  ].join('|');
 }

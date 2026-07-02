@@ -172,13 +172,31 @@ describe('GtaMatchService', () => {
     expect(m.candidates.map((c) => c.idFornecedor).sort()).toEqual(['a', 'b']);
   });
 
-  it('dedupes repeated fornecedor rows by id', async () => {
-    const dup = { idFornecedor: 'f1', nome: 'X', cpfCnpj: '01279969156', codigoEstabelecimento: '52016601239', municipio: 'Novo Brasil', uf: 'GO', car: '' };
-    const svc = new GtaMatchService(repoReturning([dup, { ...dup }]));
-    const m = await svc.match(baseGta());
-    // Two identical rows collapse to a single matched supplier, not ambiguous.
-    expect(m.kind).toBe('matched_no_car');
-    expect(m.fornecedor?.idFornecedor).toBe('f1');
+  it('collapses suppliers identical in content but different id (keeps first)', async () => {
+    // Henrique case: same estabelecimento/código/município/CAR, only id differs.
+    const base = { nome: 'HENRIQUE', cpfCnpj: '01279969156', estabelecimento: 'faz. osara ii', codigoEstabelecimento: '172030904230000', municipio: 'SAO SEBASTIAO', uf: 'TO', car: 'TO-1720309-ABC' };
+    const svc = new GtaMatchService(
+      repoReturning([
+        { idFornecedor: 'first', ...base },
+        { idFornecedor: 'second', ...base },
+      ]),
+    );
+    const m = await svc.match(baseGta({ codigoEstabelecimento: '172030904230000' }));
+    expect(m.kind).toBe('matched_with_car');
+    expect(m.fornecedor?.idFornecedor).toBe('first');
+  });
+
+  it('keeps suppliers that differ only by CAR as distinct (ambiguous)', async () => {
+    const base = { nome: 'X', cpfCnpj: '01279969156', estabelecimento: 'faz. osara ii', codigoEstabelecimento: '172030904230000', municipio: 'SAO SEBASTIAO', uf: 'TO' };
+    const svc = new GtaMatchService(
+      repoReturning([
+        { idFornecedor: 'a', ...base, car: 'TO-1-A' },
+        { idFornecedor: 'b', ...base, car: 'TO-1-B' },
+      ]),
+    );
+    const m = await svc.match(baseGta({ codigoEstabelecimento: '172030904230000' }));
+    expect(m.kind).toBe('ambiguous');
+    expect(m.candidates).toHaveLength(2);
   });
 
   it('kind=unavailable when the fabric lookup throws (degrades gracefully)', async () => {
