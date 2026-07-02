@@ -1,94 +1,124 @@
-<!-- apps/web/src/components/gta/GtaReviewPanel.vue -->
 <template>
-  <div class="gta-review" data-testid="gta-review">
-    <div v-if="gta.status !== 'ok'" class="gta-warn" data-testid="gta-warn">
+  <div class="space-y-5" data-testid="gta-review">
+    <div
+      v-if="gta.status !== 'ok'"
+      class="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800"
+      data-testid="gta-warn"
+    >
       Extração com avisos: {{ gta.warnings.join(", ") || "revise os dados" }}
     </div>
 
     <div
       v-if="match.kind === 'unavailable'"
-      class="gta-info"
+      class="rounded-md bg-blue-50 px-3 py-2 text-sm text-blue-800"
       data-testid="gta-match-unavailable"
     >
       Não foi possível consultar o cadastro de fornecedores agora. Preencha o CAR
-      manualmente para gerar a análise; o cadastro não será alterado.
+      para gerar a análise.
     </div>
 
-    <!-- Row 1: Número-Série-UF | CAR -->
-    <div class="gta-row">
-      <label class="gta-field">
-        <span>Número-Série-UF</span>
-        <input :value="numeroSerieUf" readonly data-testid="gta-numero" />
-      </label>
-      <label class="gta-field">
-        <span>CAR</span>
-        <input
+    <!-- Row 1: GTA | CAR -->
+    <div class="grid gap-4 sm:grid-cols-2">
+      <div class="space-y-1">
+        <UiLabel>GTA</UiLabel>
+        <UiInput :model-value="numeroSerieUf" readonly data-testid="gta-numero" />
+      </div>
+      <div class="space-y-1">
+        <UiLabel>CAR</UiLabel>
+        <UiInput
           v-model="carModel"
           :readonly="carLocked"
-          :class="{ invalid: carTouched && !carValid }"
+          class="font-mono"
+          :class="carTouched && !carValid && !carLocked ? 'border-red-500' : ''"
+          placeholder="UF-1234567-…"
           data-testid="gta-car"
-          placeholder="UF-1234567-XXXXXXXX…"
           @blur="carTouched = true"
         />
-        <small v-if="carLocked" class="gta-lock">CAR do fornecedor (não editável)</small>
-        <small v-else-if="carTouched && !carValid" class="gta-err">CAR inválido</small>
-      </label>
+        <p
+          v-if="carTouched && !carValid && !carLocked"
+          class="text-xs text-red-600"
+        >
+          CAR inválido
+        </p>
+      </div>
     </div>
 
-    <label class="gta-field">
-      <span>Data de emissão</span>
-      <input :value="gta.dataEmissao ?? '—'" readonly data-testid="gta-data" />
-    </label>
+    <div class="space-y-1">
+      <UiLabel>Data de emissão</UiLabel>
+      <UiInput :model-value="gta.dataEmissao ?? '—'" readonly data-testid="gta-data" />
+    </div>
 
-    <fieldset class="gta-origem">
-      <legend>Origem</legend>
-      <div class="gta-grid">
-        <label><span>Nome</span><input :value="gta.origem.nome ?? '—'" readonly /></label>
-        <label><span>CPF/CNPJ</span><input :value="gta.origem.cpfCnpj ?? '—'" readonly /></label>
-        <label><span>Estabelecimento</span><input :value="gta.origem.estabelecimento ?? '—'" readonly /></label>
-        <label><span>Código Estab.</span><input :value="gta.origem.codigoEstabelecimento ?? '—'" readonly /></label>
-        <label><span>Município-UF</span><input :value="municipioUf" readonly /></label>
+    <!-- Origem -->
+    <div class="space-y-2">
+      <h3 class="text-sm font-medium">Origem</h3>
+      <div class="grid gap-x-8 gap-y-3 sm:grid-cols-2">
+        <div
+          v-for="field in origemFields"
+          :key="field.label"
+          class="min-w-0 space-y-0.5"
+        >
+          <p class="text-xs text-muted-foreground">{{ field.label }}</p>
+          <p class="break-words text-sm">{{ field.value }}</p>
+        </div>
       </div>
-    </fieldset>
+    </div>
 
+    <!-- Candidate picker (ambiguous match) -->
     <div
       v-if="match.kind === 'ambiguous'"
-      class="gta-candidates"
+      class="space-y-2"
       data-testid="gta-candidates"
     >
-      <p>Vários fornecedores encontrados. Selecione o correto:</p>
+      <p class="text-sm text-muted-foreground">
+        Encontramos mais de um fornecedor. Selecione o correto:
+      </p>
       <label
         v-for="c in match.candidates"
         :key="c.idFornecedor"
-        class="gta-candidate"
+        class="flex cursor-pointer items-start gap-2 rounded-md border p-2 text-sm hover:bg-muted/50"
       >
-        <input type="radio" :value="c.idFornecedor" v-model="selectedCandidateId" />
-        {{ c.nome }} — {{ c.codigoEstabelecimento ?? "s/ código" }} —
-        {{ c.municipio ?? "" }}/{{ c.uf ?? "" }}
-        <em v-if="c.car">(CAR: {{ c.car }})</em>
+        <input
+          type="radio"
+          class="mt-1"
+          :value="c.idFornecedor"
+          v-model="selectedCandidateId"
+        />
+        <span>
+          <span class="font-medium">{{ c.nome }}</span>
+          <span class="text-muted-foreground">
+            — {{ c.codigoEstabelecimento ?? "sem código" }} —
+            {{ c.municipio ?? "" }}/{{ c.uf ?? "" }}
+            <template v-if="c.car"> · CAR cadastrado</template>
+          </span>
+        </span>
       </label>
     </div>
 
-    <button
-      type="button"
-      class="gta-generate"
-      data-testid="gta-generate"
-      :disabled="!canGenerate"
-      @click="onGenerate"
-    >
-      Gerar Análise
-    </button>
-    <small
-      v-if="!canGenerate && disabledReason"
-      class="gta-disabled-reason"
-      data-testid="gta-disabled-reason"
-      >{{ disabledReason }}</small
-    >
+    <div class="space-y-2 pt-1">
+      <UiButton
+        class="w-full sm:w-auto"
+        :disabled="!canGenerate"
+        data-testid="gta-generate"
+        @click="onGenerate"
+      >
+        Gerar análise
+      </UiButton>
+      <p
+        v-if="!canGenerate && disabledReason"
+        class="text-xs text-muted-foreground"
+        data-testid="gta-disabled-reason"
+      >
+        {{ disabledReason }}
+      </p>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
+import UiButton from "@/components/ui/Button.vue";
+import UiInput from "@/components/ui/Input.vue";
+import UiLabel from "@/components/ui/Label.vue";
 import type { GtaExtraction, GtaMatch, FornecedorCandidate } from "@/api/gta";
 
 const CAR_REGEX = /^[A-Z]{2}-\d{7}-[A-Z0-9]{32}$/;
@@ -153,11 +183,21 @@ const municipioUf = computed(
       .join("-") || "—",
 );
 
+const origemFields = computed(() => [
+  { label: "Nome", value: props.gta.origem.nome ?? "—" },
+  { label: "CPF/CNPJ", value: props.gta.origem.cpfCnpj ?? "—" },
+  { label: "Estabelecimento", value: props.gta.origem.estabelecimento ?? "—" },
+  {
+    label: "Código do estabelecimento",
+    value: props.gta.origem.codigoEstabelecimento ?? "—",
+  },
+  { label: "Município-UF", value: municipioUf.value },
+]);
+
 // Derive the matchKind sent to the backend from the *current* selection.
 const effectiveMatchKind = computed<
   "matched_with_car" | "matched_no_car" | "none" | "unavailable"
 >(() => {
-  // Fabric lookup failed: proceed without any cadastro write.
   if (props.match.kind === "unavailable") return "unavailable";
   const c = selectedCandidate.value;
   if (!c) return "none";
@@ -171,14 +211,11 @@ const canGenerate = computed(() => {
   return carValid.value;
 });
 
-// Explains why "Gerar Análise" is disabled so the user is never stuck silently.
 const disabledReason = computed(() => {
   if (props.submitting) return "";
   if (props.match.kind === "ambiguous" && !selectedCandidateId.value)
-    return "Selecione o fornecedor correto.";
-  if (carLocked.value && !carValid.value)
-    return "O CAR cadastrado deste fornecedor é inválido. Corrija-o em /fornecedores.";
-  if (!carValid.value) return "Informe um CAR válido (UF-1234567-…).";
+    return "Selecione o fornecedor.";
+  if (!carValid.value) return "Informe um CAR válido.";
   return "";
 });
 
@@ -192,72 +229,3 @@ function onGenerate() {
   });
 }
 </script>
-
-<style scoped>
-.gta-row {
-  display: flex;
-  gap: 16px;
-}
-.gta-field {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  gap: 4px;
-  margin-bottom: 12px;
-}
-.gta-field input {
-  padding: 8px 10px;
-  border: 1px solid #cfd4dc;
-  border-radius: 8px;
-}
-.gta-field input.invalid {
-  border-color: #b42318;
-}
-.gta-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-}
-.gta-warn {
-  background: #fef3c7;
-  color: #92400e;
-  padding: 8px 12px;
-  border-radius: 8px;
-  margin-bottom: 12px;
-}
-.gta-info {
-  background: #eff6ff;
-  color: #1e40af;
-  padding: 8px 12px;
-  border-radius: 8px;
-  margin-bottom: 12px;
-}
-.gta-disabled-reason {
-  display: block;
-  margin-top: 8px;
-  color: #98a2b3;
-}
-.gta-generate {
-  margin-top: 16px;
-  padding: 10px 20px;
-  border: none;
-  border-radius: 8px;
-  background: #2563eb;
-  color: #fff;
-  font-weight: 600;
-}
-.gta-generate:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-.gta-lock {
-  color: #98a2b3;
-}
-.gta-err {
-  color: #b42318;
-}
-.gta-candidate {
-  display: block;
-  margin: 6px 0;
-}
-</style>
