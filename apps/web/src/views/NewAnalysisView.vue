@@ -714,7 +714,7 @@ async function onGtaFile(file: File) {
 }
 async function onGtaGenerate(payload: {
   carKey: string;
-  matchKind: "matched_with_car" | "matched_no_car" | "none";
+  matchKind: "matched_with_car" | "matched_no_car" | "none" | "unavailable";
   fornecedorId?: string;
 }) {
   if (!gtaResult.value) return;
