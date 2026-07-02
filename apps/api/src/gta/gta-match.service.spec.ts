@@ -145,6 +145,42 @@ describe('GtaMatchService', () => {
     expect(listFornecedores).not.toHaveBeenCalled();
   });
 
+  it('normalizes a suffixed GTA código ("...  Rebanho") and auto-resolves to 1', async () => {
+    const svc = new GtaMatchService(
+      repoReturning([
+        { idFornecedor: 'f1', nome: 'X', cpfCnpj: '01279969156', codigoEstabelecimento: '52018905546', municipio: 'Porangatu', uf: 'GO', car: 'GO-1-Z' },
+        { idFornecedor: 'f2', nome: 'X', cpfCnpj: '01279969156', codigoEstabelecimento: '52020401771', municipio: 'Outra', uf: 'GO', car: '' },
+      ]),
+    );
+    const m = await svc.match(baseGta({ codigoEstabelecimento: '52018905546 Rebanho' }));
+    expect(m.kind).toBe('matched_with_car');
+    expect(m.fornecedor?.idFornecedor).toBe('f1');
+  });
+
+  it('ambiguous candidates are narrowed to the ones matching the GTA código', async () => {
+    const svc = new GtaMatchService(
+      repoReturning([
+        { idFornecedor: 'a', nome: 'H', cpfCnpj: '01279969156', codigoEstabelecimento: '172030904230000', municipio: 'SAO SEBASTIAO', uf: 'TO', car: 'TO-1-A' },
+        { idFornecedor: 'b', nome: 'H', cpfCnpj: '01279969156', codigoEstabelecimento: '172030904230000', municipio: 'SAO SEBASTIAO', uf: 'TO', car: 'TO-1-B' },
+        { idFornecedor: 'c', nome: 'H', cpfCnpj: '01279969156', codigoEstabelecimento: '170950011390000', municipio: 'GURUPI', uf: 'TO', car: '' },
+        { idFornecedor: 'd', nome: 'H', cpfCnpj: '01279969156', codigoEstabelecimento: '171660418110000', municipio: 'PEIXE', uf: 'TO', car: '' },
+      ]),
+    );
+    const m = await svc.match(baseGta({ codigoEstabelecimento: '172030904230000' }));
+    expect(m.kind).toBe('ambiguous');
+    // Only the two São Sebastião suppliers (matching código), not all four.
+    expect(m.candidates.map((c) => c.idFornecedor).sort()).toEqual(['a', 'b']);
+  });
+
+  it('dedupes repeated fornecedor rows by id', async () => {
+    const dup = { idFornecedor: 'f1', nome: 'X', cpfCnpj: '01279969156', codigoEstabelecimento: '52016601239', municipio: 'Novo Brasil', uf: 'GO', car: '' };
+    const svc = new GtaMatchService(repoReturning([dup, { ...dup }]));
+    const m = await svc.match(baseGta());
+    // Two identical rows collapse to a single matched supplier, not ambiguous.
+    expect(m.kind).toBe('matched_no_car');
+    expect(m.fornecedor?.idFornecedor).toBe('f1');
+  });
+
   it('kind=unavailable when the fabric lookup throws (degrades gracefully)', async () => {
     const repo = {
       listFornecedores: jest.fn().mockRejectedValue(new Error('401 Unauthorized')),

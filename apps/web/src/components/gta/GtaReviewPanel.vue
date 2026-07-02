@@ -69,29 +69,47 @@
       class="space-y-2"
       data-testid="gta-candidates"
     >
-      <p class="text-sm text-muted-foreground">
-        Encontramos mais de um fornecedor. Selecione o correto:
-      </p>
-      <label
-        v-for="c in match.candidates"
-        :key="c.idFornecedor"
-        class="flex cursor-pointer items-start gap-2 rounded-md border p-2 text-sm hover:bg-muted/50"
-      >
-        <input
-          type="radio"
-          class="mt-1"
-          :value="c.idFornecedor"
-          v-model="selectedCandidateId"
-        />
-        <span>
-          <span class="font-medium">{{ c.nome }}</span>
-          <span class="text-muted-foreground">
-            — {{ c.codigoEstabelecimento ?? "sem código" }} —
-            {{ c.municipio ?? "" }}/{{ c.uf ?? "" }}
-            <template v-if="c.car"> · CAR cadastrado</template>
+      <UiLabel>Selecione o estabelecimento de origem</UiLabel>
+      <div class="grid gap-2 sm:grid-cols-2">
+        <label
+          v-for="c in match.candidates"
+          :key="c.idFornecedor"
+          class="flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition hover:border-primary/60 hover:bg-muted/40"
+          :class="
+            selectedCandidateId === c.idFornecedor
+              ? 'border-primary bg-primary/5 ring-1 ring-primary'
+              : ''
+          "
+        >
+          <input
+            type="radio"
+            class="mt-1 accent-primary"
+            :value="c.idFornecedor"
+            v-model="selectedCandidateId"
+          />
+          <span class="min-w-0 flex-1">
+            <span class="flex items-center justify-between gap-2">
+              <span class="truncate text-sm font-medium">
+                {{ c.estabelecimento || c.nome }}
+              </span>
+              <span
+                class="shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium"
+                :class="
+                  c.car
+                    ? 'bg-emerald-100 text-emerald-700'
+                    : 'bg-muted text-muted-foreground'
+                "
+              >
+                {{ c.car ? "com CAR" : "sem CAR" }}
+              </span>
+            </span>
+            <span class="mt-0.5 block truncate text-xs text-muted-foreground">
+              {{ [c.municipio, c.uf].filter(Boolean).join("-") || "—" }}
+              · cód. {{ c.codigoEstabelecimento ?? "—" }}
+            </span>
           </span>
-        </span>
-      </label>
+        </label>
+      </div>
     </div>
 
     <div class="space-y-2 pt-1">

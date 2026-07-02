@@ -23,6 +23,7 @@ export type FornecedorCandidate = {
   idFornecedor: string;
   nome: string;
   cpfCnpj: string;
+  estabelecimento: string | null;
   codigoEstabelecimento: string | null;
   municipio: string | null;
   uf: string | null;
