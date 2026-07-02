@@ -11,5 +11,6 @@ import { FabricLakehouseRepository } from './fabric-lakehouse.repository';
     FabricClientService,
     FabricLakehouseRepository,
   ],
+  exports: [FabricLakehouseRepository],
 })
 export class FornecedoresModule {}
