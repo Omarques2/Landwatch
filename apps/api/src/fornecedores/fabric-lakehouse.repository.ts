@@ -346,6 +346,19 @@ export class FabricLakehouseRepository {
     };
   }
 
+  async insertFornecedor(payload: {
+    cpfCnpj: string;
+    nome: string;
+    estabelecimento: string | null;
+    codigoEstabelecimento: string | null;
+    municipio: string | null;
+    uf: string | null;
+    car: string;
+    requestedBy?: string | null;
+  }): Promise<{ jobId: string | null; status: 'ACCEPTED' | 'COMPLETED' }> {
+    return this.fabric.runFornecedorInsertJob(payload);
+  }
+
   private async verifyFornecedorCarWrite(
     fornecedorId: string,
     expectedCar: string,
