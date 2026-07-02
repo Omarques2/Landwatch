@@ -142,6 +142,12 @@ const envBaseSchema = z.object({
   FABRIC_CAR_UPDATE_JOB_TYPE: z.string().default('DefaultJob'),
   FABRIC_CAR_UPDATE_WAIT_SECONDS: numberSchema.default(60),
   FABRIC_CAR_UPDATE_POLL_INTERVAL_MS: numberSchema.default(2000),
+
+  // GTA extractor (Python subprocess). GTA_EXTRACTOR_DIR is resolved relative
+  // to the API package root at runtime; default 'gta-extractor' -> apps/api/gta-extractor.
+  GTA_EXTRACTOR_DIR: z.string().default('gta-extractor'),
+  GTA_EXTRACT_TIMEOUT_MS: numberSchema.default(30000),
+  GTA_PYTHON_BIN: z.string().default('python3'),
 });
 
 const envSchema = envBaseSchema.superRefine(
