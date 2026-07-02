@@ -45,6 +45,15 @@ RUN apk add --no-cache \
   && ln -s /opt/microsoft/powershell/7/pwsh /usr/bin/pwsh \
   && rm -f /tmp/powershell.tar.gz
 
+# GTA extraction runtime (Python + poppler for pdftotext fallback).
+# Build context is apps/api and WORKDIR is /app, so GTA_EXTRACTOR_DIR's
+# default ('gta-extractor') resolves to /app/gta-extractor at runtime.
+RUN apk add --no-cache python3 py3-pip poppler-utils
+COPY gta-extractor/requirements.txt /app/gta-extractor/requirements.txt
+RUN python3 -m pip install --no-cache-dir --break-system-packages \
+  -r /app/gta-extractor/requirements.txt
+COPY gta-extractor /app/gta-extractor
+
 USER node
 EXPOSE 3001
 CMD ["node", "dist/main"]

@@ -7,3 +7,7 @@ npm-debug.log*
 README.md
 .eslint*
 .prettier*
+gta-extractor/samples
+gta-extractor/__pycache__
+gta-extractor/**/__pycache__
+gta-extractor/.pytest_cache
