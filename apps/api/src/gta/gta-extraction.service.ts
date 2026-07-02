@@ -45,7 +45,16 @@ export class GtaExtractionService {
         timeoutMs,
         originalName,
       );
-      return JSON.parse(json) as GtaExtraction;
+      const parsed = JSON.parse(json) as GtaExtraction;
+      // Valid JSON of the wrong shape (e.g. `null`) would otherwise pass through
+      // and blow up later in matching with an opaque 500. Enforce the contract.
+      if (!parsed || typeof parsed !== 'object' || !parsed.origem) {
+        throw new UnprocessableEntityException({
+          code: 'GTA_EXTRACTION_FAILED',
+          message: 'Não foi possível extrair os dados desta GTA.',
+        });
+      }
+      return parsed;
     } catch (error) {
       if (error instanceof UnprocessableEntityException) throw error;
       this.logger.warn(

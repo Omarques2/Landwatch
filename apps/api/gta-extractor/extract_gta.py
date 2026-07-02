@@ -64,6 +64,12 @@ def main(argv: list[str]) -> int:
         return 2
 
     # Take the first GTA (multi-GTA PDFs are out of scope for this phase).
+    if len(records) > 1:
+        print(
+            f"notice: {len(records)} GTAs found; using the first and ignoring "
+            f"{len(records) - 1} more",
+            file=sys.stderr,
+        )
     record = records[0]
     if getattr(record, "status", None) == "failed":
         warnings = list(getattr(record, "warnings", []) or [])

@@ -52,7 +52,10 @@ export class GtaController {
   }
 
   @Post('extract')
-  @UseInterceptors(FileInterceptor('file'))
+  // fileSize cap enforced at the multer layer so an oversized upload is aborted
+  // mid-stream instead of being fully buffered into memory (DoS guard). The
+  // manual size check below stays as a friendly-message fallback.
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_PDF_BYTES } }))
   async extract(
     @Req() req: AuthedRequest,
     @UploadedFile() file: UploadedPdf,

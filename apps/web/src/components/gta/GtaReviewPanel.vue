@@ -5,6 +5,15 @@
       Extração com avisos: {{ gta.warnings.join(", ") || "revise os dados" }}
     </div>
 
+    <div
+      v-if="match.kind === 'unavailable'"
+      class="gta-info"
+      data-testid="gta-match-unavailable"
+    >
+      Não foi possível consultar o cadastro de fornecedores agora. Preencha o CAR
+      manualmente para gerar a análise; o cadastro não será alterado.
+    </div>
+
     <!-- Row 1: Número-Série-UF | CAR -->
     <div class="gta-row">
       <label class="gta-field">
@@ -69,6 +78,12 @@
     >
       Gerar Análise
     </button>
+    <small
+      v-if="!canGenerate && disabledReason"
+      class="gta-disabled-reason"
+      data-testid="gta-disabled-reason"
+      >{{ disabledReason }}</small
+    >
   </div>
 </template>
 
@@ -88,7 +103,7 @@ const emit = defineEmits<{
     e: "generate",
     payload: {
       carKey: string;
-      matchKind: "matched_with_car" | "matched_no_car" | "none";
+      matchKind: "matched_with_car" | "matched_no_car" | "none" | "unavailable";
       fornecedorId?: string;
     },
   ): void;
@@ -140,8 +155,10 @@ const municipioUf = computed(
 
 // Derive the matchKind sent to the backend from the *current* selection.
 const effectiveMatchKind = computed<
-  "matched_with_car" | "matched_no_car" | "none"
+  "matched_with_car" | "matched_no_car" | "none" | "unavailable"
 >(() => {
+  // Fabric lookup failed: proceed without any cadastro write.
+  if (props.match.kind === "unavailable") return "unavailable";
   const c = selectedCandidate.value;
   if (!c) return "none";
   return c.car && c.car.trim() ? "matched_with_car" : "matched_no_car";
@@ -152,6 +169,17 @@ const canGenerate = computed(() => {
   if (props.match.kind === "ambiguous" && !selectedCandidateId.value)
     return false;
   return carValid.value;
+});
+
+// Explains why "Gerar Análise" is disabled so the user is never stuck silently.
+const disabledReason = computed(() => {
+  if (props.submitting) return "";
+  if (props.match.kind === "ambiguous" && !selectedCandidateId.value)
+    return "Selecione o fornecedor correto.";
+  if (carLocked.value && !carValid.value)
+    return "O CAR cadastrado deste fornecedor é inválido. Corrija-o em /fornecedores.";
+  if (!carValid.value) return "Informe um CAR válido (UF-1234567-…).";
+  return "";
 });
 
 function onGenerate() {
@@ -196,6 +224,18 @@ function onGenerate() {
   padding: 8px 12px;
   border-radius: 8px;
   margin-bottom: 12px;
+}
+.gta-info {
+  background: #eff6ff;
+  color: #1e40af;
+  padding: 8px 12px;
+  border-radius: 8px;
+  margin-bottom: 12px;
+}
+.gta-disabled-reason {
+  display: block;
+  margin-top: 8px;
+  color: #98a2b3;
 }
 .gta-generate {
   margin-top: 16px;

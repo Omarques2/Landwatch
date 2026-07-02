@@ -144,4 +144,16 @@ describe('GtaMatchService', () => {
     expect(m.kind).toBe('none');
     expect(listFornecedores).not.toHaveBeenCalled();
   });
+
+  it('kind=unavailable when the fabric lookup throws (degrades gracefully)', async () => {
+    const repo = {
+      listFornecedores: jest.fn().mockRejectedValue(new Error('401 Unauthorized')),
+    } as any;
+    const svc = new GtaMatchService(repo);
+    const m = await svc.match(baseGta());
+    // Extraction must still succeed even when Fabric is unreachable/unauthorized.
+    expect(m.kind).toBe('unavailable');
+    expect(m.fornecedor).toBeNull();
+    expect(m.candidates).toEqual([]);
+  });
 });

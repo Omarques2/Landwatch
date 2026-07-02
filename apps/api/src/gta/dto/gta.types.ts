@@ -33,7 +33,10 @@ export type GtaMatchKind =
   | 'matched_with_car'
   | 'matched_no_car'
   | 'ambiguous'
-  | 'none';
+  | 'none'
+  // Fabric lookup failed (unreachable/unauthorized). Extraction still
+  // succeeded; the user fills the CAR manually and we skip the fornecedor write.
+  | 'unavailable';
 
 export type GtaMatch = {
   kind: GtaMatchKind;

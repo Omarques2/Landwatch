@@ -87,4 +87,55 @@ describe('GtaAnalysisService.generate', () => {
     ).resolves.toEqual({ analysisId: 'an1' });
     await flush();
   });
+
+  it('does NOT write to fabric when analysis creation fails', async () => {
+    const { analyses, repo } = makeDeps();
+    analyses.createForActor.mockRejectedValue(new Error('CAR not in SICAR'));
+    const svc = new GtaAnalysisService(analyses as any, repo as any);
+    await expect(
+      svc.generate(actor as any, {
+        carKey: CAR,
+        matchKind: 'none',
+        origem: { cpfCnpj: '01279969156', nome: 'X' },
+      } as any),
+    ).rejects.toThrow('CAR not in SICAR');
+    await flush();
+    // The write is kicked only after createForActor resolves — a failed request
+    // must not pollute the lakehouse.
+    expect(repo.insertFornecedor).not.toHaveBeenCalled();
+    expect(repo.updateFornecedorCar).not.toHaveBeenCalled();
+  });
+
+  it('matched_no_car without fornecedorId is rejected before creating the analysis', async () => {
+    const { analyses, repo } = makeDeps();
+    const svc = new GtaAnalysisService(analyses as any, repo as any);
+    await expect(
+      svc.generate(actor as any, { carKey: CAR, matchKind: 'matched_no_car' } as any),
+    ).rejects.toMatchObject({ response: { code: 'FORNECEDOR_ID_REQUIRED' } });
+    expect(analyses.createForActor).not.toHaveBeenCalled();
+    expect(repo.updateFornecedorCar).not.toHaveBeenCalled();
+  });
+
+  it('none without origem cpfCnpj is rejected before creating the analysis', async () => {
+    const { analyses, repo } = makeDeps();
+    const svc = new GtaAnalysisService(analyses as any, repo as any);
+    await expect(
+      svc.generate(actor as any, { carKey: CAR, matchKind: 'none', origem: {} } as any),
+    ).rejects.toMatchObject({ response: { code: 'ORIGEM_CPF_CNPJ_REQUIRED' } });
+    expect(analyses.createForActor).not.toHaveBeenCalled();
+    expect(repo.insertFornecedor).not.toHaveBeenCalled();
+  });
+
+  it('unavailable: creates the analysis but never writes to fabric', async () => {
+    const { analyses, repo } = makeDeps();
+    const svc = new GtaAnalysisService(analyses as any, repo as any);
+    const out = await svc.generate(actor as any, {
+      carKey: CAR,
+      matchKind: 'unavailable',
+    } as any);
+    expect(out).toEqual({ analysisId: 'an1' });
+    await flush();
+    expect(repo.updateFornecedorCar).not.toHaveBeenCalled();
+    expect(repo.insertFornecedor).not.toHaveBeenCalled();
+  });
 });

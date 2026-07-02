@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { FabricLakehouseRepository } from '../fornecedores/fabric-lakehouse.repository';
 import { sanitizeDoc } from '../common/validators/cpf-cnpj';
 import type {
@@ -9,6 +9,8 @@ import type {
 
 @Injectable()
 export class GtaMatchService {
+  private readonly logger = new Logger(GtaMatchService.name);
+
   constructor(private readonly repo: FabricLakehouseRepository) {}
 
   async match(gta: GtaExtraction): Promise<GtaMatch> {
@@ -17,14 +19,27 @@ export class GtaMatchService {
       return { kind: 'none', fornecedor: null, candidates: [] };
     }
 
-    const result = await this.repo.listFornecedores({
-      page: 1,
-      pageSize: 100,
-      sortBy: 'nome',
-      sortDir: 'asc',
-      includeZeroPendencias: true,
-      filters: { cpfCnpj: cpf },
-    });
+    let result: { rows: unknown[] };
+    try {
+      result = await this.repo.listFornecedores({
+        page: 1,
+        pageSize: 100,
+        sortBy: 'nome',
+        sortDir: 'asc',
+        includeZeroPendencias: true,
+        filters: { cpfCnpj: cpf },
+      });
+    } catch (error) {
+      // The fornecedor match is an enhancement, not a hard dependency: a Fabric
+      // outage or auth failure must NOT discard a successful extraction. Degrade
+      // to 'unavailable' so the user can still fill the CAR manually.
+      this.logger.warn(
+        `Fornecedor lookup failed; returning match=unavailable: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      return { kind: 'unavailable', fornecedor: null, candidates: [] };
+    }
 
     // Keep only exact CPF/CNPJ matches (repo filter is LIKE-based).
     const rows: FornecedorCandidate[] = (result.rows as any[])

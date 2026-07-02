@@ -24,8 +24,8 @@ export class GenerateGtaAnalysisDto {
   @Matches(CAR_REGEX, { message: 'CAR inválido' })
   carKey!: string;
 
-  @IsIn(['matched_with_car', 'matched_no_car', 'none'])
-  matchKind!: 'matched_with_car' | 'matched_no_car' | 'none';
+  @IsIn(['matched_with_car', 'matched_no_car', 'none', 'unavailable'])
+  matchKind!: 'matched_with_car' | 'matched_no_car' | 'none' | 'unavailable';
 
   @IsOptional() @IsString() @Length(1, 128)
   fornecedorId?: string;

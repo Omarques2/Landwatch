@@ -36,7 +36,9 @@ export type GtaMatchKind =
   | "matched_with_car"
   | "matched_no_car"
   | "ambiguous"
-  | "none";
+  | "none"
+  // Fabric lookup failed — extraction still succeeded; user fills CAR manually.
+  | "unavailable";
 
 export type GtaMatch = {
   kind: GtaMatchKind;
@@ -59,7 +61,7 @@ export async function extractGta(file: File): Promise<GtaExtractResponse> {
 
 export async function generateGtaAnalysis(payload: {
   carKey: string;
-  matchKind: "matched_with_car" | "matched_no_car" | "none";
+  matchKind: "matched_with_car" | "matched_no_car" | "none" | "unavailable";
   fornecedorId?: string;
   analysisDate?: string;
   origem?: GtaParty;

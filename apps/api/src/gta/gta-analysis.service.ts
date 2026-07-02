@@ -1,6 +1,7 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { AnalysesService } from '../analyses/analyses.service';
 import { FabricLakehouseRepository } from '../fornecedores/fabric-lakehouse.repository';
+import { sanitizeDoc } from '../common/validators/cpf-cnpj';
 import type { GenerateGtaAnalysisDto } from './dto/generate-gta-analysis.dto';
 
 type Actor = {
@@ -24,14 +25,33 @@ export class GtaAnalysisService {
   ): Promise<{ analysisId: string }> {
     const carKey = dto.carKey.trim().toUpperCase();
 
-    // Fire the Fabric write in the background — the analysis only needs the CAR
-    // string, never the fornecedor row, so it must not wait on Fabric.
-    this.kickBackgroundWrite(actor, dto, carKey);
+    // Validate the fields each write path needs BEFORE doing anything, so a
+    // malformed request fails loudly instead of silently skipping the write.
+    if (dto.matchKind === 'matched_no_car' && !dto.fornecedorId) {
+      throw new BadRequestException({
+        code: 'FORNECEDOR_ID_REQUIRED',
+        message: 'fornecedorId é obrigatório para atualizar o CAR do fornecedor.',
+      });
+    }
+    if (dto.matchKind === 'none' && !sanitizeDoc(dto.origem?.cpfCnpj ?? '')) {
+      throw new BadRequestException({
+        code: 'ORIGEM_CPF_CNPJ_REQUIRED',
+        message: 'CPF/CNPJ da origem é obrigatório para cadastrar o fornecedor.',
+      });
+    }
 
+    // Create the analysis FIRST. Only once it succeeds do we touch Fabric — a
+    // failed request (invalid CAR, guard rejection) must never write a
+    // possibly-wrong CAR into the lakehouse, since there is no dedupe yet.
     const analysis = await this.analyses.createForActor(actor as any, {
       carKey,
       analysisDate: dto.analysisDate,
     });
+
+    // Fire the Fabric write in the background — the analysis only needs the CAR
+    // string, never the fornecedor row, so the response must not wait on Fabric.
+    this.kickBackgroundWrite(actor, dto, carKey);
+
     return { analysisId: analysis.analysisId };
   }
 
@@ -50,10 +70,7 @@ export class GtaAnalysisService {
         );
       } else if (dto.matchKind === 'none') {
         const o = dto.origem ?? {};
-        if (!o.cpfCnpj) {
-          this.logger.warn('GTA insert skipped: no cpfCnpj in origem');
-          return;
-        }
+        if (!o.cpfCnpj) return;
         await this.repo.insertFornecedor({
           cpfCnpj: o.cpfCnpj,
           nome: o.nome ?? '',
@@ -65,7 +82,9 @@ export class GtaAnalysisService {
           requestedBy: actor.userId,
         });
       }
-      // matched_with_car: nothing to write (CAR immutable).
+      // matched_with_car: CAR is immutable — nothing to write.
+      // unavailable: Fabric lookup failed, so we cannot safely insert/update
+      //   (would risk a duplicate) — skip the write, just run the analysis.
     };
     // Detach: never let a Fabric failure affect the analysis response.
     void run().catch((error) => {
