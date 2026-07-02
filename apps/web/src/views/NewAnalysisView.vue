@@ -5,21 +5,38 @@
     <section v-if="viewMode === 'analysis'" class="rounded-2xl border border-border bg-card p-4 shadow-sm sm:p-6">
       <div class="flex flex-wrap items-center justify-between gap-2">
         <div class="text-lg font-semibold">Nova análise</div>
-        <button
-          type="button"
-          data-testid="radius-mode-toggle"
-          class="inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition"
-          :class="
-            radiusMode
-              ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-              : 'border-border bg-background text-foreground'
-          "
-          :aria-pressed="radiusMode"
-          @click="radiusMode = !radiusMode"
-        >
-          <MapPin class="h-4 w-4" />
-          Análise de Raio
-        </button>
+        <div class="flex items-center gap-2">
+          <button
+            type="button"
+            data-testid="radius-mode-toggle"
+            class="inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition"
+            :class="
+              radiusMode
+                ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                : 'border-border bg-background text-foreground'
+            "
+            :aria-pressed="radiusMode"
+            @click="toggleRadiusMode"
+          >
+            <MapPin class="h-4 w-4" />
+            Análise de Raio
+          </button>
+          <button
+            type="button"
+            data-testid="gta-mode-toggle"
+            class="inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition"
+            :class="
+              gtaMode
+                ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                : 'border-border bg-background text-foreground'
+            "
+            :aria-pressed="gtaMode"
+            @click="toggleGtaMode"
+          >
+            <FileText class="h-4 w-4" />
+            Análise por GTA
+          </button>
+        </div>
       </div>
       <div
         v-if="mvBusy"
@@ -27,7 +44,7 @@
       >
         Base geoespacial em atualização. Aguarde para gerar uma nova análise.
       </div>
-      <div class="mt-4 grid gap-3">
+      <div v-if="!gtaMode" class="mt-4 grid gap-3">
         <template v-if="!radiusMode">
           <UiLabel for="analysis-name">Nome da fazenda</UiLabel>
           <UiInput
@@ -224,6 +241,35 @@
           <span v-else>Gerar análise</span>
         </UiButton>
         <div v-if="message" class="text-xs text-muted-foreground">{{ message }}</div>
+      </div>
+
+      <div v-else class="mt-4" data-testid="gta-section">
+        <GtaUploadPanel
+          v-if="!gtaResult"
+          :loading="gtaLoading"
+          :error="gtaError"
+          @file="onGtaFile"
+          @invalid="onGtaInvalid"
+        />
+        <template v-else>
+          <GtaReviewPanel
+            :gta="gtaResult.gta"
+            :match="gtaResult.match"
+            :submitting="gtaSubmitting"
+            @generate="onGtaGenerate"
+          />
+          <button
+            type="button"
+            class="mt-3 text-xs font-medium text-emerald-700 hover:underline"
+            data-testid="gta-reset"
+            @click="resetGta"
+          >
+            Enviar outra GTA
+          </button>
+        </template>
+        <div v-if="gtaError && gtaResult" class="mt-2 text-xs text-red-500">
+          {{ gtaError }}
+        </div>
       </div>
     </section>
 
@@ -554,7 +600,7 @@
 import { computed, nextTick, onMounted, reactive, ref, watch } from "vue";
 import type { Geometry } from "geojson";
 import { useRoute, useRouter } from "vue-router";
-import { LocateFixed, Loader2, MapPin, Maximize2, Minimize2, Search, SlidersHorizontal } from "lucide-vue-next";
+import { FileText, LocateFixed, Loader2, MapPin, Maximize2, Minimize2, Search, SlidersHorizontal } from "lucide-vue-next";
 import {
   Button as UiButton,
   Dialog as UiDialog,
@@ -569,6 +615,13 @@ import {
 import { useCoarsePointer } from "@/composables/useCoarsePointer";
 import { http } from "@/api/http";
 import { unwrapData, unwrapPaged, type ApiEnvelope } from "@/api/envelope";
+import GtaUploadPanel from "@/components/gta/GtaUploadPanel.vue";
+import GtaReviewPanel from "@/components/gta/GtaReviewPanel.vue";
+import {
+  extractGta,
+  generateGtaAnalysis,
+  type GtaExtractResponse,
+} from "@/api/gta";
 import CarSelectMap from "@/components/maps/CarSelectMap.vue";
 import { isValidCpfCnpj, sanitizeDoc } from "@/lib/doc-utils";
 import { mvBusy } from "@/state/landwatch-status";
@@ -620,6 +673,66 @@ const isSubmitting = ref(false);
 const confirmMissingOpen = ref(false);
 const radiusMode = ref(false);
 const radiusName = ref("");
+
+// --- Análise por GTA mode ---
+const gtaMode = ref(false);
+const gtaLoading = ref(false);
+const gtaSubmitting = ref(false);
+const gtaError = ref<string | null>(null);
+const gtaResult = ref<GtaExtractResponse | null>(null);
+
+function resetGta() {
+  gtaResult.value = null;
+  gtaError.value = null;
+  gtaLoading.value = false;
+}
+function toggleRadiusMode() {
+  radiusMode.value = !radiusMode.value;
+  if (radiusMode.value) gtaMode.value = false;
+}
+function toggleGtaMode() {
+  gtaMode.value = !gtaMode.value;
+  if (gtaMode.value) {
+    radiusMode.value = false;
+    resetGta();
+  }
+}
+function onGtaInvalid(msg: string) {
+  gtaError.value = msg;
+}
+async function onGtaFile(file: File) {
+  gtaError.value = null;
+  gtaLoading.value = true;
+  try {
+    gtaResult.value = await extractGta(file);
+  } catch (e: any) {
+    gtaError.value =
+      e?.response?.data?.error?.message ?? "Falha ao extrair a GTA.";
+  } finally {
+    gtaLoading.value = false;
+  }
+}
+async function onGtaGenerate(payload: {
+  carKey: string;
+  matchKind: "matched_with_car" | "matched_no_car" | "none";
+  fornecedorId?: string;
+}) {
+  if (!gtaResult.value) return;
+  gtaSubmitting.value = true;
+  gtaError.value = null;
+  try {
+    const { analysisId } = await generateGtaAnalysis({
+      ...payload,
+      origem: gtaResult.value.gta.origem,
+    });
+    await router.push(`/analyses/${analysisId}`);
+  } catch (e: any) {
+    gtaError.value =
+      e?.response?.data?.error?.message ?? "Falha ao gerar a análise.";
+  } finally {
+    gtaSubmitting.value = false;
+  }
+}
 
 const center = reactive({ lat: "", lng: "" });
 const parsedCenter = ref({ lat: -15.5, lng: -55.5 });

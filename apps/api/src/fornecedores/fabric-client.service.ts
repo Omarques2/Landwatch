@@ -129,6 +129,33 @@ export class FabricClientService {
     car: string;
     requestedBy?: string | null;
   }): Promise<{ jobId: string | null; status: 'ACCEPTED' | 'COMPLETED' }> {
+    return this.runNotebookJob(
+      this.buildExecutionData(this.config.carUpdateJobType, payload),
+    );
+  }
+
+  async runFornecedorInsertJob(payload: {
+    cpfCnpj: string;
+    nome: string;
+    estabelecimento: string | null;
+    codigoEstabelecimento: string | null;
+    municipio: string | null;
+    uf: string | null;
+    car: string;
+    requestedBy?: string | null;
+  }): Promise<{ jobId: string | null; status: 'ACCEPTED' | 'COMPLETED' }> {
+    return this.runNotebookJob(
+      this.buildInsertExecutionData(this.config.carUpdateJobType, payload),
+    );
+  }
+
+  /**
+   * Shared RunNotebook job invocation (POST + poll). Reused by the CAR-update
+   * and insert-fornecedor jobs, which differ only in the executionData body.
+   */
+  private async runNotebookJob(body: {
+    executionData: Record<string, unknown>;
+  }): Promise<{ jobId: string | null; status: 'ACCEPTED' | 'COMPLETED' }> {
     if (this.config.carUpdateMode !== 'spark_job') {
       throw new ServiceUnavailableException({
         code: 'FABRIC_CAR_UPDATE_DISABLED',
@@ -151,11 +178,10 @@ export class FabricClientService {
     const token = await this.getFabricApiToken();
     const workspaceId = this.config.workspaceId!;
     const itemId = this.config.carUpdateItemId;
-    const jobType = this.config.carUpdateJobType;
 
     const runResponse = await this.http.post(
-      `/v1/workspaces/${workspaceId}/items/${itemId}/jobs/${jobType}/instances`,
-      this.buildExecutionData(jobType, payload),
+      `/v1/workspaces/${workspaceId}/items/${itemId}/jobs/${this.config.carUpdateJobType}/instances`,
+      body,
       { headers: { Authorization: `Bearer ${token}` } },
     );
 
@@ -189,7 +215,7 @@ export class FabricClientService {
             statusResponse.data.failureReason?.errorCode ?? 'FABRIC_JOB_FAILED',
           message:
             statusResponse.data.failureReason?.message ??
-            'Fabric job failed while updating fornecedor CAR',
+            'Fabric job failed while writing fornecedor',
         });
       }
 
@@ -310,6 +336,57 @@ export class FabricClientService {
       executionData: {
         action: 'update_fornecedor_car',
         idFornecedor: payload.idFornecedor,
+        car: payload.car,
+        requestedBy: payload.requestedBy ?? null,
+      },
+    };
+  }
+
+  private buildInsertExecutionData(
+    jobType: string,
+    payload: {
+      cpfCnpj: string;
+      nome: string;
+      estabelecimento: string | null;
+      codigoEstabelecimento: string | null;
+      municipio: string | null;
+      uf: string | null;
+      car: string;
+      requestedBy?: string | null;
+    },
+  ): { executionData: Record<string, unknown> } {
+    const normalizedType = jobType.trim().toLowerCase();
+    const str = (v: string | null | undefined) => ({
+      value: v ?? '',
+      type: 'string',
+    });
+    if (normalizedType === 'runnotebook') {
+      return {
+        executionData: {
+          parameters: {
+            action: { value: 'insert_fornecedor', type: 'string' },
+            cpf_cnpj: str(payload.cpfCnpj),
+            nome: str(payload.nome),
+            estabelecimento: str(payload.estabelecimento),
+            codigo_estabelecimento: str(payload.codigoEstabelecimento),
+            municipio: str(payload.municipio),
+            uf: str(payload.uf),
+            car: str(payload.car),
+            requested_by: str(payload.requestedBy ?? ''),
+          },
+        },
+      };
+    }
+
+    return {
+      executionData: {
+        action: 'insert_fornecedor',
+        cpfCnpj: payload.cpfCnpj,
+        nome: payload.nome,
+        estabelecimento: payload.estabelecimento,
+        codigoEstabelecimento: payload.codigoEstabelecimento,
+        municipio: payload.municipio,
+        uf: payload.uf,
         car: payload.car,
         requestedBy: payload.requestedBy ?? null,
       },

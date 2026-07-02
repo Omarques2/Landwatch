@@ -11,6 +11,7 @@ import { AdminApiKeysModule } from './admin-api-keys/admin-api-keys.module';
 import { FarmsModule } from './farms/farms.module';
 import { CarsModule } from './cars/cars.module';
 import { AnalysesModule } from './analyses/analyses.module';
+import { GtaModule } from './gta/gta.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { LandwatchStatusModule } from './landwatch-status/landwatch-status.module';
 import { AlertsModule } from './alerts/alerts.module';
@@ -34,6 +35,7 @@ import { AdminModule } from './admin/admin.module';
     FarmsModule,
     CarsModule,
     AnalysesModule,
+    GtaModule,
     AlertsModule,
     SchedulesModule,
     FornecedoresModule,
