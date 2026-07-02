@@ -186,6 +186,18 @@ describe('GtaMatchService', () => {
     expect(m.fornecedor?.idFornecedor).toBe('first');
   });
 
+  it('collapses cosmetic variants (accents / "(AP:..)" código suffix) with same CAR', async () => {
+    const svc = new GtaMatchService(
+      repoReturning([
+        { idFornecedor: 'first', nome: 'X', cpfCnpj: '01279969156', estabelecimento: 'Fazenda São João', codigoEstabelecimento: '35055001137 (AP:0007)', municipio: 'Barretos', uf: 'SP', car: 'SP-3505500-BE98' },
+        { idFornecedor: 'second', nome: 'X', cpfCnpj: '01279969156', estabelecimento: 'FAZENDA SAO JOAO', codigoEstabelecimento: '35055001137', municipio: 'BARRETOS', uf: 'SP', car: 'SP-3505500-BE98' },
+      ]),
+    );
+    const m = await svc.match(baseGta({ codigoEstabelecimento: '35055001137 (AP:0007)' }));
+    expect(m.kind).toBe('matched_with_car');
+    expect(m.fornecedor?.idFornecedor).toBe('first');
+  });
+
   it('keeps suppliers that differ only by CAR as distinct (ambiguous)', async () => {
     const base = { nome: 'X', cpfCnpj: '01279969156', estabelecimento: 'faz. osara ii', codigoEstabelecimento: '172030904230000', municipio: 'SAO SEBASTIAO', uf: 'TO' };
     const svc = new GtaMatchService(

@@ -106,12 +106,22 @@ function digitsBlock(value: string | null | undefined): string {
 }
 
 /** Identity of a supplier by its meaningful fields (ignores id). Two rows with
- *  the same content are the same supplier registered more than once. */
+ *  the same content are the same supplier registered more than once. Text is
+ *  compared accent- and case-insensitively, and the código on its numeric block
+ *  only, so cosmetic variants ("Fazenda São João" / "35055001137 (AP:0007)" vs
+ *  "FAZENDA SAO JOAO" / "35055001137") with the same CAR collapse to one — while
+ *  rows that differ in a real field (e.g. a different CAR) stay distinct. */
 function contentKey(c: FornecedorCandidate): string {
-  const norm = (v: string | null): string => (v ?? '').trim().toUpperCase();
+  const norm = (v: string | null): string =>
+    (v ?? '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .trim()
+      .replace(/\s+/g, ' ')
+      .toUpperCase();
   return [
     norm(c.estabelecimento),
-    norm(c.codigoEstabelecimento),
+    digitsBlock(c.codigoEstabelecimento),
     norm(c.municipio),
     norm(c.uf),
     norm(c.car),
