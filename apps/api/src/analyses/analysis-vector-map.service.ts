@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { createHash } from 'crypto';
-import { AnalysisKind, Prisma } from '@prisma/client';
+import { AnalysisKind, Prisma, SubjectType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ANALYSIS_VECTOR_TILE_VERSION } from './analysis-cache.constants';
 
@@ -137,6 +137,10 @@ export class AnalysisVectorMapService {
         status: true,
         analysisDate: true,
         analysisKind: true,
+        subjectType: true,
+        radiusCenterLat: true,
+        radiusCenterLng: true,
+        radiusM: true,
       },
     });
     if (!analysis) {
@@ -166,9 +170,18 @@ export class AnalysisVectorMapService {
       this.fetchCarBounds(id, analysisDate, analysisKind),
       this.fetchLegendItems(id, analysisDate, analysisKind),
     ]);
+    // Radius analyses have no subject row in analysis_result (the circle is
+    // rendered client-side), so a zero-hit analysis would otherwise have null
+    // bounds and no map at all. Always cover the full circle.
+    const radiusBounds = this.computeRadiusBounds(
+      analysis.subjectType,
+      analysis.radiusCenterLat,
+      analysis.radiusCenterLng,
+      analysis.radiusM,
+    );
     return {
       renderMode: 'mvt',
-      bounds,
+      bounds: this.mergeBounds(bounds, radiusBounds),
       carBounds,
       minzoom: this.defaultMinZoom,
       maxzoom: this.defaultMaxZoom,
@@ -357,6 +370,44 @@ export class AnalysisVectorMapService {
       etag,
       notModified: false,
     };
+  }
+
+  private computeRadiusBounds(
+    subjectType: SubjectType | null | undefined,
+    centerLat: Prisma.Decimal | number | string | null | undefined,
+    centerLng: Prisma.Decimal | number | string | null | undefined,
+    radiusM: number | null | undefined,
+  ): [number, number, number, number] | null {
+    if (subjectType !== SubjectType.RADIUS) return null;
+    const lat = centerLat === null || centerLat === undefined ? NaN : Number(centerLat);
+    const lng = centerLng === null || centerLng === undefined ? NaN : Number(centerLng);
+    if (
+      !Number.isFinite(lat) ||
+      !Number.isFinite(lng) ||
+      typeof radiusM !== 'number' ||
+      !Number.isFinite(radiusM) ||
+      radiusM <= 0 ||
+      Math.abs(lat) > 89
+    ) {
+      return null;
+    }
+    const dLat = radiusM / 111_320;
+    const dLng = radiusM / (111_320 * Math.cos((lat * Math.PI) / 180));
+    return [lng - dLng, lat - dLat, lng + dLng, lat + dLat];
+  }
+
+  private mergeBounds(
+    a: [number, number, number, number] | null,
+    b: [number, number, number, number] | null,
+  ): [number, number, number, number] | null {
+    if (!a) return b;
+    if (!b) return a;
+    return [
+      Math.min(a[0], b[0]),
+      Math.min(a[1], b[1]),
+      Math.max(a[2], b[2]),
+      Math.max(a[3], b[3]),
+    ];
   }
 
   private buildTileEtag(

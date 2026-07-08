@@ -39,3 +39,6 @@ Design e conceitos para anexos/
 
 # Debug HAR captures (never commit)
 *.har
+
+# Local tier planning docs
+Tier/
