@@ -13,14 +13,18 @@ export class AbatesService {
   list() {
     return this.prisma.tierAbate.findMany({
       orderBy: { dataAbate: 'desc' },
-      include: { consumos: true, frigorifico: true },
+      include: { consumos: true, frigorifico: true, proprietario: true },
     });
   }
 
   async get(id: string) {
     const row = await this.prisma.tierAbate.findUnique({
       where: { id },
-      include: { consumos: { include: { tier: true } }, frigorifico: true },
+      include: {
+        consumos: { include: { tier: true } },
+        frigorifico: true,
+        proprietario: true,
+      },
     });
     if (!row) {
       throw new NotFoundException({
@@ -31,12 +35,22 @@ export class AbatesService {
     return row;
   }
 
-  // Creates the abate and, when consumos are given, the ledger rows — validating
-  // per tier that it is APROVADO and has enough saldo. Runs in one transaction.
+  // Optional consumos are informational, but must belong to the abate owner.
   async create(dto: CreateAbateDto) {
     return this.prisma.$transaction(async (tx) => {
+      const proprietario = await tx.tierProprietario.findUnique({
+        where: { id: dto.proprietarioId },
+      });
+      if (!proprietario) {
+        throw new NotFoundException({
+          code: 'TIER_PROPRIETARIO_NOT_FOUND',
+          message: 'Proprietário não encontrado',
+        });
+      }
+
       const abate = await tx.tierAbate.create({
         data: {
+          proprietarioId: dto.proprietarioId,
           dataAbate: new Date(dto.dataAbate),
           frigorificoId: dto.frigorificoId ?? null,
           qtd: dto.qtd,
@@ -51,21 +65,10 @@ export class AbatesService {
             message: `Tier não encontrado: ${c.tierId}`,
           });
         }
-        if (tier.status !== 'APROVADO') {
+        if (tier.proprietarioId !== dto.proprietarioId) {
           throw new BadRequestException({
-            code: 'TIER_NAO_APROVADO',
-            message: 'Só é possível abater de um tier APROVADO',
-          });
-        }
-        const agg = await tx.tierAbateConsumo.aggregate({
-          _sum: { qtdConsumida: true },
-          where: { tierId: c.tierId },
-        });
-        const saldo = tier.qtdAnimais - (agg._sum.qtdConsumida ?? 0);
-        if (c.qtdConsumida > saldo) {
-          throw new BadRequestException({
-            code: 'TIER_SALDO_INSUFICIENTE',
-            message: `Saldo insuficiente no tier ${c.tierId} (saldo ${saldo}, pedido ${c.qtdConsumida})`,
+            code: 'TIER_CONSUMO_OWNER_MISMATCH',
+            message: 'Tier não pertence ao proprietário do abate',
           });
         }
         await tx.tierAbateConsumo.create({
@@ -79,7 +82,7 @@ export class AbatesService {
 
       return tx.tierAbate.findUnique({
         where: { id: abate.id },
-        include: { consumos: true },
+        include: { consumos: true, frigorifico: true, proprietario: true },
       });
     });
   }

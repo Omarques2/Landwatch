@@ -2,6 +2,9 @@ import { AbatesService } from './abates.service';
 
 function makeTx() {
   return {
+    tierProprietario: {
+      findUnique: jest.fn(() => Promise.resolve({ id: 'p1' })),
+    },
     tierAbate: {
       create: jest.fn(({ data }: any) =>
         Promise.resolve({ id: 'a1', ...data }),
@@ -17,6 +20,7 @@ describe('AbatesService', () => {
   let tx: ReturnType<typeof makeTx>;
   const prisma = {
     $transaction: jest.fn((cb: any) => cb(tx)),
+    tierAbate: { findMany: jest.fn() },
   } as any;
   const service = new AbatesService(prisma);
 
@@ -25,55 +29,69 @@ describe('AbatesService', () => {
     prisma.$transaction.mockImplementation((cb: any) => cb(tx));
   });
 
-  it('creates an abate with no consumos and writes no ledger rows', async () => {
-    await service.create({ dataAbate: '2026-04-16', qtd: 100 } as any);
-    expect(tx.tierAbate.create).toHaveBeenCalled();
+  it('lists abates with their owner relation', async () => {
+    await service.list();
+    expect(prisma.tierAbate.findMany).toHaveBeenCalledWith({
+      orderBy: { dataAbate: 'desc' },
+      include: { consumos: true, frigorifico: true, proprietario: true },
+    });
+  });
+
+  it('requires an existing proprietario', async () => {
+    tx.tierProprietario.findUnique.mockResolvedValue(null);
+    await expect(
+      service.create({
+        proprietarioId: 'p1',
+        dataAbate: '2026-04-16',
+        qtd: 100,
+      } as any),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: 'TIER_PROPRIETARIO_NOT_FOUND',
+      }),
+    });
+  });
+
+  it('creates an owner-attributed abate without consumos', async () => {
+    await service.create({
+      proprietarioId: 'p1',
+      dataAbate: '2026-04-16',
+      qtd: 100,
+    } as any);
+    expect(tx.tierAbate.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ proprietarioId: 'p1', qtd: 100 }),
+    });
     expect(tx.tierAbateConsumo.create).not.toHaveBeenCalled();
   });
 
-  it('rejects consumo from a non-approved tier', async () => {
+  it('rejects a consumo owned by another proprietario', async () => {
     tx.tier.findUnique.mockResolvedValue({
       id: 't1',
+      proprietarioId: 'p2',
+    });
+    await expect(
+      service.create({
+        proprietarioId: 'p1',
+        dataAbate: '2026-04-16',
+        qtd: 50,
+        consumos: [{ tierId: 't1', qtdConsumida: 50 }],
+      } as any),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: 'TIER_CONSUMO_OWNER_MISMATCH',
+      }),
+    });
+  });
+
+  it('accepts an informational consumo regardless of tier status or saldo', async () => {
+    tx.tier.findUnique.mockResolvedValue({
+      id: 't1',
+      proprietarioId: 'p1',
       status: 'SUBMETIDO',
-      qtdAnimais: 100,
-    });
-    await expect(
-      service.create({
-        dataAbate: '2026-04-16',
-        qtd: 50,
-        consumos: [{ tierId: 't1', qtdConsumida: 50 }],
-      } as any),
-    ).rejects.toThrow('Só é possível abater de um tier APROVADO');
-  });
-
-  it('rejects consumo above the tier saldo', async () => {
-    tx.tier.findUnique.mockResolvedValue({
-      id: 't1',
-      status: 'APROVADO',
-      qtdAnimais: 100,
-    });
-    tx.tierAbateConsumo.aggregate.mockResolvedValue({
-      _sum: { qtdConsumida: 80 },
-    });
-    await expect(
-      service.create({
-        dataAbate: '2026-04-16',
-        qtd: 50,
-        consumos: [{ tierId: 't1', qtdConsumida: 50 }],
-      } as any),
-    ).rejects.toThrow('Saldo insuficiente');
-  });
-
-  it('writes a ledger row for a valid partial consumo', async () => {
-    tx.tier.findUnique.mockResolvedValue({
-      id: 't1',
-      status: 'APROVADO',
-      qtdAnimais: 100,
-    });
-    tx.tierAbateConsumo.aggregate.mockResolvedValue({
-      _sum: { qtdConsumida: 0 },
+      qtdAnimais: 10,
     });
     await service.create({
+      proprietarioId: 'p1',
       dataAbate: '2026-04-16',
       qtd: 50,
       consumos: [{ tierId: 't1', qtdConsumida: 50 }],

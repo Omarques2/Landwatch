@@ -15,11 +15,11 @@ export class AbateConsumoDto {
 }
 
 export class CreateAbateDto {
+  @IsUUID() proprietarioId!: string;
   @IsDateString() dataAbate!: string;
   @IsOptional() @IsUUID() frigorificoId?: string;
   @IsInt() @Min(1) qtd!: number;
-  // Optional: which tier(s) this abate consumed. Omitted => no ledger rows and
-  // the abate does not affect any tier's saldo/credito.
+  // Optional and informational: owner credit is calculated from the abate total.
   @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })
