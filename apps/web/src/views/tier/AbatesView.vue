@@ -7,7 +7,7 @@
         <h1 class="text-lg font-semibold text-foreground">Abates</h1>
         <p class="text-sm text-muted-foreground">Lance abates e vincule aos tiers com saldo.</p>
       </div>
-      <UiButton variant="outline" size="sm" :disabled="loading" @click="loadAll"> Recarregar </UiButton>
+      <UiButton variant="outline" size="sm" :disabled="loading" @click="reload"> Recarregar </UiButton>
     </header>
 
     <!-- Novo abate -->
@@ -103,18 +103,29 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from "vue";
+import { computed, reactive } from "vue";
 import TierNav from "./TierNav.vue";
 import { Button as UiButton, Input as UiInput, Label as UiLabel, Select as UiSelect, useToast } from "@/components/ui";
-import { listAbates, createAbate, deleteAbate, listTiers, getTier, listFrigorificos } from "@/features/tier/api";
-import type { Abate, Frigorifico, TierDetail } from "@/features/tier/types";
+import { useAbates, useAvailableTiers, useFrigorificos, useCreateAbate, useDeleteAbate } from "@/features/tier/queries";
+import type { TierDetail } from "@/features/tier/types";
 
 const { push } = useToast();
-const abates = ref<Abate[]>([]);
-const availableTiers = ref<TierDetail[]>([]);
-const frigorificos = ref<Frigorifico[]>([]);
-const loading = ref(true);
-const saving = ref(false);
+const abatesQuery = useAbates();
+const tiersQuery = useAvailableTiers();
+const frigQuery = useFrigorificos();
+const abates = computed(() => abatesQuery.data.value ?? []);
+const availableTiers = computed(() => tiersQuery.data.value ?? []);
+const frigorificos = computed(() => frigQuery.data.value?.rows ?? []);
+const loading = computed(() => abatesQuery.isPending.value);
+const createMut = useCreateAbate();
+const deleteMut = useDeleteAbate();
+const saving = computed(() => createMut.isPending.value);
+
+function reload() {
+  void abatesQuery.refetch();
+  void tiersQuery.refetch();
+  void frigQuery.refetch();
+}
 
 const form = reactive<{
   dataAbate: string;
@@ -137,32 +148,12 @@ function tierLabel(t: TierDetail) {
 }
 
 function saldoOf(tierId: string) {
-  return availableTiers.value.find((t) => t.id === tierId)?.saldo ?? 0;
+  return availableTiers.value.find((t: TierDetail) => t.id === tierId)?.saldo ?? 0;
 }
 
 function frigNome(id: string | null) {
   if (!id) return "—";
   return frigorificos.value.find((f) => f.id === id)?.nome ?? "—";
-}
-
-async function loadTiers() {
-  const paged = await listTiers({ status: "APROVADO", pageSize: 200 });
-  const detailed = await Promise.all(paged.rows.map((t) => getTier(t.id)));
-  availableTiers.value = detailed.filter((t) => t.saldo > 0);
-}
-
-async function loadAll() {
-  loading.value = true;
-  try {
-    const [ab, fr] = await Promise.all([listAbates(), listFrigorificos({ pageSize: 200 })]);
-    abates.value = ab;
-    frigorificos.value = fr.rows;
-    await loadTiers();
-  } catch {
-    push({ kind: "error", title: "Falha ao carregar abates" });
-  } finally {
-    loading.value = false;
-  }
 }
 
 function addRow() {
@@ -178,9 +169,8 @@ async function save() {
   const consumos = form.consumos
     .filter((r) => r.tierId && r.qtdConsumida > 0)
     .map((r) => ({ tierId: r.tierId, qtdConsumida: Number(r.qtdConsumida) }));
-  saving.value = true;
   try {
-    await createAbate({
+    await createMut.mutateAsync({
       dataAbate: form.dataAbate,
       frigorificoId: form.frigorificoId || undefined,
       qtd: Number(form.qtd),
@@ -191,27 +181,23 @@ async function save() {
     form.frigorificoId = "";
     form.qtd = 0;
     form.consumos = [];
-    await loadAll();
+    void tiersQuery.refetch();
   } catch (err: unknown) {
     const message =
       (err as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error?.message ??
       "Verifique o saldo dos tiers.";
     push({ kind: "error", title: "Falha ao lançar abate", message });
-  } finally {
-    saving.value = false;
   }
 }
 
 async function remove(id: string) {
   if (!window.confirm("Excluir este abate?")) return;
   try {
-    await deleteAbate(id);
+    await deleteMut.mutateAsync(id);
     push({ kind: "success", title: "Abate excluído" });
-    await loadAll();
+    void tiersQuery.refetch();
   } catch {
     push({ kind: "error", title: "Falha ao excluir abate" });
   }
 }
-
-onMounted(loadAll);
 </script>
