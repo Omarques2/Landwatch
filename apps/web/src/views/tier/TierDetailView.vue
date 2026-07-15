@@ -94,22 +94,25 @@
                 :key="d.id"
                 class="flex items-center justify-between gap-2 text-sm"
               >
-                <span class="text-foreground">{{ d.tipo }}</span>
+                <span class="text-foreground">{{ d.nome ?? d.tipo }}</span>
                 <span class="text-muted-foreground">{{ d.mime ?? "" }}</span>
                 <UiButton size="sm" variant="outline" @click="removeDoc(d.id)"> Remover </UiButton>
               </li>
             </ul>
             <div class="flex items-center gap-2">
-              <UiSelect v-model="docTipo[lote.id]" class="w-56">
-                <option value="DECLARACAO_M049">M049</option>
-                <option value="NF">NF</option>
-                <option value="INSCRICAO_ESTADUAL">Inscrição estadual</option>
-                <option value="PROCURACAO">Procuração</option>
-                <option value="CONTRATO_COMODATO">Contrato comodato</option>
-                <option value="DOC_PESSOAL">Doc pessoal</option>
-                <option value="PARECER_TECNICO">Parecer técnico</option>
-              </UiSelect>
-              <input type="file" @change="onFile($event, lote.id)" />
+              <UiCombobox
+                v-model="docTipo[lote.id]"
+                :options="DOC_TIPOS"
+                allow-free-text
+                placeholder="Tipo do documento…"
+                class="w-56"
+              />
+              <label
+                class="inline-flex h-9 cursor-pointer items-center gap-1 rounded-lg border border-input bg-background px-3 text-sm text-foreground shadow-sm hover:bg-muted"
+              >
+                <UploadCloud class="h-4 w-4" /> Enviar arquivo
+                <input type="file" class="hidden" @change="onFile($event, lote.id)" />
+              </label>
             </div>
           </div>
 
@@ -127,13 +130,9 @@
               </li>
             </ul>
             <div class="flex items-center gap-2">
-              <UiSelect v-model="gtaPick[lote.id]" class="w-56">
-                <option value="">Selecione GTA…</option>
-                <option v-for="g in allGtas" :key="g.id" :value="g.id">
-                  {{ g.numero }}
-                </option>
-              </UiSelect>
+              <UiCombobox v-model="gtaPick[lote.id]" :options="gtaOptions" placeholder="Buscar GTA…" class="w-56" />
               <UiButton size="sm" :disabled="!gtaPick[lote.id]" @click="linkGta(lote.id)"> Vincular </UiButton>
+              <UiButton size="sm" variant="outline" title="Cadastrar GTA" @click="gtaModalLote = lote.id"> + </UiButton>
             </div>
           </div>
 
@@ -151,25 +150,66 @@
               </li>
             </ul>
             <div class="flex items-center gap-2">
-              <UiSelect v-model="origemPick[lote.id]" class="w-56">
-                <option value="">Selecione fazenda…</option>
-                <option v-for="f in fazendas" :key="f.id" :value="f.id">
-                  {{ f.nome }}
-                </option>
-              </UiSelect>
+              <UiCombobox
+                v-model="origemPick[lote.id]"
+                :options="fazendaOptions"
+                placeholder="Buscar fazenda…"
+                class="w-56"
+              />
               <UiButton size="sm" :disabled="!origemPick[lote.id]" @click="linkOrigem(lote.id)"> Adicionar </UiButton>
+              <UiButton size="sm" variant="outline" title="Cadastrar fazenda" @click="openFazModal(lote.id)">
+                +
+              </UiButton>
             </div>
           </div>
         </div>
       </div>
     </template>
+
+    <GtaCreateModal :open="gtaModalLote !== null" @close="gtaModalLote = null" @created="onGtaCreated" />
+
+    <UiDialog :open="fazModalLote !== null" max-width-class="max-w-md" @close="fazModalLote = null">
+      <UiDialogHeader>
+        <UiDialogTitle>Nova fazenda de origem</UiDialogTitle>
+      </UiDialogHeader>
+      <div class="grid grid-cols-2 gap-3 px-1 py-2">
+        <div class="col-span-2 flex flex-col gap-1">
+          <UiLabel for="fo-nome">Nome</UiLabel>
+          <UiInput id="fo-nome" v-model="fazForm.nome" required />
+        </div>
+        <div class="flex flex-col gap-1">
+          <UiLabel for="fo-mun">Município</UiLabel>
+          <UiInput id="fo-mun" v-model="fazForm.municipio" />
+        </div>
+        <div class="flex flex-col gap-1">
+          <UiLabel for="fo-uf">UF</UiLabel>
+          <UiInput id="fo-uf" v-model="fazForm.uf" maxlength="2" />
+        </div>
+      </div>
+      <UiDialogFooter>
+        <UiButton variant="outline" @click="fazModalLote = null">Cancelar</UiButton>
+        <UiButton :disabled="!fazForm.nome" @click="saveFazendaOrigem">Salvar</UiButton>
+      </UiDialogFooter>
+    </UiDialog>
   </section>
 </template>
 
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { Button as UiButton, Input as UiInput, Label as UiLabel, Select as UiSelect, useToast } from "@/components/ui";
+import { UploadCloud } from "lucide-vue-next";
+import {
+  Button as UiButton,
+  Input as UiInput,
+  Label as UiLabel,
+  Combobox as UiCombobox,
+  Dialog as UiDialog,
+  DialogHeader as UiDialogHeader,
+  DialogTitle as UiDialogTitle,
+  DialogFooter as UiDialogFooter,
+  useToast,
+} from "@/components/ui";
+import GtaCreateModal from "./GtaCreateModal.vue";
 import {
   useTier,
   useLotes,
@@ -186,8 +226,20 @@ import {
   useRemoveLoteGta,
   useAddLoteOrigem,
   useRemoveLoteOrigem,
+  useCreateFazenda,
 } from "@/features/tier/queries";
-import type { Lote, TierStatus } from "@/features/tier/types";
+import type { Fazenda, Gta, Lote, TierStatus } from "@/features/tier/types";
+
+const DOC_TIPOS = [
+  { value: "DECLARACAO_M049", label: "M049" },
+  { value: "NF", label: "NF" },
+  { value: "INSCRICAO_ESTADUAL", label: "Inscrição estadual" },
+  { value: "PROCURACAO", label: "Procuração" },
+  { value: "CONTRATO_COMODATO", label: "Contrato comodato" },
+  { value: "DOC_PESSOAL", label: "Doc pessoal" },
+  { value: "PARECER_TECNICO", label: "Parecer técnico" },
+];
+const DOC_LABEL: Record<string, string> = Object.fromEntries(DOC_TIPOS.map((t) => [t.value, t.label]));
 
 const route = useRoute();
 const router = useRouter();
@@ -215,6 +267,51 @@ const addGtaMut = useAddLoteGta();
 const removeGtaMut = useRemoveLoteGta();
 const addOrigemMut = useAddLoteOrigem();
 const removeOrigemMut = useRemoveLoteOrigem();
+const createFazendaMut = useCreateFazenda();
+
+const gtaOptions = computed(() =>
+  allGtas.value.map((g: Gta) => ({
+    value: g.id,
+    label: `${g.numero}${g.serie ? "/" + g.serie : ""}`,
+  })),
+);
+const fazendaOptions = computed(() => fazendas.value.map((f) => ({ value: f.id, label: f.nome })));
+
+// GTA create modal (per lote): when a GTA is created, link it to this lote.
+const gtaModalLote = ref<string | null>(null);
+async function onGtaCreated(gta: Gta) {
+  const loteId = gtaModalLote.value;
+  gtaModalLote.value = null;
+  if (loteId) {
+    try {
+      await addGtaMut.mutateAsync({ loteId, gtaId: gta.id });
+    } catch {
+      push({ kind: "error", title: "Falha ao vincular GTA ao lote" });
+    }
+  }
+}
+
+// Quick-create farm as an origem (per lote).
+const fazModalLote = ref<string | null>(null);
+const fazForm = reactive({ nome: "", municipio: "", uf: "" });
+function openFazModal(loteId: string) {
+  fazModalLote.value = loteId;
+  Object.assign(fazForm, { nome: "", municipio: "", uf: "" });
+}
+async function saveFazendaOrigem() {
+  const loteId = fazModalLote.value;
+  if (!loteId || !fazForm.nome) return;
+  try {
+    const body: Record<string, string> = { nome: fazForm.nome };
+    if (fazForm.municipio) body.municipio = fazForm.municipio;
+    if (fazForm.uf) body.uf = fazForm.uf;
+    const created = (await createFazendaMut.mutateAsync(body as Partial<Fazenda>)) as Fazenda;
+    await addOrigemMut.mutateAsync({ loteId, fazendaId: created.id });
+    fazModalLote.value = null;
+  } catch {
+    push({ kind: "error", title: "Falha ao criar fazenda de origem" });
+  }
+}
 
 const savingContrato = computed(() => contratoMut.isPending.value);
 const savingLote = computed(() => createLoteMut.isPending.value);
@@ -307,15 +404,29 @@ async function onFile(ev: Event, loteId: string) {
   const input = ev.target as HTMLInputElement;
   const file = input.files?.[0];
   if (!file) return;
+  const picked = (docTipo[loteId] ?? "").trim();
+  let tipo = "NF";
+  let nome = "";
+  if (picked) {
+    if (DOC_LABEL[picked]) {
+      tipo = picked;
+      nome = DOC_LABEL[picked];
+    } else {
+      tipo = "OUTRO";
+      nome = picked;
+    }
+  }
   const fd = new FormData();
   fd.append("file", file);
-  fd.append("tipo", docTipo[loteId] ?? "NF");
+  fd.append("tipo", tipo);
+  if (nome) fd.append("nome", nome);
   fd.append("escopo", "LOTE");
   fd.append("refId", loteId);
   fd.append("loteId", loteId);
   try {
     await uploadDocMut.mutateAsync(fd);
     input.value = "";
+    docTipo[loteId] = "";
     push({ kind: "success", title: "Documento enviado" });
   } catch {
     push({ kind: "error", title: "Falha no upload" });

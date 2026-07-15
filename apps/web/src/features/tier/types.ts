@@ -11,7 +11,8 @@ export type TierDocTipo =
   | "DOC_PESSOAL"
   | "PARECER_TECNICO"
   | "DECLARACAO_M049"
-  | "NF";
+  | "NF"
+  | "OUTRO";
 
 export type TierDocEscopo = "PROPRIETARIO" | "FAZENDA" | "CAR" | "TIER" | "LOTE" | "FRIGORIFICO";
 
@@ -99,6 +100,7 @@ export interface TierDetail extends Tier {
 export interface Documento {
   id: string;
   tipo: TierDocTipo;
+  nome: string | null;
   escopo: TierDocEscopo;
   refId: string;
   loteId: string | null;
