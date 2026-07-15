@@ -8,7 +8,7 @@
         <p class="text-sm text-muted-foreground">Conjuntos de animais por proprietário e fazenda.</p>
       </div>
       <div class="flex gap-2">
-        <UiSelect v-model="statusFilter" class="w-40" @update:model-value="load">
+        <UiSelect v-model="statusFilter" class="w-40">
           <option value="">Todos os status</option>
           <option value="SUBMETIDO">Submetido</option>
           <option value="APROVADO">Aprovado</option>
@@ -110,7 +110,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref } from "vue";
+import { computed, reactive, ref } from "vue";
 import { useRouter } from "vue-router";
 import TierNav from "./TierNav.vue";
 import {
@@ -124,18 +124,25 @@ import {
   DialogFooter as UiDialogFooter,
   useToast,
 } from "@/components/ui";
-import { listTiers, createTier, listProprietarios, listFazendas, listFrigorificos } from "@/features/tier/api";
-import type { Fazenda, Frigorifico, Proprietario, Tier, TierStatus } from "@/features/tier/types";
+import { useTiers, useProprietarios, useFazendas, useFrigorificos, useCreateTier } from "@/features/tier/queries";
+import type { Tier, TierStatus } from "@/features/tier/types";
 
 const router = useRouter();
 const { push } = useToast();
-const rows = ref<Tier[]>([]);
-const proprietarios = ref<Proprietario[]>([]);
-const fazendas = ref<Fazenda[]>([]);
-const frigorificos = ref<Frigorifico[]>([]);
-const loading = ref(true);
-const saving = ref(false);
 const statusFilter = ref("");
+const tiersQuery = useTiers(() => ({
+  status: statusFilter.value || undefined,
+}));
+const propQuery = useProprietarios(() => ({}));
+const fazQuery = useFazendas(() => ({}));
+const frigQuery = useFrigorificos();
+const rows = computed(() => tiersQuery.data.value?.rows ?? []);
+const proprietarios = computed(() => propQuery.data.value?.rows ?? []);
+const fazendas = computed(() => fazQuery.data.value?.rows ?? []);
+const frigorificos = computed(() => frigQuery.data.value?.rows ?? []);
+const loading = computed(() => tiersQuery.isPending.value);
+const createMut = useCreateTier();
+const saving = computed(() => createMut.isPending.value);
 const dialogOpen = ref(false);
 
 const form = reactive({
@@ -156,32 +163,6 @@ function goto(id: string) {
   void router.push(`/tier/${id}`);
 }
 
-async function load() {
-  loading.value = true;
-  try {
-    const paged = await listTiers({
-      status: (statusFilter.value || undefined) as TierStatus | undefined,
-      pageSize: 200,
-    });
-    rows.value = paged.rows;
-  } catch {
-    push({ kind: "error", title: "Falha ao carregar tiers" });
-  } finally {
-    loading.value = false;
-  }
-}
-
-async function loadSelects() {
-  const [p, f, fr] = await Promise.all([
-    listProprietarios({ pageSize: 200 }),
-    listFazendas({ pageSize: 200 }),
-    listFrigorificos({ pageSize: 200 }),
-  ]);
-  proprietarios.value = p.rows;
-  fazendas.value = f.rows;
-  frigorificos.value = fr.rows;
-}
-
 function openCreate() {
   Object.assign(form, {
     proprietarioId: "",
@@ -195,26 +176,19 @@ function openCreate() {
 
 async function save() {
   if (!form.proprietarioId || !form.fazendaId || !form.qtdAnimais) return;
-  saving.value = true;
   try {
-    const created = await createTier({
+    const created = (await createMut.mutateAsync({
       proprietarioId: form.proprietarioId,
       fazendaId: form.fazendaId,
       qtdAnimais: Number(form.qtdAnimais),
       frigorificoId: form.frigorificoId || undefined,
       data: form.data || undefined,
-    });
+    })) as Tier;
     push({ kind: "success", title: "Tier criado" });
     dialogOpen.value = false;
     void router.push(`/tier/${created.id}`);
   } catch {
     push({ kind: "error", title: "Falha ao criar tier" });
-  } finally {
-    saving.value = false;
   }
 }
-
-onMounted(async () => {
-  await Promise.all([load(), loadSelects()]);
-});
 </script>
