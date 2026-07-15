@@ -860,6 +860,7 @@ enum TierDocTipo {
   PARECER_TECNICO
   DECLARACAO_M049
   NF
+  OUTRO
 
   @@map("tier_doc_tipo")
   @@schema("app")
@@ -912,7 +913,6 @@ model TierFazenda {
   cars             TierCar[]
   tiers            Tier[]
   lotesOrigem      TierLoteOrigem[]
-  gtasOrigem       TierGta[]
 
   @@index([proprietarioDonoId])
   @@map("tier_fazenda")
@@ -1056,6 +1056,7 @@ model TierAbateConsumo {
 model TierDocumento {
   id              String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tipo            TierDocTipo
+  nome            String?
   escopo          TierDocEscopo
   refId           String        @map("ref_id") @db.Uuid
   loteId          String?       @map("lote_id") @db.Uuid
@@ -1078,17 +1079,27 @@ model TierDocumento {
 }
 
 model TierGta {
-  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  numero          String
-  dataEmissao     DateTime? @map("data_emissao") @db.Date
-  origemFazendaId String?   @map("origem_fazenda_id") @db.Uuid
-  qtd             Int?
-  sexo            String?
-  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  numero                String
+  serie                 String?
+  uf                    String?
+  dataEmissao           DateTime? @map("data_emissao") @db.Date
+  sistema               String?
+  origemNome            String?   @map("origem_nome")
+  origemCpfCnpj         String?   @map("origem_cpf_cnpj")
+  origemEstabelecimento String?   @map("origem_estabelecimento")
+  origemCar             String?   @map("origem_car")
+  origemMunicipio       String?   @map("origem_municipio")
+  origemUf              String?   @map("origem_uf")
+  rawExtraction         Json?     @map("raw_extraction")
+  blobProvider          String?   @map("blob_provider")
+  blobContainer         String?   @map("blob_container")
+  blobPath              String?   @map("blob_path")
+  mime                  String?
+  createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  origemFazenda TierFazenda?  @relation(fields: [origemFazendaId], references: [id], onDelete: SetNull)
-  lotes         TierLoteGta[]
+  lotes TierLoteGta[]
 
   @@index([numero])
   @@map("tier_gta")
