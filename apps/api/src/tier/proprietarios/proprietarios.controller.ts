@@ -66,4 +66,13 @@ export class ProprietariosController {
     await requireTier(this.actorContext, this.access, req);
     return this.service.remove(id);
   }
+
+  @Get(':id/credito')
+  async credito(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    await requireTier(this.actorContext, this.access, req);
+    return this.service.credito(id);
+  }
 }

@@ -10,6 +10,8 @@ describe('ProprietariosService', () => {
       update: jest.fn(),
       delete: jest.fn(),
     },
+    tier: { aggregate: jest.fn() },
+    tierAbateConsumo: { findMany: jest.fn() },
   } as any;
   const service = new ProprietariosService(prisma);
 
@@ -35,6 +37,22 @@ describe('ProprietariosService', () => {
     await expect(service.get('x')).rejects.toThrow(
       'Proprietário não encontrado',
     );
+  });
+
+  it('credito returns aprovados - abatidos', async () => {
+    prisma.tierProprietario.findUnique.mockResolvedValue({ id: 'p1' });
+    prisma.tier.aggregate.mockResolvedValue({ _sum: { qtdAnimais: 630 } });
+    prisma.tierAbateConsumo.findMany.mockResolvedValue([
+      { qtdConsumida: 100 },
+      { qtdConsumida: 81 },
+    ]);
+    const res = await service.credito('p1');
+    expect(res).toEqual({
+      proprietarioId: 'p1',
+      aprovados: 630,
+      abatidos: 181,
+      creditoRestante: 449,
+    });
   });
 
   it('update calls get first then updates', async () => {

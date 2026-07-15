@@ -54,4 +54,25 @@ export class ProprietariosService {
     await this.prisma.tierProprietario.delete({ where: { id } });
     return { id };
   }
+
+  // Credito = Aprovados − Abatidos, aggregated over the owner's APROVADO tiers.
+  async credito(id: string) {
+    await this.get(id);
+    const aprovadosAgg = await this.prisma.tier.aggregate({
+      _sum: { qtdAnimais: true },
+      where: { proprietarioId: id, status: 'APROVADO' },
+    });
+    const aprovados = aprovadosAgg._sum.qtdAnimais ?? 0;
+    const abatidosRows = await this.prisma.tierAbateConsumo.findMany({
+      where: { tier: { proprietarioId: id, status: 'APROVADO' } },
+      select: { qtdConsumida: true },
+    });
+    const abatidos = abatidosRows.reduce((s, r) => s + r.qtdConsumida, 0);
+    return {
+      proprietarioId: id,
+      aprovados,
+      abatidos,
+      creditoRestante: aprovados - abatidos,
+    };
+  }
 }
