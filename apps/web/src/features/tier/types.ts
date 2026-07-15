@@ -114,10 +114,33 @@ export interface Documento {
 export interface Gta {
   id: string;
   numero: string;
+  serie: string | null;
+  uf: string | null;
   dataEmissao: string | null;
-  origemFazendaId: string | null;
-  qtd: number | null;
-  sexo: string | null;
+  sistema: string | null;
+  origemNome: string | null;
+  origemCpfCnpj: string | null;
+  origemEstabelecimento: string | null;
+  origemCar: string | null;
+  origemMunicipio: string | null;
+  origemUf: string | null;
+  blobPath: string | null;
+  mime: string | null;
+}
+
+// Flat fields returned by POST /v1/tier/gtas/extract (modal prefill).
+export interface GtaExtractionResult {
+  numero: string | null;
+  serie: string | null;
+  uf: string | null;
+  dataEmissao: string | null;
+  sistema: string | null;
+  origemNome: string | null;
+  origemCpfCnpj: string | null;
+  origemEstabelecimento: string | null;
+  origemCar: string | null;
+  origemMunicipio: string | null;
+  origemUf: string | null;
 }
 
 export interface LoteGta {

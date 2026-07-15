@@ -259,6 +259,7 @@ export const useUploadDocumento = () => useInvalidate(api.uploadDocumento, [K.lo
 export const useDeleteDocumento = () => useInvalidate(api.deleteDocumento, [K.lotes]);
 
 // Gtas
+export const useExtractGta = () => useMutation({ mutationFn: api.extractGta });
 export const useCreateGta = () => useInvalidate(api.createGta, [K.gtas]);
 export const useUpdateGta = () => useListUpdate(K.gtas, ({ id, body }) => api.updateGta(id, body));
 export const useDeleteGta = () => useListDelete(K.gtas, api.deleteGta);

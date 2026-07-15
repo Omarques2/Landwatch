@@ -11,6 +11,7 @@ import type {
   Frigorifico,
   GrupoFrigorifico,
   Gta,
+  GtaExtractionResult,
   Lote,
   Proprietario,
   Tier,
@@ -309,8 +310,14 @@ export async function listGtas(search?: string): Promise<Gta[]> {
   return unwrapData(res.data);
 }
 
-export async function createGta(body: Partial<Gta>): Promise<Gta> {
-  const res = await http.post<ApiEnvelope<Gta>>("/v1/tier/gtas", body);
+export async function extractGta(form: FormData): Promise<GtaExtractionResult> {
+  const res = await http.post<ApiEnvelope<GtaExtractionResult>>("/v1/tier/gtas/extract", form);
+  return unwrapData(res.data);
+}
+
+// form: PDF (optional) + edited fields (numero required).
+export async function createGta(form: FormData): Promise<Gta & { _deduped?: boolean }> {
+  const res = await http.post<ApiEnvelope<Gta & { _deduped?: boolean }>>("/v1/tier/gtas", form);
   return unwrapData(res.data);
 }
 
