@@ -135,6 +135,7 @@ describe('AdminService', () => {
       { feature: 'ANALYSIS_CREATE', enabled: false },
       { feature: 'CAR_SEARCH', enabled: false },
       { feature: 'SCHEDULES', enabled: false },
+      { feature: 'TIER', enabled: false },
     ]);
   });
 
