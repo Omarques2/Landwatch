@@ -8,12 +8,12 @@
         <p class="text-sm text-muted-foreground">Estabelecimentos e seus CARs (áreas próprias e arrendadas).</p>
       </div>
       <div class="flex gap-2">
-        <UiButton variant="outline" size="sm" :disabled="loading" @click="load"> Recarregar </UiButton>
+        <UiButton variant="outline" size="sm" :disabled="loading" @click="reload"> Recarregar </UiButton>
         <UiButton size="sm" @click="openCreate">Nova fazenda</UiButton>
       </div>
     </header>
 
-    <UiInput v-model="search" placeholder="Buscar por nome…" class="max-w-sm" @keyup.enter="load" />
+    <UiInput v-model="search" placeholder="Buscar por nome…" class="max-w-sm" @keyup.enter="reload" />
 
     <div class="overflow-x-auto rounded-xl border border-border">
       <table class="w-full text-sm">
@@ -117,7 +117,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref } from "vue";
+import { computed, reactive, ref } from "vue";
 import TierNav from "./TierNav.vue";
 import {
   Button as UiButton,
@@ -131,27 +131,43 @@ import {
   useToast,
 } from "@/components/ui";
 import {
-  listFazendas,
-  createFazenda,
-  updateFazenda,
-  deleteFazenda,
-  listProprietarios,
-  listCars,
-  createCar,
-  deleteCar,
-} from "@/features/tier/api";
-import type { Car, Fazenda, Proprietario } from "@/features/tier/types";
+  useFazendas,
+  useProprietarios,
+  useCars,
+  useCreateFazenda,
+  useUpdateFazenda,
+  useDeleteFazenda,
+  useCreateCar,
+  useDeleteCar,
+} from "@/features/tier/queries";
+import type { Car, Fazenda } from "@/features/tier/types";
 
 const { push } = useToast();
-const rows = ref<Fazenda[]>([]);
-const proprietarios = ref<Proprietario[]>([]);
-const cars = ref<Car[]>([]);
-const loading = ref(true);
-const saving = ref(false);
-const savingCar = ref(false);
 const search = ref("");
+const appliedSearch = ref("");
+const fazQuery = useFazendas(() => ({
+  search: appliedSearch.value || undefined,
+}));
+const propQuery = useProprietarios(() => ({}));
+const rows = computed(() => fazQuery.data.value?.rows ?? []);
+const proprietarios = computed(() => propQuery.data.value?.rows ?? []);
+const loading = computed(() => fazQuery.isPending.value);
 const dialogOpen = ref(false);
 const editingId = ref<string | null>(null);
+const carsQuery = useCars(() => editingId.value ?? "");
+const cars = computed(() => carsQuery.data.value?.rows ?? []);
+const createMut = useCreateFazenda();
+const updateMut = useUpdateFazenda();
+const deleteMut = useDeleteFazenda();
+const createCarMut = useCreateCar();
+const deleteCarMut = useDeleteCar();
+const saving = computed(() => createMut.isPending.value || updateMut.isPending.value);
+const savingCar = computed(() => createCarMut.isPending.value);
+
+function reload() {
+  appliedSearch.value = search.value;
+  void fazQuery.refetch();
+}
 
 const emptyForm = () => ({
   nome: "",
@@ -171,35 +187,13 @@ function donoNome(id: string | null) {
   return proprietarios.value.find((p) => p.id === id)?.nome ?? "—";
 }
 
-async function load() {
-  loading.value = true;
-  try {
-    const [faz, props] = await Promise.all([
-      listFazendas({ search: search.value || undefined }),
-      listProprietarios({ pageSize: 200 }),
-    ]);
-    rows.value = faz.rows;
-    proprietarios.value = props.rows;
-  } catch {
-    push({ kind: "error", title: "Falha ao carregar fazendas" });
-  } finally {
-    loading.value = false;
-  }
-}
-
-async function loadCars(fazendaId: string) {
-  const paged = await listCars({ fazendaId, pageSize: 200 });
-  cars.value = paged.rows;
-}
-
 function openCreate() {
   editingId.value = null;
-  cars.value = [];
   Object.assign(form, emptyForm());
   dialogOpen.value = true;
 }
 
-async function openEdit(row: Fazenda) {
+function openEdit(row: Fazenda) {
   editingId.value = row.id;
   Object.assign(form, {
     nome: row.nome,
@@ -209,7 +203,6 @@ async function openEdit(row: Fazenda) {
     proprietarioDonoId: row.proprietarioDonoId ?? "",
   });
   dialogOpen.value = true;
-  await loadCars(row.id);
 }
 
 function payload() {
@@ -222,46 +215,39 @@ function payload() {
 
 async function save() {
   if (!form.nome) return;
-  saving.value = true;
   try {
     if (editingId.value) {
-      await updateFazenda(editingId.value, payload());
+      await updateMut.mutateAsync({
+        id: editingId.value,
+        body: payload() as Partial<Fazenda>,
+      });
     } else {
-      const created = await createFazenda(payload());
+      const created = (await createMut.mutateAsync(payload() as Partial<Fazenda>)) as Fazenda;
       editingId.value = created.id;
-      await loadCars(created.id);
     }
     push({ kind: "success", title: "Fazenda salva" });
-    await load();
   } catch {
     push({ kind: "error", title: "Falha ao salvar" });
-  } finally {
-    saving.value = false;
   }
 }
 
 async function addCar() {
   if (!editingId.value || !carForm.carNumero) return;
-  savingCar.value = true;
   try {
-    await createCar({
+    await createCarMut.mutateAsync({
       fazendaId: editingId.value,
       carNumero: carForm.carNumero,
       vinculo: carForm.vinculo,
     });
     carForm.carNumero = "";
-    await loadCars(editingId.value);
   } catch {
     push({ kind: "error", title: "Falha ao adicionar CAR" });
-  } finally {
-    savingCar.value = false;
   }
 }
 
 async function removeCar(id: string) {
   try {
-    await deleteCar(id);
-    if (editingId.value) await loadCars(editingId.value);
+    await deleteCarMut.mutateAsync(id);
   } catch {
     push({ kind: "error", title: "Falha ao remover CAR" });
   }
@@ -270,9 +256,8 @@ async function removeCar(id: string) {
 async function remove(row: Fazenda) {
   if (!window.confirm(`Excluir fazenda "${row.nome}"?`)) return;
   try {
-    await deleteFazenda(row.id);
+    await deleteMut.mutateAsync(row.id);
     push({ kind: "success", title: "Fazenda excluída" });
-    await load();
   } catch {
     push({
       kind: "error",
@@ -281,6 +266,4 @@ async function remove(row: Fazenda) {
     });
   }
 }
-
-onMounted(load);
 </script>
