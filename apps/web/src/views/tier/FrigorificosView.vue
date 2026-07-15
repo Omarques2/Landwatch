@@ -8,7 +8,7 @@
         <p class="text-sm text-muted-foreground">Unidades de abate. Uma unidade avulsa não tem grupo.</p>
       </div>
       <div class="flex gap-2">
-        <UiButton variant="outline" size="sm" :disabled="loading" @click="load"> Recarregar </UiButton>
+        <UiButton variant="outline" size="sm" :disabled="loading" @click="reload"> Recarregar </UiButton>
         <UiButton size="sm" @click="openCreate">Novo frigorífico</UiButton>
       </div>
     </header>
@@ -122,7 +122,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref } from "vue";
+import { computed, reactive, ref } from "vue";
 import TierNav from "./TierNav.vue";
 import {
   Button as UiButton,
@@ -136,25 +136,37 @@ import {
   useToast,
 } from "@/components/ui";
 import {
-  listFrigorificos,
-  createFrigorifico,
-  updateFrigorifico,
-  deleteFrigorifico,
-  listGruposFrigorifico,
-  createGrupoFrigorifico,
-  deleteGrupoFrigorifico,
-} from "@/features/tier/api";
+  useFrigorificos,
+  useGrupos,
+  useCreateFrigorifico,
+  useUpdateFrigorifico,
+  useDeleteFrigorifico,
+  useCreateGrupo,
+  useDeleteGrupo,
+} from "@/features/tier/queries";
 import type { Frigorifico, GrupoFrigorifico } from "@/features/tier/types";
 
 const { push } = useToast();
-const rows = ref<Frigorifico[]>([]);
-const grupos = ref<GrupoFrigorifico[]>([]);
-const loading = ref(true);
-const saving = ref(false);
-const savingGrupo = ref(false);
+const frigQuery = useFrigorificos();
+const grupoQuery = useGrupos();
+const rows = computed(() => frigQuery.data.value?.rows ?? []);
+const grupos = computed(() => grupoQuery.data.value?.rows ?? []);
+const loading = computed(() => frigQuery.isPending.value);
+const createMut = useCreateFrigorifico();
+const updateMut = useUpdateFrigorifico();
+const deleteMut = useDeleteFrigorifico();
+const createGrupoMut = useCreateGrupo();
+const deleteGrupoMut = useDeleteGrupo();
+const saving = computed(() => createMut.isPending.value || updateMut.isPending.value);
+const savingGrupo = computed(() => createGrupoMut.isPending.value);
 const novoGrupo = ref("");
 const dialogOpen = ref(false);
 const editingId = ref<string | null>(null);
+
+function reload() {
+  void frigQuery.refetch();
+  void grupoQuery.refetch();
+}
 
 const emptyForm = () => ({
   nome: "",
@@ -167,22 +179,6 @@ const emptyForm = () => ({
   grupoId: "",
 });
 const form = reactive(emptyForm());
-
-async function load() {
-  loading.value = true;
-  try {
-    const [frig, grp] = await Promise.all([
-      listFrigorificos({ pageSize: 200 }),
-      listGruposFrigorifico({ pageSize: 200 }),
-    ]);
-    rows.value = frig.rows;
-    grupos.value = grp.rows;
-  } catch {
-    push({ kind: "error", title: "Falha ao carregar frigoríficos" });
-  } finally {
-    loading.value = false;
-  }
-}
 
 function openCreate() {
   editingId.value = null;
@@ -215,29 +211,27 @@ function payload() {
 
 async function save() {
   if (!form.nome) return;
-  saving.value = true;
   try {
     if (editingId.value) {
-      await updateFrigorifico(editingId.value, payload());
+      await updateMut.mutateAsync({
+        id: editingId.value,
+        body: payload() as Partial<Frigorifico>,
+      });
     } else {
-      await createFrigorifico(payload());
+      await createMut.mutateAsync(payload() as Partial<Frigorifico>);
     }
     push({ kind: "success", title: "Frigorífico salvo" });
     dialogOpen.value = false;
-    await load();
   } catch {
     push({ kind: "error", title: "Falha ao salvar" });
-  } finally {
-    saving.value = false;
   }
 }
 
 async function remove(row: Frigorifico) {
   if (!window.confirm(`Excluir frigorífico "${row.nome}"?`)) return;
   try {
-    await deleteFrigorifico(row.id);
+    await deleteMut.mutateAsync(row.id);
     push({ kind: "success", title: "Frigorífico excluído" });
-    await load();
   } catch {
     push({ kind: "error", title: "Falha ao excluir" });
   }
@@ -245,27 +239,20 @@ async function remove(row: Frigorifico) {
 
 async function addGrupo() {
   if (!novoGrupo.value) return;
-  savingGrupo.value = true;
   try {
-    await createGrupoFrigorifico({ nome: novoGrupo.value });
+    await createGrupoMut.mutateAsync({ nome: novoGrupo.value });
     novoGrupo.value = "";
-    await load();
   } catch {
     push({ kind: "error", title: "Falha ao criar grupo" });
-  } finally {
-    savingGrupo.value = false;
   }
 }
 
 async function removeGrupo(g: GrupoFrigorifico) {
   if (!window.confirm(`Excluir grupo "${g.nome}"?`)) return;
   try {
-    await deleteGrupoFrigorifico(g.id);
-    await load();
+    await deleteGrupoMut.mutateAsync(g.id);
   } catch {
     push({ kind: "error", title: "Falha ao excluir grupo" });
   }
 }
-
-onMounted(load);
 </script>
