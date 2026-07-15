@@ -14,7 +14,9 @@ describe("tier sub-navigation placement", () => {
     "ProprietariosView.vue",
     "FazendasView.vue",
     "FrigorificosView.vue",
+    "GtasView.vue",
     "AbatesView.vue",
+    "CreditoView.vue",
   ];
 
   it.each(listViews)("renders TierNav as the first child of %s", (viewName) => {
@@ -26,5 +28,9 @@ describe("tier sub-navigation placement", () => {
 
   it("keeps the tier detail view without tabs", () => {
     expect(readView("TierDetailView.vue")).not.toContain("<TierNav");
+  });
+
+  it("links to the credito summary", () => {
+    expect(readView("TierNav.vue")).toContain('to: "/tier/credito"');
   });
 });

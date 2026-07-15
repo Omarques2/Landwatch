@@ -21,7 +21,14 @@ import { useRoute, RouterLink } from "vue-router";
 
 const route = useRoute();
 
-const SUB = ["/tier/proprietarios", "/tier/fazendas", "/tier/frigorificos", "/tier/gtas", "/tier/abates"];
+const SUB = [
+  "/tier/proprietarios",
+  "/tier/fazendas",
+  "/tier/frigorificos",
+  "/tier/gtas",
+  "/tier/abates",
+  "/tier/credito",
+];
 
 const tabs = [
   {
@@ -55,6 +62,11 @@ const tabs = [
     label: "Abates",
     to: "/tier/abates",
     match: (p: string) => p.startsWith("/tier/abates"),
+  },
+  {
+    label: "Crédito",
+    to: "/tier/credito",
+    match: (p: string) => p.startsWith("/tier/credito"),
   },
 ];
 </script>

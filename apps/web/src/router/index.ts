@@ -109,6 +109,11 @@ const router = createRouter({
           meta: { title: "Tier — Abates", feature: "TIER" },
         },
         {
+          path: "tier/credito",
+          component: () => import("../views/tier/CreditoView.vue"),
+          meta: { title: "Tier — Crédito", feature: "TIER" },
+        },
+        {
           path: "tier/:id",
           component: () => import("../views/tier/TierDetailView.vue"),
           meta: { title: "Tier", feature: "TIER" },
