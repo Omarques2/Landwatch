@@ -37,6 +37,20 @@ describe('DocumentosService', () => {
     );
   });
 
+  it('requires nome when tipo is OUTRO', async () => {
+    const spy = jest
+      .spyOn(service as any, 'uploadToBlob')
+      .mockResolvedValue({});
+    await expect(
+      service.upload(file, {
+        tipo: 'OUTRO',
+        escopo: 'LOTE',
+        refId: 'r1',
+      } as any),
+    ).rejects.toThrow('Informe o nome do documento');
+    expect(spy).not.toHaveBeenCalled();
+  });
+
   it('persists a documento row with the returned blob path', async () => {
     jest.spyOn(service as any, 'uploadToBlob').mockResolvedValue({
       blobProvider: 'AZURE_BLOB',

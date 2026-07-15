@@ -1,4 +1,11 @@
-import { IsDateString, IsIn, IsOptional, IsUUID } from 'class-validator';
+import {
+  IsDateString,
+  IsIn,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Length,
+} from 'class-validator';
 
 const TIPOS = [
   'INSCRICAO_ESTADUAL',
@@ -8,6 +15,7 @@ const TIPOS = [
   'PARECER_TECNICO',
   'DECLARACAO_M049',
   'NF',
+  'OUTRO',
 ] as const;
 
 const ESCOPOS = [
@@ -22,6 +30,7 @@ const ESCOPOS = [
 // Multipart form fields arrive as strings alongside the uploaded file.
 export class CreateDocumentoDto {
   @IsIn(TIPOS) tipo!: (typeof TIPOS)[number];
+  @IsOptional() @IsString() @Length(1, 200) nome?: string;
   @IsIn(ESCOPOS) escopo!: (typeof ESCOPOS)[number];
   @IsUUID() refId!: string;
   @IsOptional() @IsUUID() loteId?: string;

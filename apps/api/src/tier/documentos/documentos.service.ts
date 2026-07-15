@@ -118,12 +118,19 @@ export class DocumentosService {
         message: `Tipo de arquivo não permitido: ${file.mimetype}`,
       });
     }
+    if (dto.tipo === 'OUTRO' && !dto.nome?.trim()) {
+      throw new BadRequestException({
+        code: 'TIER_DOC_NOME_REQUIRED',
+        message: 'Informe o nome do documento',
+      });
+    }
     const safeName = file.originalname.replace(/[^\w.-]+/g, '_');
     const relativePath = `tier/${dto.escopo.toLowerCase()}/${dto.refId}/${Date.now()}-${safeName}`;
     const blob = await this.uploadToBlob(relativePath, file);
     return this.prisma.tierDocumento.create({
       data: {
         tipo: dto.tipo as TierDocTipo,
+        nome: dto.nome ?? null,
         escopo: dto.escopo as TierDocEscopo,
         refId: dto.refId,
         loteId: dto.loteId ?? null,
