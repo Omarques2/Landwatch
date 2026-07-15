@@ -120,6 +120,10 @@ const envBaseSchema = z.object({
   ATTACHMENTS_PMTILES_BLOB_CONTAINER: z.string().optional(),
   ATTACHMENTS_PMTILES_BLOB_PREFIX: z.string().optional().default('pmtiles'),
 
+  // Tier module: dedicated Blob container for tier documents. If unset,
+  // reuses ATTACHMENTS_BLOB_CONTAINER.
+  TIER_BLOB_CONTAINER: z.string().min(1).optional(),
+
   SCHEDULES_JOB_TOKEN: z.string().optional(),
 
   FABRIC_API_BASE_URL: z
