@@ -84,6 +84,36 @@ const router = createRouter({
           meta: { title: "Fornecedores", platformUserOnly: true },
         },
         {
+          path: "tier",
+          component: () => import("../views/tier/TierListView.vue"),
+          meta: { title: "Tier", feature: "TIER" },
+        },
+        {
+          path: "tier/proprietarios",
+          component: () => import("../views/tier/ProprietariosView.vue"),
+          meta: { title: "Tier — Proprietários", feature: "TIER" },
+        },
+        {
+          path: "tier/fazendas",
+          component: () => import("../views/tier/FazendasView.vue"),
+          meta: { title: "Tier — Fazendas", feature: "TIER" },
+        },
+        {
+          path: "tier/frigorificos",
+          component: () => import("../views/tier/FrigorificosView.vue"),
+          meta: { title: "Tier — Frigoríficos", feature: "TIER" },
+        },
+        {
+          path: "tier/abates",
+          component: () => import("../views/tier/AbatesView.vue"),
+          meta: { title: "Tier — Abates", feature: "TIER" },
+        },
+        {
+          path: "tier/:id",
+          component: () => import("../views/tier/TierDetailView.vue"),
+          meta: { title: "Tier", feature: "TIER" },
+        },
+        {
           path: "403",
           component: () => import("../views/AccessDeniedView.vue"),
           meta: { title: "Acesso negado" },

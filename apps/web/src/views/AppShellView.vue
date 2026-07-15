@@ -156,6 +156,7 @@ import {
   Beef,
   Paperclip,
   Shield,
+  ClipboardList,
 } from "lucide-vue-next";
 import { logout } from "@/auth/auth";
 import { clearMeCache, getAccessCached, getMeCached, type AccessMeResponse, type AppFeature, type MeResponse } from "@/auth/me";
@@ -209,6 +210,7 @@ const baseNavItems: ShellNavItem[] = [
   { key: "schedules", label: "Agendamento", icon: CalendarClock, feature: "SCHEDULES" },
   { key: "attachments", label: "Anexos", icon: Paperclip, platformUser: true },
   { key: "fornecedores", label: "Fornecedores", icon: Beef, platformUser: true },
+  { key: "tier", label: "Tier", icon: ClipboardList, feature: "TIER" },
   { key: "new-analysis", label: "Nova análise", icon: ClipboardPlus, feature: "ANALYSIS_CREATE" },
   { key: "car-search", label: "Buscar CAR", icon: LocateFixed, feature: "CAR_SEARCH" },
 ];
@@ -253,6 +255,7 @@ const activeKey = computed(() => {
   if (route.path.startsWith("/attachments")) return "attachments";
   if (route.path.startsWith("/admin")) return "admin";
   if (route.path.startsWith("/fornecedores")) return "fornecedores";
+  if (route.path.startsWith("/tier")) return "tier";
   if (route.path.startsWith("/farms")) return "farms";
   return "dashboard";
 });
@@ -291,6 +294,7 @@ const pageSubtitle = computed(() => {
   if (activeKey.value === "attachments") return "Gerencie anexos por feição ativa";
   if (activeKey.value === "admin") return "Organizações e usuários";
   if (activeKey.value === "fornecedores") return "Pendências de GTA por fornecedor";
+  if (activeKey.value === "tier") return "Controle de tier e abates";
   if (activeKey.value === "new-analysis") return "Selecione o CAR e rode a análise";
   if (activeKey.value === "car-search") return "Busque CARs por coordenada";
   return "LandWatch";
@@ -332,6 +336,7 @@ async function navigate(key: string) {
   if (key === "attachments") await router.push("/attachments");
   if (key === "admin") await router.push("/admin");
   if (key === "fornecedores") await router.push("/fornecedores");
+  if (key === "tier") await router.push("/tier");
   if (key === "new-analysis") await router.push("/analyses/new");
   if (key === "car-search") await router.push("/analyses/search");
   drawerOpen.value = false;

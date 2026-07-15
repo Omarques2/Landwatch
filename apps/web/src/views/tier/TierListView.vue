@@ -1,0 +1,10 @@
+<template>
+  <section class="p-6">
+    <h1 class="text-lg font-semibold text-foreground">Tier</h1>
+    <p class="mt-2 text-sm text-muted-foreground">
+      Lista de tiers — em construção (W3).
+    </p>
+  </section>
+</template>
+
+<script setup lang="ts"></script>

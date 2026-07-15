@@ -23,7 +23,8 @@ export type AppFeature =
   | "CAR_SEARCH"
   | "SCHEDULES"
   | "ATTACHMENTS"
-  | "ATTACHMENTS_REVIEW";
+  | "ATTACHMENTS_REVIEW"
+  | "TIER";
 
 // Org option for the Farms/Analyses org filter (GET /v1/access/orgs). Platform
 // operators get every org; a plain tenant gets only its own active org.
