@@ -2,10 +2,16 @@ import { Module } from '@nestjs/common';
 import { ProprietariosModule } from './proprietarios/proprietarios.module';
 import { FazendasModule } from './fazendas/fazendas.module';
 import { TierCarsModule } from './cars/cars.module';
+import { FrigorificosModule } from './frigorificos/frigorificos.module';
 
 // Aggregates every Tier sub-module. Sub-modules are added as they are built.
 // AuthModule is @Global(), so ActorContextService/AccessService need no import.
 @Module({
-  imports: [ProprietariosModule, FazendasModule, TierCarsModule],
+  imports: [
+    ProprietariosModule,
+    FazendasModule,
+    TierCarsModule,
+    FrigorificosModule,
+  ],
 })
 export class TierModule {}
