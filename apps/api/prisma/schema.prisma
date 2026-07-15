@@ -894,6 +894,7 @@ model TierProprietario {
 
   fazendas TierFazenda[]
   tiers    Tier[]
+  abates   TierAbate[]
 
   @@map("tier_proprietario")
   @@schema("app")
@@ -1022,16 +1023,19 @@ model TierLote {
 }
 
 model TierAbate {
-  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  dataAbate     DateTime @map("data_abate") @db.Date
-  frigorificoId String?  @map("frigorifico_id") @db.Uuid
-  qtd           Int
-  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  proprietarioId String   @map("proprietario_id") @db.Uuid
+  dataAbate       DateTime @map("data_abate") @db.Date
+  frigorificoId   String?  @map("frigorifico_id") @db.Uuid
+  qtd             Int
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  frigorifico TierFrigorifico?   @relation(fields: [frigorificoId], references: [id], onDelete: SetNull)
-  consumos    TierAbateConsumo[]
+  proprietario TierProprietario   @relation(fields: [proprietarioId], references: [id], onDelete: Restrict)
+  frigorifico  TierFrigorifico?   @relation(fields: [frigorificoId], references: [id], onDelete: SetNull)
+  consumos     TierAbateConsumo[]
 
+  @@index([proprietarioId])
   @@index([frigorificoId])
   @@map("tier_abate")
   @@schema("app")
