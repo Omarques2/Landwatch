@@ -828,3 +828,292 @@ enum AttachmentEventType {
   @@map("attachment_event_type")
   @@schema("app")
 }
+
+// ---------------------------------------------------------------------------
+// Tier module (cattle traceability). Tables prefixed tier_, schema "app".
+// ---------------------------------------------------------------------------
+
+enum TierStatus {
+  SUBMETIDO
+  APROVADO
+  RECUSADO
+
+  @@map("tier_status")
+  @@schema("app")
+}
+
+enum TierCarVinculo {
+  PROPRIO
+  ARRENDAMENTO
+  COMODATO
+
+  @@map("tier_car_vinculo")
+  @@schema("app")
+}
+
+enum TierDocTipo {
+  INSCRICAO_ESTADUAL
+  PROCURACAO
+  CONTRATO_COMODATO
+  DOC_PESSOAL
+  PARECER_TECNICO
+  DECLARACAO_M049
+  NF
+
+  @@map("tier_doc_tipo")
+  @@schema("app")
+}
+
+enum TierDocEscopo {
+  PROPRIETARIO
+  FAZENDA
+  CAR
+  TIER
+  LOTE
+  FRIGORIFICO
+
+  @@map("tier_doc_escopo")
+  @@schema("app")
+}
+
+model TierProprietario {
+  id                             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  nome                           String
+  cpfCnpj                        String?  @map("cpf_cnpj")
+  tipo                           String
+  inscricaoEstadual              String?  @map("inscricao_estadual")
+  grupo                          String?
+  municipio                      String?
+  estado                         String?
+  contratoValorAnimal            Decimal  @default(1.50) @map("contrato_valor_animal") @db.Decimal(12, 2)
+  contratoValorAdicionalAprovado Decimal  @default(0) @map("contrato_valor_adicional_aprovado") @db.Decimal(12, 2)
+  createdAt                      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  fazendas TierFazenda[]
+  tiers    Tier[]
+
+  @@map("tier_proprietario")
+  @@schema("app")
+}
+
+model TierFazenda {
+  id                 String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  nome               String
+  municipio          String?
+  estado             String?
+  proprietarioDonoId String?  @map("proprietario_dono_id") @db.Uuid
+  sistema            String?
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  proprietarioDono TierProprietario? @relation(fields: [proprietarioDonoId], references: [id], onDelete: SetNull)
+  cars             TierCar[]
+  tiers            Tier[]
+  lotesOrigem      TierLoteOrigem[]
+  gtasOrigem       TierGta[]
+
+  @@index([proprietarioDonoId])
+  @@map("tier_fazenda")
+  @@schema("app")
+}
+
+model TierCar {
+  id                 String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  fazendaId          String         @map("fazenda_id") @db.Uuid
+  carNumero          String         @map("car_numero")
+  vinculo            TierCarVinculo @default(PROPRIO)
+  titularNome        String?        @map("titular_nome")
+  titularCpfCnpj     String?        @map("titular_cpf_cnpj")
+  municipio          String?
+  uf                 String?
+  areaHa             Decimal?       @map("area_ha") @db.Decimal(14, 4)
+  landwatchAnaliseId String?        @map("landwatch_analise_id")
+  analiseStatus      String?        @map("analise_status")
+  analiseSnapshotAt  DateTime?      @map("analise_snapshot_at") @db.Timestamptz(6)
+  createdAt          DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  fazenda TierFazenda @relation(fields: [fazendaId], references: [id], onDelete: Cascade)
+
+  @@index([fazendaId])
+  @@index([carNumero])
+  @@map("tier_car")
+  @@schema("app")
+}
+
+model TierGrupoFrigorifico {
+  id           String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  nome         String
+  createdAt    DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
+  frigorificos TierFrigorifico[]
+
+  @@map("tier_grupo_frigorifico")
+  @@schema("app")
+}
+
+model TierFrigorifico {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  nome              String
+  inscricaoEstadual String?  @map("inscricao_estadual")
+  cpfCnpj           String?  @map("cpf_cnpj")
+  municipio         String?
+  endereco          String?
+  lat               Decimal? @db.Decimal(10, 7)
+  lon               Decimal? @db.Decimal(10, 7)
+  grupoId           String?  @map("grupo_id") @db.Uuid
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  grupo  TierGrupoFrigorifico? @relation(fields: [grupoId], references: [id], onDelete: SetNull)
+  tiers  Tier[]
+  abates TierAbate[]
+
+  @@index([grupoId])
+  @@map("tier_frigorifico")
+  @@schema("app")
+}
+
+model Tier {
+  id                             String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  proprietarioId                 String     @map("proprietario_id") @db.Uuid
+  fazendaId                      String     @map("fazenda_id") @db.Uuid
+  frigorificoId                  String?    @map("frigorifico_id") @db.Uuid
+  qtdAnimais                     Int        @map("qtd_animais")
+  status                         TierStatus @default(SUBMETIDO)
+  data                           DateTime?  @db.Date
+  validadoPor                    String?    @map("validado_por")
+  dataAprovacao                  DateTime?  @map("data_aprovacao") @db.Timestamptz(6)
+  contratoValorAnimal            Decimal    @map("contrato_valor_animal") @db.Decimal(12, 2)
+  contratoValorAdicionalAprovado Decimal    @map("contrato_valor_adicional_aprovado") @db.Decimal(12, 2)
+  createdAt                      DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                      DateTime   @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  proprietario TierProprietario   @relation(fields: [proprietarioId], references: [id], onDelete: Restrict)
+  fazenda      TierFazenda        @relation(fields: [fazendaId], references: [id], onDelete: Restrict)
+  frigorifico  TierFrigorifico?   @relation(fields: [frigorificoId], references: [id], onDelete: SetNull)
+  lotes        TierLote[]
+  consumos     TierAbateConsumo[]
+
+  @@index([proprietarioId])
+  @@index([fazendaId])
+  @@index([status])
+  @@map("tier")
+  @@schema("app")
+}
+
+model TierLote {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tierId    String   @map("tier_id") @db.Uuid
+  nome      String
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tier       Tier             @relation(fields: [tierId], references: [id], onDelete: Cascade)
+  documentos TierDocumento[]
+  gtas       TierLoteGta[]
+  origens    TierLoteOrigem[]
+
+  @@index([tierId])
+  @@map("tier_lote")
+  @@schema("app")
+}
+
+model TierAbate {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  dataAbate     DateTime @map("data_abate") @db.Date
+  frigorificoId String?  @map("frigorifico_id") @db.Uuid
+  qtd           Int
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  frigorifico TierFrigorifico?   @relation(fields: [frigorificoId], references: [id], onDelete: SetNull)
+  consumos    TierAbateConsumo[]
+
+  @@index([frigorificoId])
+  @@map("tier_abate")
+  @@schema("app")
+}
+
+model TierAbateConsumo {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  abateId      String   @map("abate_id") @db.Uuid
+  tierId       String?  @map("tier_id") @db.Uuid
+  qtdConsumida Int      @map("qtd_consumida")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  abate TierAbate @relation(fields: [abateId], references: [id], onDelete: Cascade)
+  tier  Tier?     @relation(fields: [tierId], references: [id], onDelete: SetNull)
+
+  @@index([abateId])
+  @@index([tierId])
+  @@map("tier_abate_consumo")
+  @@schema("app")
+}
+
+model TierDocumento {
+  id              String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tipo            TierDocTipo
+  escopo          TierDocEscopo
+  refId           String        @map("ref_id") @db.Uuid
+  loteId          String?       @map("lote_id") @db.Uuid
+  dataRef         DateTime?     @map("data_ref") @db.Date
+  statusValidacao String?       @map("status_validacao")
+  validadoPor     String?       @map("validado_por")
+  blobProvider    String?       @map("blob_provider")
+  blobContainer   String?       @map("blob_container")
+  blobPath        String        @map("blob_path")
+  mime            String?
+  createdAt       DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  lote TierLote? @relation(fields: [loteId], references: [id], onDelete: Cascade)
+
+  @@index([escopo, refId])
+  @@index([loteId])
+  @@map("tier_documento")
+  @@schema("app")
+}
+
+model TierGta {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  numero          String
+  dataEmissao     DateTime? @map("data_emissao") @db.Date
+  origemFazendaId String?   @map("origem_fazenda_id") @db.Uuid
+  qtd             Int?
+  sexo            String?
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  origemFazenda TierFazenda?  @relation(fields: [origemFazendaId], references: [id], onDelete: SetNull)
+  lotes         TierLoteGta[]
+
+  @@index([numero])
+  @@map("tier_gta")
+  @@schema("app")
+}
+
+model TierLoteGta {
+  loteId String @map("lote_id") @db.Uuid
+  gtaId  String @map("gta_id") @db.Uuid
+
+  lote TierLote @relation(fields: [loteId], references: [id], onDelete: Cascade)
+  gta  TierGta  @relation(fields: [gtaId], references: [id], onDelete: Cascade)
+
+  @@id([loteId, gtaId])
+  @@map("tier_lote_gta")
+  @@schema("app")
+}
+
+model TierLoteOrigem {
+  loteId          String @map("lote_id") @db.Uuid
+  fazendaOrigemId String @map("fazenda_origem_id") @db.Uuid
+
+  lote          TierLote    @relation(fields: [loteId], references: [id], onDelete: Cascade)
+  fazendaOrigem TierFazenda @relation(fields: [fazendaOrigemId], references: [id], onDelete: Cascade)
+
+  @@id([loteId, fazendaOrigemId])
+  @@map("tier_lote_origem")
+  @@schema("app")
+}
