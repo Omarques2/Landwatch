@@ -6,6 +6,7 @@ import { FrigorificosModule } from './frigorificos/frigorificos.module';
 import { TiersModule } from './tiers/tiers.module';
 import { LotesModule } from './lotes/lotes.module';
 import { DocumentosModule } from './documentos/documentos.module';
+import { GtasModule } from './gtas/gtas.module';
 
 // Aggregates every Tier sub-module. Sub-modules are added as they are built.
 // AuthModule is @Global(), so ActorContextService/AccessService need no import.
@@ -18,6 +19,7 @@ import { DocumentosModule } from './documentos/documentos.module';
     TiersModule,
     LotesModule,
     DocumentosModule,
+    GtasModule,
   ],
 })
 export class TierModule {}

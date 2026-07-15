@@ -82,4 +82,24 @@ export class LotesController {
     await requireTier(this.actorContext, this.access, req);
     return this.service.removeOrigem(loteId, fazendaId);
   }
+
+  @Post(':loteId/gtas/:gtaId')
+  async addGta(
+    @Req() req: AuthedRequest,
+    @Param('loteId', ParseUUIDPipe) loteId: string,
+    @Param('gtaId', ParseUUIDPipe) gtaId: string,
+  ) {
+    await requireTier(this.actorContext, this.access, req);
+    return this.service.addGta(loteId, gtaId);
+  }
+
+  @Delete(':loteId/gtas/:gtaId')
+  async removeGta(
+    @Req() req: AuthedRequest,
+    @Param('loteId', ParseUUIDPipe) loteId: string,
+    @Param('gtaId', ParseUUIDPipe) gtaId: string,
+  ) {
+    await requireTier(this.actorContext, this.access, req);
+    return this.service.removeGta(loteId, gtaId);
+  }
 }

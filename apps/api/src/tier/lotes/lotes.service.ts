@@ -68,4 +68,21 @@ export class LotesService {
     });
     return { loteId, fazendaOrigemId };
   }
+
+  async addGta(loteId: string, gtaId: string) {
+    await this.get(loteId);
+    await this.prisma.tierLoteGta.upsert({
+      where: { loteId_gtaId: { loteId, gtaId } },
+      create: { loteId, gtaId },
+      update: {},
+    });
+    return { loteId, gtaId };
+  }
+
+  async removeGta(loteId: string, gtaId: string) {
+    await this.prisma.tierLoteGta.delete({
+      where: { loteId_gtaId: { loteId, gtaId } },
+    });
+    return { loteId, gtaId };
+  }
 }
