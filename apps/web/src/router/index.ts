@@ -1,12 +1,7 @@
 import { createRouter, createWebHistory } from "vue-router";
 import { authClient } from "../auth/sigfarm-auth";
 import { acquireApiToken } from "../auth/auth";
-import {
-  getAccessCached,
-  getAccessStatus,
-  getMeCached,
-  getMeResult,
-} from "../auth/me";
+import { getAccessCached, getAccessStatus, getMeCached, getMeResult } from "../auth/me";
 import { createAuthNavigationGuard } from "./auth-guard";
 
 // Lazy-loaded views: each view (and its heavy deps like maplibre/leaflet) is
@@ -102,6 +97,11 @@ const router = createRouter({
           path: "tier/frigorificos",
           component: () => import("../views/tier/FrigorificosView.vue"),
           meta: { title: "Tier — Frigoríficos", feature: "TIER" },
+        },
+        {
+          path: "tier/gtas",
+          component: () => import("../views/tier/GtasView.vue"),
+          meta: { title: "Tier — GTAs", feature: "TIER" },
         },
         {
           path: "tier/abates",

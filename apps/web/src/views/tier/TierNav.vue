@@ -21,12 +21,7 @@ import { useRoute, RouterLink } from "vue-router";
 
 const route = useRoute();
 
-const SUB = [
-  "/tier/proprietarios",
-  "/tier/fazendas",
-  "/tier/frigorificos",
-  "/tier/abates",
-];
+const SUB = ["/tier/proprietarios", "/tier/fazendas", "/tier/frigorificos", "/tier/gtas", "/tier/abates"];
 
 const tabs = [
   {
@@ -34,9 +29,7 @@ const tabs = [
     to: "/tier",
     // Active on the list (/tier) and on any tier detail (/tier/<uuid>),
     // but not on the other sub-pages.
-    match: (p: string) =>
-      p === "/tier" ||
-      (p.startsWith("/tier/") && !SUB.some((s) => p.startsWith(s))),
+    match: (p: string) => p === "/tier" || (p.startsWith("/tier/") && !SUB.some((s) => p.startsWith(s))),
   },
   {
     label: "Proprietários",
@@ -52,6 +45,11 @@ const tabs = [
     label: "Frigoríficos",
     to: "/tier/frigorificos",
     match: (p: string) => p.startsWith("/tier/frigorificos"),
+  },
+  {
+    label: "GTAs",
+    to: "/tier/gtas",
+    match: (p: string) => p.startsWith("/tier/gtas"),
   },
   {
     label: "Abates",
