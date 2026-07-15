@@ -8,12 +8,12 @@
         <p class="text-sm text-muted-foreground">Cadastro único de donos de animais e/ou fazendas.</p>
       </div>
       <div class="flex gap-2">
-        <UiButton variant="outline" size="sm" :disabled="loading" @click="load"> Recarregar </UiButton>
+        <UiButton variant="outline" size="sm" :disabled="loading" @click="reload"> Recarregar </UiButton>
         <UiButton size="sm" @click="openCreate">Novo proprietário</UiButton>
       </div>
     </header>
 
-    <UiInput v-model="search" placeholder="Buscar por nome…" class="max-w-sm" @keyup.enter="load" />
+    <UiInput v-model="search" placeholder="Buscar por nome…" class="max-w-sm" @keyup.enter="reload" />
 
     <div class="overflow-x-auto rounded-xl border border-border">
       <table class="w-full text-sm">
@@ -114,7 +114,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref } from "vue";
+import { computed, reactive, ref } from "vue";
 import TierNav from "./TierNav.vue";
 import {
   Button as UiButton,
@@ -127,16 +127,33 @@ import {
   DialogFooter as UiDialogFooter,
   useToast,
 } from "@/components/ui";
-import { listProprietarios, createProprietario, updateProprietario, deleteProprietario } from "@/features/tier/api";
+import {
+  useProprietarios,
+  useCreateProprietario,
+  useUpdateProprietario,
+  useDeleteProprietario,
+} from "@/features/tier/queries";
 import type { Proprietario } from "@/features/tier/types";
 
 const { push } = useToast();
-const rows = ref<Proprietario[]>([]);
-const loading = ref(true);
-const saving = ref(false);
 const search = ref("");
+const appliedSearch = ref("");
+const query = useProprietarios(() => ({
+  search: appliedSearch.value || undefined,
+}));
+const rows = computed(() => query.data.value?.rows ?? []);
+const loading = computed(() => query.isPending.value);
+const createMut = useCreateProprietario();
+const updateMut = useUpdateProprietario();
+const deleteMut = useDeleteProprietario();
+const saving = computed(() => createMut.isPending.value || updateMut.isPending.value);
 const dialogOpen = ref(false);
 const editingId = ref<string | null>(null);
+
+function reload() {
+  appliedSearch.value = search.value;
+  void query.refetch();
+}
 
 const emptyForm = () => ({
   nome: "",
@@ -150,18 +167,6 @@ const emptyForm = () => ({
   contratoValorAdicionalAprovado: "0",
 });
 const form = reactive(emptyForm());
-
-async function load() {
-  loading.value = true;
-  try {
-    const paged = await listProprietarios({ search: search.value || undefined });
-    rows.value = paged.rows;
-  } catch {
-    push({ kind: "error", title: "Falha ao carregar proprietários" });
-  } finally {
-    loading.value = false;
-  }
-}
 
 function openCreate() {
   editingId.value = null;
@@ -201,29 +206,27 @@ function payload() {
 
 async function save() {
   if (!form.nome) return;
-  saving.value = true;
   try {
     if (editingId.value) {
-      await updateProprietario(editingId.value, payload());
+      await updateMut.mutateAsync({
+        id: editingId.value,
+        body: payload() as Partial<Proprietario>,
+      });
     } else {
-      await createProprietario(payload());
+      await createMut.mutateAsync(payload() as Partial<Proprietario>);
     }
     push({ kind: "success", title: "Proprietário salvo" });
     dialogOpen.value = false;
-    await load();
   } catch {
     push({ kind: "error", title: "Falha ao salvar" });
-  } finally {
-    saving.value = false;
   }
 }
 
 async function remove(row: Proprietario) {
   if (!window.confirm(`Excluir proprietário "${row.nome}"?`)) return;
   try {
-    await deleteProprietario(row.id);
+    await deleteMut.mutateAsync(row.id);
     push({ kind: "success", title: "Proprietário excluído" });
-    await load();
   } catch {
     push({
       kind: "error",
@@ -232,6 +235,4 @@ async function remove(row: Proprietario) {
     });
   }
 }
-
-onMounted(load);
 </script>
