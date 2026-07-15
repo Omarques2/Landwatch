@@ -1,5 +1,7 @@
 <template>
   <section class="flex flex-col gap-4 p-6">
+    <TierNav />
+
     <header class="flex items-center justify-between gap-3">
       <div>
         <h1 class="text-lg font-semibold text-foreground">Frigoríficos</h1>
@@ -121,6 +123,7 @@
 
 <script setup lang="ts">
 import { onMounted, reactive, ref } from "vue";
+import TierNav from "./TierNav.vue";
 import {
   Button as UiButton,
   Input as UiInput,

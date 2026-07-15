@@ -20,7 +20,7 @@
 <script setup lang="ts">
 import type { AttachmentModuleTab, AttachmentModuleTabDefinition } from '../types';
 
-const props = defineProps<{
+defineProps<{
   tabs: ReadonlyArray<AttachmentModuleTabDefinition>;
   modelValue: AttachmentModuleTab;
 }>();

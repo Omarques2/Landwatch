@@ -255,7 +255,7 @@ const props = defineProps<{
   carKey: string;
 }>();
 
-const emit = defineEmits<{
+defineEmits<{
   (event: 'close'): void;
 }>();
 

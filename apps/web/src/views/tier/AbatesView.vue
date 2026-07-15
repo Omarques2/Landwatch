@@ -1,5 +1,7 @@
 <template>
   <section class="flex flex-col gap-4 p-6">
+    <TierNav />
+
     <header class="flex items-center justify-between gap-3">
       <div>
         <h1 class="text-lg font-semibold text-foreground">Abates</h1>
@@ -102,6 +104,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from "vue";
+import TierNav from "./TierNav.vue";
 import { Button as UiButton, Input as UiInput, Label as UiLabel, Select as UiSelect, useToast } from "@/components/ui";
 import { listAbates, createAbate, deleteAbate, listTiers, getTier, listFrigorificos } from "@/features/tier/api";
 import type { Abate, Frigorifico, TierDetail } from "@/features/tier/types";
