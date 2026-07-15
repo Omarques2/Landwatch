@@ -1,4 +1,6 @@
 import { TiersService } from './tiers.service';
+import { CreateTierDto } from './dto/create-tier.dto';
+import { validate } from 'class-validator';
 
 describe('TiersService', () => {
   const prisma = {
@@ -17,6 +19,17 @@ describe('TiersService', () => {
 
   beforeEach(() => jest.clearAllMocks());
 
+  it('requires data in CreateTierDto', async () => {
+    const errors = await validate(
+      Object.assign(new CreateTierDto(), {
+        proprietarioId: '550e8400-e29b-41d4-a716-446655440000',
+        fazendaId: '550e8400-e29b-41d4-a716-446655440001',
+        qtdAnimais: 1,
+      }),
+    );
+    expect(errors.some((error) => error.property === 'data')).toBe(true);
+  });
+
   it('snapshots proprietario contract values into the tier on create', async () => {
     prisma.tierProprietario.findUnique.mockResolvedValue({
       id: 'p1',
@@ -30,9 +43,35 @@ describe('TiersService', () => {
       proprietarioId: 'p1',
       fazendaId: 'f1',
       qtdAnimais: 100,
+      data: '2026-07-15',
     } as any);
     expect(res.contratoValorAnimal).toBe('1.50');
     expect(res.contratoValorAdicionalAprovado).toBe('0.30');
+    expect(prisma.tier.create.mock.calls[0][0].data.data).toEqual(
+      new Date('2026-07-15'),
+    );
+  });
+
+  it('always writes a date on create', async () => {
+    prisma.tierProprietario.findUnique.mockResolvedValue({
+      id: 'p1',
+      contratoValorAnimal: '1.50',
+      contratoValorAdicionalAprovado: '0.30',
+    });
+    prisma.tier.create.mockImplementation(({ data }: any) =>
+      Promise.resolve(data),
+    );
+
+    await service.create({
+      proprietarioId: 'p1',
+      fazendaId: 'f1',
+      qtdAnimais: 1,
+      data: '2026-07-16',
+    } as any);
+
+    expect(prisma.tier.create.mock.calls[0][0].data.data).toEqual(
+      new Date('2026-07-16'),
+    );
   });
 
   it('create throws when proprietario missing', async () => {

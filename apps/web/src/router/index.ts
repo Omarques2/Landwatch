@@ -114,6 +114,16 @@ const router = createRouter({
           meta: { title: "Tier — Crédito", feature: "TIER" },
         },
         {
+          path: "tier/cobrancas",
+          component: () => import("../views/tier/CobrancasView.vue"),
+          meta: { title: "Tier — Pagamentos", feature: "TIER" },
+        },
+        {
+          path: "tier/cobrancas/:id",
+          component: () => import("../views/tier/CobrancaDetailView.vue"),
+          meta: { title: "Tier — Fatura", feature: "TIER" },
+        },
+        {
           path: "tier/:id",
           component: () => import("../views/tier/TierDetailView.vue"),
           meta: { title: "Tier", feature: "TIER" },

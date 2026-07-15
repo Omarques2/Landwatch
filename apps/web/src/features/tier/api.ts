@@ -7,6 +7,9 @@ import type {
   CarAnalise,
   Credito,
   CreditoRow,
+  Cobranca,
+  CobrancaPreview,
+  CobrancaStatus,
   Documento,
   Fazenda,
   Frigorifico,
@@ -60,6 +63,85 @@ export async function getCredito(proprietarioId: string): Promise<Credito> {
 export async function listCreditos(): Promise<CreditoRow[]> {
   const res = await http.get<ApiEnvelope<CreditoRow[]>>("/v1/tier/credito");
   return unwrapData(res.data);
+}
+
+export async function listCobrancas(
+  params: {
+    proprietarioId?: string;
+    status?: CobrancaStatus;
+    ini?: string;
+    fim?: string;
+  } = {},
+): Promise<Cobranca[]> {
+  const res = await http.get<ApiEnvelope<Cobranca[]>>("/v1/tier/cobrancas", { params });
+  return unwrapData(res.data);
+}
+
+export async function getCobranca(id: string): Promise<Cobranca> {
+  const res = await http.get<ApiEnvelope<Cobranca>>(`/v1/tier/cobrancas/${id}`);
+  return unwrapData(res.data);
+}
+
+export async function previewCobranca(params: {
+  proprietarioId: string;
+  ini: string;
+  fim: string;
+}): Promise<CobrancaPreview> {
+  const res = await http.get<ApiEnvelope<CobrancaPreview>>("/v1/tier/cobrancas/preview", { params });
+  return unwrapData(res.data);
+}
+
+export async function createCobranca(body: {
+  proprietarioId: string;
+  periodoIni: string;
+  periodoFim: string;
+  tierIds: string[];
+  confirmOverlap?: boolean;
+}): Promise<Cobranca> {
+  const res = await http.post<ApiEnvelope<Cobranca>>("/v1/tier/cobrancas", body);
+  return unwrapData(res.data);
+}
+
+export async function updateCobranca(
+  id: string,
+  body: { periodoIni?: string; periodoFim?: string; tierIds?: string[]; confirmOverlap?: boolean },
+): Promise<Cobranca> {
+  const res = await http.put<ApiEnvelope<Cobranca>>(`/v1/tier/cobrancas/${id}`, body);
+  return unwrapData(res.data);
+}
+
+export async function resyncCobranca(id: string): Promise<Cobranca> {
+  const res = await http.post<ApiEnvelope<Cobranca>>(`/v1/tier/cobrancas/${id}/resync`);
+  return unwrapData(res.data);
+}
+
+export async function pagarCobranca(
+  id: string,
+  body: { dataPagamento?: string; valorPago?: string },
+): Promise<Cobranca> {
+  const res = await http.post<ApiEnvelope<Cobranca>>(`/v1/tier/cobrancas/${id}/pagar`, body);
+  return unwrapData(res.data);
+}
+
+export async function reabrirCobranca(id: string): Promise<Cobranca> {
+  const res = await http.post<ApiEnvelope<Cobranca>>(`/v1/tier/cobrancas/${id}/reabrir`);
+  return unwrapData(res.data);
+}
+
+export async function cancelarCobranca(id: string): Promise<Cobranca> {
+  const res = await http.post<ApiEnvelope<Cobranca>>(`/v1/tier/cobrancas/${id}/cancelar`);
+  return unwrapData(res.data);
+}
+
+export async function downloadCobrancaPdf(id: string): Promise<void> {
+  const res = await http.get(`/v1/tier/cobrancas/${id}/pdf`, { responseType: "blob" });
+  const url = URL.createObjectURL(res.data);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = `fatura-${id}.pdf`;
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
 }
 
 // ---- Fazendas ----
@@ -202,7 +284,7 @@ export async function createTier(body: {
   fazendaId: string;
   qtdAnimais: number;
   frigorificoId?: string;
-  data?: string;
+  data: string;
 }): Promise<Tier> {
   const res = await http.post<ApiEnvelope<Tier>>("/v1/tier/tiers", body);
   return unwrapData(res.data);

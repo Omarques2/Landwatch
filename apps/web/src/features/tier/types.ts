@@ -81,7 +81,7 @@ export interface Tier {
   frigorificoId: string | null;
   qtdAnimais: number;
   status: TierStatus;
-  data: string | null;
+  data: string;
   validadoPor: string | null;
   dataAprovacao: string | null;
   contratoValorAnimal: string;
@@ -191,6 +191,62 @@ export interface Credito {
 
 export interface CreditoRow extends Credito {
   nome: string;
+}
+
+export type CobrancaStatus = "NAO_PAGA" | "PAGA" | "CANCELADA";
+
+export interface CobrancaItem {
+  id: string;
+  cobrancaId: string;
+  tierId: string;
+  tierData: string;
+  qtdAnimais: number;
+  status: TierStatus;
+  contratoValorAnimal: string;
+  contratoValorAdicionalAprovado: string;
+  valorBase: string;
+  valorAdicional: string;
+  valorItem: string;
+}
+
+export interface Cobranca {
+  id: string;
+  proprietarioId: string;
+  periodoIni: string;
+  periodoFim: string;
+  status: CobrancaStatus;
+  valorBase: string;
+  valorAdicional: string;
+  valorTotal: string;
+  qtdAnimais: number;
+  qtdAprovados: number;
+  dataPagamento: string | null;
+  valorPago: string | null;
+  createdAt: string;
+  updatedAt: string;
+  stale: boolean;
+  proprietario?: Proprietario;
+  itens: CobrancaItem[];
+}
+
+export interface CobrancaPreviewItem extends CobrancaItem {
+  tier: Tier;
+  jaCobrado: boolean;
+  cobrancaIdExistente: string | null;
+}
+
+export interface CobrancaTotals {
+  valorBase: string;
+  valorAdicional: string;
+  valorTotal: string;
+  qtdAnimais: number;
+  qtdAprovados: number;
+}
+
+export interface CobrancaPreview {
+  itens: CobrancaPreviewItem[];
+  overlap: Cobranca[];
+  totais: CobrancaTotals;
 }
 
 export interface CarAnalise {

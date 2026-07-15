@@ -87,7 +87,7 @@ export class TiersService {
         fazendaId: dto.fazendaId,
         frigorificoId: dto.frigorificoId ?? null,
         qtdAnimais: dto.qtdAnimais,
-        data: dto.data ? new Date(dto.data) : null,
+        data: new Date(dto.data),
         contratoValorAnimal: prop.contratoValorAnimal,
         contratoValorAdicionalAprovado: prop.contratoValorAdicionalAprovado,
       },

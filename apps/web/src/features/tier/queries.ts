@@ -18,6 +18,9 @@ export const tierKeys = {
   lotes: (tierId: string) => ["tier", "lotes", tierId] as const,
   gtas: (search = "") => ["tier", "gtas", search] as const,
   abates: () => ["tier", "abates"] as const,
+  cobrancas: (filters: Record<string, unknown> = {}) => ["tier", "cobrancas", filters] as const,
+  cobranca: (id: string) => ["tier", "cobrancas", id] as const,
+  cobrancaPreview: (params: Record<string, unknown>) => ["tier", "cobrancas", "preview", params] as const,
 };
 
 // ---- Query hooks ----
@@ -106,6 +109,32 @@ export function useAbates() {
   return useQuery({
     queryKey: tierKeys.abates(),
     queryFn: () => api.listAbates(),
+  });
+}
+
+export function useCobrancas(filters: MaybeRefOrGetter<Parameters<typeof api.listCobrancas>[0]> = () => ({})) {
+  return useQuery({
+    queryKey: computed(() => tierKeys.cobrancas(toValue(filters) as Record<string, unknown>)),
+    queryFn: () => api.listCobrancas(toValue(filters)),
+  });
+}
+
+export function useCobranca(id: MaybeRefOrGetter<string>) {
+  return useQuery({
+    queryKey: computed(() => tierKeys.cobranca(toValue(id))),
+    queryFn: () => api.getCobranca(toValue(id)),
+    enabled: () => !!toValue(id),
+  });
+}
+
+export function useCobrancaPreview(params: MaybeRefOrGetter<{ proprietarioId: string; ini: string; fim: string }>) {
+  return useQuery({
+    queryKey: computed(() => tierKeys.cobrancaPreview(toValue(params))),
+    queryFn: () => api.previewCobranca(toValue(params)),
+    enabled: computed(() => {
+      const value = toValue(params);
+      return !!value.proprietarioId && !!value.ini && !!value.fim;
+    }),
   });
 }
 
@@ -203,6 +232,7 @@ const K = {
   gtas: ["tier", "gtas"] as QueryKey,
   abates: ["tier", "abates"] as QueryKey,
   credito: ["tier", "credito"] as QueryKey,
+  cobrancas: ["tier", "cobrancas"] as QueryKey,
 };
 
 // Proprietarios
@@ -244,6 +274,21 @@ export const useSetTierContrato = () =>
     [K.tiers],
   );
 export const useDeleteTier = () => useListDelete(K.tiersList, api.deleteTier);
+
+export const useCreateCobranca = () => useInvalidate(api.createCobranca, [K.cobrancas, K.credito]);
+export const useUpdateCobranca = () =>
+  useInvalidate(
+    ({ id, body }: { id: string; body: Parameters<typeof api.updateCobranca>[1] }) => api.updateCobranca(id, body),
+    [K.cobrancas, K.credito],
+  );
+export const useResyncCobranca = () => useInvalidate(api.resyncCobranca, [K.cobrancas, K.credito]);
+export const usePagarCobranca = () =>
+  useInvalidate(
+    ({ id, body }: { id: string; body: Parameters<typeof api.pagarCobranca>[1] }) => api.pagarCobranca(id, body),
+    [K.cobrancas, K.credito],
+  );
+export const useReabrirCobranca = () => useInvalidate(api.reabrirCobranca, [K.cobrancas, K.credito]);
+export const useCancelarCobranca = () => useInvalidate(api.cancelarCobranca, [K.cobrancas, K.credito]);
 
 // Lotes + children (nested cache → invalidate)
 export const useCreateLote = () => useInvalidate(api.createLote, [K.lotes]);

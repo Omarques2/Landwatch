@@ -101,7 +101,7 @@
       </form>
       <UiDialogFooter>
         <UiButton variant="outline" @click="dialogOpen = false">Cancelar</UiButton>
-        <UiButton :disabled="saving || !form.proprietarioId || !form.fazendaId || !form.qtdAnimais" @click="save">
+        <UiButton :disabled="saving || !form.proprietarioId || !form.fazendaId || !form.qtdAnimais || !form.data" @click="save">
           {{ saving ? "Salvando…" : "Criar tier" }}
         </UiButton>
       </UiDialogFooter>
@@ -175,14 +175,14 @@ function openCreate() {
 }
 
 async function save() {
-  if (!form.proprietarioId || !form.fazendaId || !form.qtdAnimais) return;
+  if (!form.proprietarioId || !form.fazendaId || !form.qtdAnimais || !form.data) return;
   try {
     const created = (await createMut.mutateAsync({
       proprietarioId: form.proprietarioId,
       fazendaId: form.fazendaId,
       qtdAnimais: Number(form.qtdAnimais),
       frigorificoId: form.frigorificoId || undefined,
-      data: form.data || undefined,
+      data: form.data,
     })) as Tier;
     push({ kind: "success", title: "Tier criado" });
     dialogOpen.value = false;

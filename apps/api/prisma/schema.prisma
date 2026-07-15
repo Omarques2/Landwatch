@@ -21,19 +21,19 @@ model User {
   memberships                 OrgMembership[]
   groupMemberships            OrgGroupMembership[]
   farms                       Farm[]
-  analyses                    Analysis[]                  @relation("UserAnalyses")
-  schedules                   AnalysisSchedule[]          @relation("UserSchedules")
-  orgPermissions              OrgUserPermission[]         @relation("OrgUserPermissionUser")
-  orgPermissionsGranted       OrgUserPermission[]         @relation("OrgUserPermissionGrantedBy")
-  attachmentCategoriesCreated AttachmentCategory[]        @relation("AttachmentCategoryCreatedBy")
-  attachmentsCreated          Attachment[]                @relation("AttachmentCreatedBy")
-  attachmentsDeleted          Attachment[]                @relation("AttachmentDeletedBy")
-  attachmentsRevoked          Attachment[]                @relation("AttachmentRevokedBy")
-  attachmentTargetsCreated    AttachmentTarget[]          @relation("AttachmentTargetCreatedBy")
-  attachmentTargetsReviewed   AttachmentTarget[]          @relation("AttachmentTargetReviewedBy")
-  attachmentEvents            AttachmentEvent[]           @relation("AttachmentEventActorUser")
+  analyses                    Analysis[]                   @relation("UserAnalyses")
+  schedules                   AnalysisSchedule[]           @relation("UserSchedules")
+  orgPermissions              OrgUserPermission[]          @relation("OrgUserPermissionUser")
+  orgPermissionsGranted       OrgUserPermission[]          @relation("OrgUserPermissionGrantedBy")
+  attachmentCategoriesCreated AttachmentCategory[]         @relation("AttachmentCategoryCreatedBy")
+  attachmentsCreated          Attachment[]                 @relation("AttachmentCreatedBy")
+  attachmentsDeleted          Attachment[]                 @relation("AttachmentDeletedBy")
+  attachmentsRevoked          Attachment[]                 @relation("AttachmentRevokedBy")
+  attachmentTargetsCreated    AttachmentTarget[]           @relation("AttachmentTargetCreatedBy")
+  attachmentTargetsReviewed   AttachmentTarget[]           @relation("AttachmentTargetReviewedBy")
+  attachmentEvents            AttachmentEvent[]            @relation("AttachmentEventActorUser")
   attachmentMapFilterSessions AttachmentMapFilterSession[] @relation("AttachmentMapFilterSessionUser")
-  carMapSearchSessions       CarMapSearchSession[]        @relation("CarMapSearchSessionUser")
+  carMapSearchSessions        CarMapSearchSession[]        @relation("CarMapSearchSessionUser")
 
   @@index([email], map: "idx_app_user_email")
   @@map("app_user")
@@ -202,42 +202,42 @@ model FarmDocument {
 }
 
 model Analysis {
-  id                String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  carKey            String?            @map("car_key")
-  subjectType       SubjectType        @default(CAR) @map("subject_type")
-  radiusCenterLat   Decimal?           @map("radius_center_lat")
-  radiusCenterLng   Decimal?           @map("radius_center_lng")
-  radiusM           Int?               @map("radius_m")
-  analysisDocs      Json               @default("[]") @map("analysis_docs")
-  analysisDate      DateTime           @map("analysis_date") @db.Date
-  status            AnalysisStatus     @default(pending)
-  createdByUserId   String             @map("created_by_user_id") @db.Uuid
-  orgId             String?            @map("org_id") @db.Uuid
-  createdAt         DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
-  attachmentsSnapshotCutoffAt   DateTime? @map("attachments_snapshot_cutoff_at") @db.Timestamptz(6)
-  attachmentsSnapshotCapturedAt DateTime? @map("attachments_snapshot_captured_at") @db.Timestamptz(6)
-  completedAt       DateTime?          @map("completed_at") @db.Timestamptz(6)
-  farmId            String?            @map("farm_id") @db.Uuid
-  farmNameSnapshot  String?            @map("farm_name_snapshot")
-  pdfStatus         AnalysisPdfStatus? @map("pdf_status")
-  pdfPath           String?            @map("pdf_path")
-  pdfGeneratedAt    DateTime?          @map("pdf_generated_at") @db.Timestamptz(6)
-  pdfExpiresAt      DateTime?          @map("pdf_expires_at") @db.Timestamptz(6)
-  pdfError          String?            @map("pdf_error")
-  hasIntersections  Boolean            @default(false) @map("has_intersections")
-  intersectionCount Int                @default(0) @map("intersection_count")
-  analysisKind      AnalysisKind       @default(STANDARD) @map("analysis_kind")
-  scheduleId        String?            @map("schedule_id") @db.Uuid
+  id                            String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  carKey                        String?            @map("car_key")
+  subjectType                   SubjectType        @default(CAR) @map("subject_type")
+  radiusCenterLat               Decimal?           @map("radius_center_lat")
+  radiusCenterLng               Decimal?           @map("radius_center_lng")
+  radiusM                       Int?               @map("radius_m")
+  analysisDocs                  Json               @default("[]") @map("analysis_docs")
+  analysisDate                  DateTime           @map("analysis_date") @db.Date
+  status                        AnalysisStatus     @default(pending)
+  createdByUserId               String             @map("created_by_user_id") @db.Uuid
+  orgId                         String?            @map("org_id") @db.Uuid
+  createdAt                     DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  attachmentsSnapshotCutoffAt   DateTime?          @map("attachments_snapshot_cutoff_at") @db.Timestamptz(6)
+  attachmentsSnapshotCapturedAt DateTime?          @map("attachments_snapshot_captured_at") @db.Timestamptz(6)
+  completedAt                   DateTime?          @map("completed_at") @db.Timestamptz(6)
+  farmId                        String?            @map("farm_id") @db.Uuid
+  farmNameSnapshot              String?            @map("farm_name_snapshot")
+  pdfStatus                     AnalysisPdfStatus? @map("pdf_status")
+  pdfPath                       String?            @map("pdf_path")
+  pdfGeneratedAt                DateTime?          @map("pdf_generated_at") @db.Timestamptz(6)
+  pdfExpiresAt                  DateTime?          @map("pdf_expires_at") @db.Timestamptz(6)
+  pdfError                      String?            @map("pdf_error")
+  hasIntersections              Boolean            @default(false) @map("has_intersections")
+  intersectionCount             Int                @default(0) @map("intersection_count")
+  analysisKind                  AnalysisKind       @default(STANDARD) @map("analysis_kind")
+  scheduleId                    String?            @map("schedule_id") @db.Uuid
 
-  results               AnalysisResult[]
-  cache                 AnalysisCache?
-  alerts                AnalysisAlert[]
-  attachmentSnapshots   AnalysisAttachmentEffective[]
-  postprocessJobs       AnalysisPostprocessJob[]
-  createdBy             User                          @relation("UserAnalyses", fields: [createdByUserId], references: [id], onDelete: Restrict)
-  org                   Org?                          @relation(fields: [orgId], references: [id], onDelete: SetNull)
-  farm                  Farm?                         @relation(fields: [farmId], references: [id], onDelete: SetNull)
-  schedule              AnalysisSchedule?             @relation("ScheduleAnalyses", fields: [scheduleId], references: [id], onDelete: SetNull)
+  results             AnalysisResult[]
+  cache               AnalysisCache?
+  alerts              AnalysisAlert[]
+  attachmentSnapshots AnalysisAttachmentEffective[]
+  postprocessJobs     AnalysisPostprocessJob[]
+  createdBy           User                          @relation("UserAnalyses", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  org                 Org?                          @relation(fields: [orgId], references: [id], onDelete: SetNull)
+  farm                Farm?                         @relation(fields: [farmId], references: [id], onDelete: SetNull)
+  schedule            AnalysisSchedule?             @relation("ScheduleAnalyses", fields: [scheduleId], references: [id], onDelete: SetNull)
 
   @@index([carKey], map: "analysis_car_key_idx")
   @@index([createdByUserId], map: "analysis_created_by_idx")
@@ -298,19 +298,19 @@ enum AnalysisPostprocessJobStatus {
 }
 
 model AnalysisPostprocessJob {
-  id           String                       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  jobType      AnalysisPostprocessJobType  @map("job_type")
-  analysisId   String?                      @map("analysis_id") @db.Uuid
-  docNormalized String?                     @map("doc_normalized")
-  dedupeKey    String?                      @map("dedupe_key")
-  status       AnalysisPostprocessJobStatus @default(PENDING)
-  attemptCount Int                          @default(0) @map("attempt_count")
-  runAfter     DateTime                     @default(now()) @map("run_after") @db.Timestamptz(6)
-  lockedAt     DateTime?                    @map("locked_at") @db.Timestamptz(6)
-  lastError    String?                      @map("last_error")
-  payload      Json                         @default("{}")
-  createdAt    DateTime                     @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt    DateTime                     @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id            String                       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  jobType       AnalysisPostprocessJobType   @map("job_type")
+  analysisId    String?                      @map("analysis_id") @db.Uuid
+  docNormalized String?                      @map("doc_normalized")
+  dedupeKey     String?                      @map("dedupe_key")
+  status        AnalysisPostprocessJobStatus @default(PENDING)
+  attemptCount  Int                          @default(0) @map("attempt_count")
+  runAfter      DateTime                     @default(now()) @map("run_after") @db.Timestamptz(6)
+  lockedAt      DateTime?                    @map("locked_at") @db.Timestamptz(6)
+  lastError     String?                      @map("last_error")
+  payload       Json                         @default("{}")
+  createdAt     DateTime                     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime                     @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   analysis Analysis? @relation(fields: [analysisId], references: [id], onDelete: Cascade)
 
@@ -566,14 +566,14 @@ model AttachmentMapFilterSession {
 }
 
 model CarMapSearchSession {
-  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  actorUserId    String   @map("actor_user_id") @db.Uuid
-  actorOrgId     String?  @map("actor_org_id") @db.Uuid
-  searchVersion  Int      @default(1) @map("search_version")
-  paramsJson     Json     @map("params_json")
-  expiresAt      DateTime @map("expires_at") @db.Timestamptz(6)
-  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  actorUserId   String   @map("actor_user_id") @db.Uuid
+  actorOrgId    String?  @map("actor_org_id") @db.Uuid
+  searchVersion Int      @default(1) @map("search_version")
+  paramsJson    Json     @map("params_json")
+  expiresAt     DateTime @map("expires_at") @db.Timestamptz(6)
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   actorUser User @relation("CarMapSearchSessionUser", fields: [actorUserId], references: [id], onDelete: Cascade)
   actorOrg  Org? @relation("CarMapSearchSessionOrg", fields: [actorOrgId], references: [id], onDelete: Cascade)
@@ -843,6 +843,15 @@ enum TierStatus {
   @@schema("app")
 }
 
+enum TierCobrancaStatus {
+  NAO_PAGA
+  PAGA
+  CANCELADA
+
+  @@map("tier_cobranca_status")
+  @@schema("app")
+}
+
 enum TierCarVinculo {
   PROPRIO
   ARRENDAMENTO
@@ -892,9 +901,10 @@ model TierProprietario {
   createdAt                      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt                      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  fazendas TierFazenda[]
-  tiers    Tier[]
-  abates   TierAbate[]
+  fazendas  TierFazenda[]
+  tiers     Tier[]
+  abates    TierAbate[]
+  cobrancas TierCobranca[]
 
   @@map("tier_proprietario")
   @@schema("app")
@@ -984,7 +994,7 @@ model Tier {
   frigorificoId                  String?    @map("frigorifico_id") @db.Uuid
   qtdAnimais                     Int        @map("qtd_animais")
   status                         TierStatus @default(SUBMETIDO)
-  data                           DateTime?  @db.Date
+  data                           DateTime   @db.Date
   validadoPor                    String?    @map("validado_por")
   dataAprovacao                  DateTime?  @map("data_aprovacao") @db.Timestamptz(6)
   contratoValorAnimal            Decimal    @map("contrato_valor_animal") @db.Decimal(12, 2)
@@ -992,16 +1002,63 @@ model Tier {
   createdAt                      DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt                      DateTime   @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  proprietario TierProprietario   @relation(fields: [proprietarioId], references: [id], onDelete: Restrict)
-  fazenda      TierFazenda        @relation(fields: [fazendaId], references: [id], onDelete: Restrict)
-  frigorifico  TierFrigorifico?   @relation(fields: [frigorificoId], references: [id], onDelete: SetNull)
-  lotes        TierLote[]
-  consumos     TierAbateConsumo[]
+  proprietario  TierProprietario   @relation(fields: [proprietarioId], references: [id], onDelete: Restrict)
+  fazenda       TierFazenda        @relation(fields: [fazendaId], references: [id], onDelete: Restrict)
+  frigorifico   TierFrigorifico?   @relation(fields: [frigorificoId], references: [id], onDelete: SetNull)
+  lotes         TierLote[]
+  consumos      TierAbateConsumo[]
+  cobrancaItens TierCobrancaItem[]
 
   @@index([proprietarioId])
   @@index([fazendaId])
   @@index([status])
   @@map("tier")
+  @@schema("app")
+}
+
+model TierCobranca {
+  id             String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  proprietarioId String             @map("proprietario_id") @db.Uuid
+  periodoIni     DateTime           @map("periodo_ini") @db.Date
+  periodoFim     DateTime           @map("periodo_fim") @db.Date
+  status         TierCobrancaStatus @default(NAO_PAGA)
+  valorBase      Decimal            @map("valor_base") @db.Decimal(12, 2)
+  valorAdicional Decimal            @map("valor_adicional") @db.Decimal(12, 2)
+  valorTotal     Decimal            @map("valor_total") @db.Decimal(12, 2)
+  qtdAnimais     Int                @map("qtd_animais")
+  qtdAprovados   Int                @map("qtd_aprovados")
+  dataPagamento  DateTime?          @map("data_pagamento") @db.Date
+  valorPago      Decimal?           @map("valor_pago") @db.Decimal(12, 2)
+  createdAt      DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime           @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  proprietario TierProprietario   @relation(fields: [proprietarioId], references: [id], onDelete: Restrict)
+  itens        TierCobrancaItem[]
+
+  @@index([proprietarioId, status])
+  @@map("tier_cobranca")
+  @@schema("app")
+}
+
+model TierCobrancaItem {
+  id                             String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  cobrancaId                     String     @map("cobranca_id") @db.Uuid
+  tierId                         String     @map("tier_id") @db.Uuid
+  tierData                       DateTime   @map("tier_data") @db.Date
+  qtdAnimais                     Int        @map("qtd_animais")
+  status                         TierStatus
+  contratoValorAnimal            Decimal    @map("contrato_valor_animal") @db.Decimal(12, 2)
+  contratoValorAdicionalAprovado Decimal    @map("contrato_valor_adicional_aprovado") @db.Decimal(12, 2)
+  valorBase                      Decimal    @map("valor_base") @db.Decimal(12, 2)
+  valorAdicional                 Decimal    @map("valor_adicional") @db.Decimal(12, 2)
+  valorItem                      Decimal    @map("valor_item") @db.Decimal(12, 2)
+
+  cobranca TierCobranca @relation(fields: [cobrancaId], references: [id], onDelete: Cascade)
+  tier     Tier         @relation(fields: [tierId], references: [id], onDelete: Restrict)
+
+  @@index([cobrancaId])
+  @@index([tierId])
+  @@map("tier_cobranca_item")
   @@schema("app")
 }
 
@@ -1023,13 +1080,13 @@ model TierLote {
 }
 
 model TierAbate {
-  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   proprietarioId String   @map("proprietario_id") @db.Uuid
-  dataAbate       DateTime @map("data_abate") @db.Date
-  frigorificoId   String?  @map("frigorifico_id") @db.Uuid
-  qtd             Int
-  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  dataAbate      DateTime @map("data_abate") @db.Date
+  frigorificoId  String?  @map("frigorifico_id") @db.Uuid
+  qtd            Int
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   proprietario TierProprietario   @relation(fields: [proprietarioId], references: [id], onDelete: Restrict)
   frigorifico  TierFrigorifico?   @relation(fields: [frigorificoId], references: [id], onDelete: SetNull)

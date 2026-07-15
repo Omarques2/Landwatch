@@ -28,6 +28,7 @@ const SUB = [
   "/tier/gtas",
   "/tier/abates",
   "/tier/credito",
+  "/tier/cobrancas",
 ];
 
 const tabs = [
@@ -67,6 +68,11 @@ const tabs = [
     label: "Crédito",
     to: "/tier/credito",
     match: (p: string) => p.startsWith("/tier/credito"),
+  },
+  {
+    label: "Pagamentos",
+    to: "/tier/cobrancas",
+    match: (p: string) => p.startsWith("/tier/cobrancas"),
   },
 ];
 </script>
