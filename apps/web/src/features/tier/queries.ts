@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/vue-query";
+import { useQuery, useMutation, useQueryClient, type QueryKey } from "@tanstack/vue-query";
 import { toValue, type MaybeRefOrGetter } from "vue";
 import * as api from "./api";
 
@@ -124,3 +124,145 @@ export function useCredito(id: MaybeRefOrGetter<string>) {
     enabled: () => !!toValue(id),
   });
 }
+
+// ---- Mutation hooks (hybrid: optimistic for flat-list edit/delete, invalidate for nested/detail) ----
+
+type Row = { id: string } & Record<string, unknown>;
+type ListShape = Row[] | { rows: Row[] } | undefined;
+
+function patchLists(qc: ReturnType<typeof useQueryClient>, prefix: QueryKey, fn: (rows: Row[]) => Row[]) {
+  qc.setQueriesData<ListShape>({ queryKey: prefix }, (old) => {
+    if (!old) return old;
+    if (Array.isArray(old)) return fn(old);
+    if (old.rows) return { ...old, rows: fn(old.rows) };
+    return old;
+  });
+}
+
+function useInvalidate<TVars>(mutationFn: (vars: TVars) => Promise<unknown>, keys: QueryKey[]) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn,
+    onSuccess: () => keys.forEach((k) => qc.invalidateQueries({ queryKey: k })),
+  });
+}
+
+function useListDelete(prefix: QueryKey, mutationFn: (id: string) => Promise<unknown>) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn,
+    onMutate: async (id: string) => {
+      await qc.cancelQueries({ queryKey: prefix });
+      const prev = qc.getQueriesData<ListShape>({ queryKey: prefix });
+      patchLists(qc, prefix, (rows) => rows.filter((r) => r.id !== id));
+      return { prev };
+    },
+    onError: (_e, _id, ctx) => ctx?.prev?.forEach(([k, d]) => qc.setQueryData(k, d)),
+    onSettled: () => qc.invalidateQueries({ queryKey: prefix }),
+  });
+}
+
+function useListUpdate<B extends Record<string, unknown>>(
+  prefix: QueryKey,
+  mutationFn: (vars: { id: string; body: B }) => Promise<unknown>,
+) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn,
+    onMutate: async ({ id, body }) => {
+      await qc.cancelQueries({ queryKey: prefix });
+      const prev = qc.getQueriesData<ListShape>({ queryKey: prefix });
+      patchLists(qc, prefix, (rows) => rows.map((r) => (r.id === id ? { ...r, ...body } : r)));
+      return { prev };
+    },
+    onError: (_e, _v, ctx) => ctx?.prev?.forEach(([k, d]) => qc.setQueryData(k, d)),
+    onSettled: () => qc.invalidateQueries({ queryKey: prefix }),
+  });
+}
+
+const K = {
+  prop: ["tier", "proprietarios"] as QueryKey,
+  faz: ["tier", "fazendas"] as QueryKey,
+  cars: ["tier", "cars"] as QueryKey,
+  frig: ["tier", "frigorificos"] as QueryKey,
+  grupos: ["tier", "grupos"] as QueryKey,
+  tiersList: ["tier", "tiers-list"] as QueryKey,
+  tiers: ["tier", "tiers"] as QueryKey,
+  lotes: ["tier", "lotes"] as QueryKey,
+  gtas: ["tier", "gtas"] as QueryKey,
+  abates: ["tier", "abates"] as QueryKey,
+  credito: ["tier", "credito"] as QueryKey,
+};
+
+// Proprietarios
+export const useCreateProprietario = () => useInvalidate(api.createProprietario, [K.prop]);
+export const useUpdateProprietario = () => useListUpdate(K.prop, ({ id, body }) => api.updateProprietario(id, body));
+export const useDeleteProprietario = () => useListDelete(K.prop, api.deleteProprietario);
+
+// Fazendas
+export const useCreateFazenda = () => useInvalidate(api.createFazenda, [K.faz]);
+export const useUpdateFazenda = () => useListUpdate(K.faz, ({ id, body }) => api.updateFazenda(id, body));
+export const useDeleteFazenda = () => useListDelete(K.faz, api.deleteFazenda);
+
+// Cars
+export const useCreateCar = () => useInvalidate(api.createCar, [K.cars, K.faz]);
+export const useDeleteCar = () => useListDelete(K.cars, api.deleteCar);
+
+// Frigorificos + grupos
+export const useCreateFrigorifico = () => useInvalidate(api.createFrigorifico, [K.frig]);
+export const useUpdateFrigorifico = () => useListUpdate(K.frig, ({ id, body }) => api.updateFrigorifico(id, body));
+export const useDeleteFrigorifico = () => useListDelete(K.frig, api.deleteFrigorifico);
+export const useCreateGrupo = () => useInvalidate(api.createGrupoFrigorifico, [K.grupos]);
+export const useDeleteGrupo = () => useListDelete(K.grupos, api.deleteGrupoFrigorifico);
+
+// Tiers
+export const useCreateTier = () => useInvalidate(api.createTier, [K.tiersList]);
+export const useUpdateTier = () =>
+  useInvalidate(
+    ({ id, body }: { id: string; body: Parameters<typeof api.updateTier>[1] }) => api.updateTier(id, body),
+    [K.tiers, K.tiersList],
+  );
+export const useSetTierStatus = () =>
+  useInvalidate(
+    ({ id, body }: { id: string; body: Parameters<typeof api.setTierStatus>[1] }) => api.setTierStatus(id, body),
+    [K.tiers, K.tiersList, K.credito],
+  );
+export const useSetTierContrato = () =>
+  useInvalidate(
+    ({ id, body }: { id: string; body: Parameters<typeof api.setTierContrato>[1] }) => api.setTierContrato(id, body),
+    [K.tiers],
+  );
+export const useDeleteTier = () => useListDelete(K.tiersList, api.deleteTier);
+
+// Lotes + children (nested cache → invalidate)
+export const useCreateLote = () => useInvalidate(api.createLote, [K.lotes]);
+export const useUpdateLote = () =>
+  useInvalidate(({ id, body }: { id: string; body: { nome?: string } }) => api.updateLote(id, body), [K.lotes]);
+export const useDeleteLote = () => useInvalidate(api.deleteLote, [K.lotes]);
+export const useAddLoteOrigem = () =>
+  useInvalidate(
+    ({ loteId, fazendaId }: { loteId: string; fazendaId: string }) => api.addLoteOrigem(loteId, fazendaId),
+    [K.lotes],
+  );
+export const useRemoveLoteOrigem = () =>
+  useInvalidate(
+    ({ loteId, fazendaId }: { loteId: string; fazendaId: string }) => api.removeLoteOrigem(loteId, fazendaId),
+    [K.lotes],
+  );
+export const useAddLoteGta = () =>
+  useInvalidate(({ loteId, gtaId }: { loteId: string; gtaId: string }) => api.addLoteGta(loteId, gtaId), [K.lotes]);
+export const useRemoveLoteGta = () =>
+  useInvalidate(({ loteId, gtaId }: { loteId: string; gtaId: string }) => api.removeLoteGta(loteId, gtaId), [K.lotes]);
+
+// Documentos (nested under lotes)
+export const useUploadDocumento = () => useInvalidate(api.uploadDocumento, [K.lotes]);
+export const useDeleteDocumento = () => useInvalidate(api.deleteDocumento, [K.lotes]);
+
+// Gtas
+export const useCreateGta = () => useInvalidate(api.createGta, [K.gtas]);
+export const useUpdateGta = () => useListUpdate(K.gtas, ({ id, body }) => api.updateGta(id, body));
+export const useDeleteGta = () => useListDelete(K.gtas, api.deleteGta);
+
+// Abates
+export const useCreateAbate = () => useInvalidate(api.createAbate, [K.abates, K.tiers, K.credito]);
+export const useDeleteAbate = () => useInvalidate(api.deleteAbate, [K.abates, K.tiers, K.credito]);
