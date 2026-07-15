@@ -58,16 +58,18 @@ export class ProprietariosService {
   // Credito = Aprovados − Abatidos, aggregated over the owner's APROVADO tiers.
   async credito(id: string) {
     await this.get(id);
-    const aprovadosAgg = await this.prisma.tier.aggregate({
-      _sum: { qtdAnimais: true },
-      where: { proprietarioId: id, status: 'APROVADO' },
-    });
+    const [aprovadosAgg, abatidosAgg] = await Promise.all([
+      this.prisma.tier.aggregate({
+        _sum: { qtdAnimais: true },
+        where: { proprietarioId: id, status: 'APROVADO' },
+      }),
+      this.prisma.tierAbate.aggregate({
+        _sum: { qtd: true },
+        where: { proprietarioId: id },
+      }),
+    ]);
     const aprovados = aprovadosAgg._sum.qtdAnimais ?? 0;
-    const abatidosRows = await this.prisma.tierAbateConsumo.findMany({
-      where: { tier: { proprietarioId: id, status: 'APROVADO' } },
-      select: { qtdConsumida: true },
-    });
-    const abatidos = abatidosRows.reduce((s, r) => s + r.qtdConsumida, 0);
+    const abatidos = abatidosAgg._sum.qtd ?? 0;
     return {
       proprietarioId: id,
       aprovados,
