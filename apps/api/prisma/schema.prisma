@@ -676,6 +676,7 @@ enum AppFeature {
   SCHEDULES
   ATTACHMENTS
   ATTACHMENTS_REVIEW
+  TIER
 
   @@map("app_feature")
   @@schema("app")

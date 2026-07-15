@@ -10,6 +10,7 @@ const TENANT_FEATURES: AppFeature[] = [
   AppFeature.ANALYSIS_CREATE,
   AppFeature.CAR_SEARCH,
   AppFeature.SCHEDULES,
+  AppFeature.TIER,
 ];
 
 @Controller('v1/access')

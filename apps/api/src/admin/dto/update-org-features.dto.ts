@@ -16,6 +16,7 @@ export const TENANT_ADMIN_FEATURES = [
   AppFeature.ANALYSIS_CREATE,
   AppFeature.CAR_SEARCH,
   AppFeature.SCHEDULES,
+  AppFeature.TIER,
 ] as const;
 
 export class OrgFeatureToggleDto {

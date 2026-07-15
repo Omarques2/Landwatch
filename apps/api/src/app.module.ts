@@ -19,6 +19,7 @@ import { SchedulesModule } from './schedules/schedules.module';
 import { FornecedoresModule } from './fornecedores/fornecedores.module';
 import { AttachmentsModule } from './attachments/attachments.module';
 import { AdminModule } from './admin/admin.module';
+import { TierModule } from './tier/tier.module';
 
 @Module({
   imports: [
@@ -43,6 +44,7 @@ import { AdminModule } from './admin/admin.module';
     AdminModule,
     DashboardModule,
     LandwatchStatusModule,
+    TierModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: GlobalAuthGuard }],
 })

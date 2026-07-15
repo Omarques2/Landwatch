@@ -1,5 +1,8 @@
 -- Tier module (cattle traceability). Schema "app", tables prefixed tier_.
 
+-- New tenant feature flag for the Tier module.
+ALTER TYPE app.app_feature ADD VALUE IF NOT EXISTS 'TIER';
+
 DO $$ BEGIN CREATE TYPE app.tier_status AS ENUM ('SUBMETIDO','APROVADO','RECUSADO'); EXCEPTION WHEN duplicate_object THEN null; END $$;
 DO $$ BEGIN CREATE TYPE app.tier_car_vinculo AS ENUM ('PROPRIO','ARRENDAMENTO','COMODATO'); EXCEPTION WHEN duplicate_object THEN null; END $$;
 DO $$ BEGIN CREATE TYPE app.tier_doc_tipo AS ENUM ('INSCRICAO_ESTADUAL','PROCURACAO','CONTRATO_COMODATO','DOC_PESSOAL','PARECER_TECNICO','DECLARACAO_M049','NF'); EXCEPTION WHEN duplicate_object THEN null; END $$;
