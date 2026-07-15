@@ -167,41 +167,57 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref } from "vue";
+import { computed, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { Button as UiButton, Input as UiInput, Label as UiLabel, Select as UiSelect, useToast } from "@/components/ui";
 import {
-  getTier,
-  setTierStatus,
-  setTierContrato,
-  listLotes,
-  getLote,
-  createLote,
-  updateLote,
-  deleteLote,
-  uploadDocumento,
-  deleteDocumento,
-  addLoteGta,
-  removeLoteGta,
-  addLoteOrigem,
-  removeLoteOrigem,
-  listGtas,
-  listFazendas,
-} from "@/features/tier/api";
-import type { Fazenda, Gta, Lote, TierDetail, TierStatus } from "@/features/tier/types";
+  useTier,
+  useLotes,
+  useGtas,
+  useFazendas,
+  useSetTierStatus,
+  useSetTierContrato,
+  useCreateLote,
+  useUpdateLote,
+  useDeleteLote,
+  useUploadDocumento,
+  useDeleteDocumento,
+  useAddLoteGta,
+  useRemoveLoteGta,
+  useAddLoteOrigem,
+  useRemoveLoteOrigem,
+} from "@/features/tier/queries";
+import type { Lote, TierStatus } from "@/features/tier/types";
 
 const route = useRoute();
 const router = useRouter();
 const { push } = useToast();
 const id = route.params.id as string;
 
-const tier = ref<TierDetail | null>(null);
-const lotes = ref<Lote[]>([]);
-const allGtas = ref<Gta[]>([]);
-const fazendas = ref<Fazenda[]>([]);
-const loading = ref(true);
-const savingContrato = ref(false);
-const savingLote = ref(false);
+const tierQuery = useTier(id);
+const lotesQuery = useLotes(id);
+const gtasQuery = useGtas();
+const fazQuery = useFazendas(() => ({}));
+const tier = computed(() => tierQuery.data.value ?? null);
+const lotes = computed(() => lotesQuery.data.value ?? []);
+const allGtas = computed(() => gtasQuery.data.value ?? []);
+const fazendas = computed(() => fazQuery.data.value?.rows ?? []);
+const loading = computed(() => tierQuery.isPending.value);
+
+const statusMut = useSetTierStatus();
+const contratoMut = useSetTierContrato();
+const createLoteMut = useCreateLote();
+const updateLoteMut = useUpdateLote();
+const deleteLoteMut = useDeleteLote();
+const uploadDocMut = useUploadDocumento();
+const deleteDocMut = useDeleteDocumento();
+const addGtaMut = useAddLoteGta();
+const removeGtaMut = useRemoveLoteGta();
+const addOrigemMut = useAddLoteOrigem();
+const removeOrigemMut = useRemoveLoteOrigem();
+
+const savingContrato = computed(() => contratoMut.isPending.value);
+const savingLote = computed(() => createLoteMut.isPending.value);
 const novoLote = ref("");
 
 const contrato = reactive({
@@ -211,6 +227,18 @@ const contrato = reactive({
 const docTipo = reactive<Record<string, string>>({});
 const gtaPick = reactive<Record<string, string>>({});
 const origemPick = reactive<Record<string, string>>({});
+
+// Sync the editable contract inputs whenever the tier (re)loads.
+watch(
+  tier,
+  (t) => {
+    if (t) {
+      contrato.contratoValorAnimal = t.contratoValorAnimal;
+      contrato.contratoValorAdicionalAprovado = t.contratoValorAdicionalAprovado;
+    }
+  },
+  { immediate: true },
+);
 
 function statusClass(status: TierStatus) {
   if (status === "APROVADO") return "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300";
@@ -222,36 +250,9 @@ function back() {
   void router.push("/tier");
 }
 
-async function loadTier() {
-  const t = await getTier(id);
-  tier.value = t;
-  contrato.contratoValorAnimal = t.contratoValorAnimal;
-  contrato.contratoValorAdicionalAprovado = t.contratoValorAdicionalAprovado;
-}
-
-async function loadLotes() {
-  const base = await listLotes(id);
-  // fetch each lote's documents/gtas/origens
-  lotes.value = await Promise.all(base.map((l) => getLote(l.id)));
-}
-
-async function loadAll() {
-  loading.value = true;
-  try {
-    const [, , gtas, faz] = await Promise.all([loadTier(), loadLotes(), listGtas(), listFazendas({ pageSize: 200 })]);
-    allGtas.value = gtas;
-    fazendas.value = faz.rows;
-  } catch {
-    push({ kind: "error", title: "Falha ao carregar tier" });
-  } finally {
-    loading.value = false;
-  }
-}
-
 async function setStatus(status: TierStatus) {
   try {
-    await setTierStatus(id, { status });
-    await loadTier();
+    await statusMut.mutateAsync({ id, body: { status } });
     push({ kind: "success", title: `Status: ${status}` });
   } catch {
     push({ kind: "error", title: "Falha ao mudar status" });
@@ -259,32 +260,27 @@ async function setStatus(status: TierStatus) {
 }
 
 async function saveContrato() {
-  savingContrato.value = true;
   try {
-    await setTierContrato(id, {
-      contratoValorAnimal: contrato.contratoValorAnimal,
-      contratoValorAdicionalAprovado: contrato.contratoValorAdicionalAprovado,
+    await contratoMut.mutateAsync({
+      id,
+      body: {
+        contratoValorAnimal: contrato.contratoValorAnimal,
+        contratoValorAdicionalAprovado: contrato.contratoValorAdicionalAprovado,
+      },
     });
-    await loadTier();
     push({ kind: "success", title: "Contrato atualizado" });
   } catch {
     push({ kind: "error", title: "Falha ao salvar contrato" });
-  } finally {
-    savingContrato.value = false;
   }
 }
 
 async function addLote() {
   if (!novoLote.value) return;
-  savingLote.value = true;
   try {
-    await createLote({ tierId: id, nome: novoLote.value });
+    await createLoteMut.mutateAsync({ tierId: id, nome: novoLote.value });
     novoLote.value = "";
-    await loadLotes();
   } catch {
     push({ kind: "error", title: "Falha ao criar lote" });
-  } finally {
-    savingLote.value = false;
   }
 }
 
@@ -292,8 +288,7 @@ async function renameLote(lote: Lote, ev: Event) {
   const nome = (ev.target as HTMLInputElement).value.trim();
   if (!nome || nome === lote.nome) return;
   try {
-    await updateLote(lote.id, { nome });
-    await loadLotes();
+    await updateLoteMut.mutateAsync({ id: lote.id, body: { nome } });
   } catch {
     push({ kind: "error", title: "Falha ao renomear lote" });
   }
@@ -302,8 +297,7 @@ async function renameLote(lote: Lote, ev: Event) {
 async function removeLote(loteId: string) {
   if (!window.confirm("Excluir lote e seus documentos?")) return;
   try {
-    await deleteLote(loteId);
-    await loadLotes();
+    await deleteLoteMut.mutateAsync(loteId);
   } catch {
     push({ kind: "error", title: "Falha ao excluir lote" });
   }
@@ -320,9 +314,8 @@ async function onFile(ev: Event, loteId: string) {
   fd.append("refId", loteId);
   fd.append("loteId", loteId);
   try {
-    await uploadDocumento(fd);
+    await uploadDocMut.mutateAsync(fd);
     input.value = "";
-    await loadLotes();
     push({ kind: "success", title: "Documento enviado" });
   } catch {
     push({ kind: "error", title: "Falha no upload" });
@@ -331,8 +324,7 @@ async function onFile(ev: Event, loteId: string) {
 
 async function removeDoc(docId: string) {
   try {
-    await deleteDocumento(docId);
-    await loadLotes();
+    await deleteDocMut.mutateAsync(docId);
   } catch {
     push({ kind: "error", title: "Falha ao remover documento" });
   }
@@ -342,9 +334,8 @@ async function linkGta(loteId: string) {
   const gtaId = gtaPick[loteId];
   if (!gtaId) return;
   try {
-    await addLoteGta(loteId, gtaId);
+    await addGtaMut.mutateAsync({ loteId, gtaId });
     gtaPick[loteId] = "";
-    await loadLotes();
   } catch {
     push({ kind: "error", title: "Falha ao vincular GTA" });
   }
@@ -352,8 +343,7 @@ async function linkGta(loteId: string) {
 
 async function unlinkGta(loteId: string, gtaId: string) {
   try {
-    await removeLoteGta(loteId, gtaId);
-    await loadLotes();
+    await removeGtaMut.mutateAsync({ loteId, gtaId });
   } catch {
     push({ kind: "error", title: "Falha ao desvincular GTA" });
   }
@@ -363,9 +353,8 @@ async function linkOrigem(loteId: string) {
   const fazendaId = origemPick[loteId];
   if (!fazendaId) return;
   try {
-    await addLoteOrigem(loteId, fazendaId);
+    await addOrigemMut.mutateAsync({ loteId, fazendaId });
     origemPick[loteId] = "";
-    await loadLotes();
   } catch {
     push({ kind: "error", title: "Falha ao adicionar origem" });
   }
@@ -373,12 +362,9 @@ async function linkOrigem(loteId: string) {
 
 async function unlinkOrigem(loteId: string, fazendaId: string) {
   try {
-    await removeLoteOrigem(loteId, fazendaId);
-    await loadLotes();
+    await removeOrigemMut.mutateAsync({ loteId, fazendaId });
   } catch {
     push({ kind: "error", title: "Falha ao remover origem" });
   }
 }
-
-onMounted(loadAll);
 </script>
