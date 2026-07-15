@@ -3,6 +3,7 @@ import { ProprietariosModule } from './proprietarios/proprietarios.module';
 import { FazendasModule } from './fazendas/fazendas.module';
 import { TierCarsModule } from './cars/cars.module';
 import { FrigorificosModule } from './frigorificos/frigorificos.module';
+import { TiersModule } from './tiers/tiers.module';
 
 // Aggregates every Tier sub-module. Sub-modules are added as they are built.
 // AuthModule is @Global(), so ActorContextService/AccessService need no import.
@@ -12,6 +13,7 @@ import { FrigorificosModule } from './frigorificos/frigorificos.module';
     FazendasModule,
     TierCarsModule,
     FrigorificosModule,
+    TiersModule,
   ],
 })
 export class TierModule {}
