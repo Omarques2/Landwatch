@@ -5,7 +5,7 @@
     <header class="flex items-center justify-between gap-3">
       <div>
         <h1 class="text-lg font-semibold text-foreground">Abates</h1>
-        <p class="text-sm text-muted-foreground">Lance abates e vincule aos tiers com saldo.</p>
+        <p class="text-sm text-muted-foreground">Lance abates por proprietário e informe os tiers quando conhecidos.</p>
       </div>
       <UiButton variant="outline" size="sm" :disabled="loading" @click="reload"> Recarregar </UiButton>
     </header>
@@ -13,7 +13,16 @@
     <!-- Novo abate -->
     <div class="rounded-xl border border-border p-4">
       <h2 class="mb-3 text-sm font-medium text-foreground">Novo abate</h2>
-      <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
+      <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div class="flex flex-col gap-1">
+          <UiLabel for="a-prop">Proprietário</UiLabel>
+          <UiCombobox
+            id="a-prop"
+            v-model="form.proprietarioId"
+            :options="proprietarioOptions"
+            placeholder="Buscar proprietário…"
+          />
+        </div>
         <div class="flex flex-col gap-1">
           <UiLabel for="a-data">Data do abate</UiLabel>
           <UiInput id="a-data" v-model="form.dataAbate" type="date" />
@@ -38,19 +47,28 @@
           <span class="text-xs font-medium text-muted-foreground">
             Consumo por tier (opcional — deixe vazio se não souber)
           </span>
-          <UiButton size="sm" variant="outline" :disabled="!availableTiers.length" @click="addRow"> + Tier </UiButton>
+          <UiButton
+            size="sm"
+            variant="outline"
+            :disabled="!form.proprietarioId || !availableTiers.length"
+            @click="addRow"
+          >
+            <Plus class="size-4" />
+            Tier
+          </UiButton>
         </div>
 
         <div v-for="(row, i) in form.consumos" :key="i" class="mb-2 flex items-center gap-2">
-          <UiSelect v-model="row.tierId" class="flex-1">
-            <option value="">Selecione tier…</option>
-            <option v-for="t in availableTiers" :key="t.id" :value="t.id">
-              {{ tierLabel(t) }}
-            </option>
-          </UiSelect>
-          <UiInput v-model.number="row.qtdConsumida" type="number" min="1" :max="saldoOf(row.tierId)" class="w-28" />
-          <span class="w-24 text-xs text-muted-foreground"> saldo {{ saldoOf(row.tierId) }} </span>
-          <UiButton size="sm" variant="outline" @click="removeRow(i)"> Remover </UiButton>
+          <UiCombobox
+            v-model="row.tierId"
+            :options="tierOptions"
+            placeholder="Buscar tier…"
+            class="min-w-0 flex-1"
+          />
+          <UiInput v-model.number="row.qtdConsumida" type="number" min="1" class="w-28" />
+          <UiButton size="icon" variant="outline" title="Remover tier" aria-label="Remover tier" @click="removeRow(i)">
+            <Trash2 class="size-4" />
+          </UiButton>
         </div>
 
         <p
@@ -62,7 +80,7 @@
       </div>
 
       <div class="mt-4">
-        <UiButton :disabled="saving || !form.dataAbate || !form.qtd" @click="save">
+        <UiButton :disabled="saving || !form.proprietarioId || !form.dataAbate || !form.qtd" @click="save">
           {{ saving ? "Salvando…" : "Lançar abate" }}
         </UiButton>
       </div>
@@ -74,6 +92,7 @@
         <thead class="bg-muted/50 text-left text-muted-foreground">
           <tr>
             <th class="px-3 py-2 font-medium">Data</th>
+            <th class="px-3 py-2 font-medium">Proprietário</th>
             <th class="px-3 py-2 font-medium">Frigorífico</th>
             <th class="px-3 py-2 font-medium tabular-nums">Qtd</th>
             <th class="px-3 py-2 font-medium tabular-nums">Tiers</th>
@@ -82,13 +101,14 @@
         </thead>
         <tbody>
           <tr v-if="loading">
-            <td class="px-3 py-6 text-center text-muted-foreground" colspan="5">Carregando…</td>
+            <td class="px-3 py-6 text-center text-muted-foreground" colspan="6">Carregando…</td>
           </tr>
           <tr v-else-if="!abates.length">
-            <td class="px-3 py-6 text-center text-muted-foreground" colspan="5">Nenhum abate lançado.</td>
+            <td class="px-3 py-6 text-center text-muted-foreground" colspan="6">Nenhum abate lançado.</td>
           </tr>
           <tr v-for="a in abates" :key="a.id" class="border-t border-border hover:bg-muted/30">
             <td class="px-3 py-2">{{ a.dataAbate?.slice(0, 10) }}</td>
+            <td class="px-3 py-2">{{ a.proprietario?.nome ?? "—" }}</td>
             <td class="px-3 py-2">{{ frigNome(a.frigorificoId) }}</td>
             <td class="px-3 py-2 tabular-nums">{{ a.qtd }}</td>
             <td class="px-3 py-2 tabular-nums">{{ a.consumos?.length ?? 0 }}</td>
@@ -103,18 +123,52 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive } from "vue";
+import { computed, reactive, watch } from "vue";
+import { Plus, Trash2 } from "lucide-vue-next";
 import TierNav from "./TierNav.vue";
-import { Button as UiButton, Input as UiInput, Label as UiLabel, Select as UiSelect, useToast } from "@/components/ui";
-import { useAbates, useAvailableTiers, useFrigorificos, useCreateAbate, useDeleteAbate } from "@/features/tier/queries";
-import type { TierDetail } from "@/features/tier/types";
+import {
+  Button as UiButton,
+  Combobox as UiCombobox,
+  Input as UiInput,
+  Label as UiLabel,
+  Select as UiSelect,
+  useToast,
+} from "@/components/ui";
+import {
+  useAbates,
+  useCreateAbate,
+  useDeleteAbate,
+  useFrigorificos,
+  useProprietarios,
+  useTiers,
+} from "@/features/tier/queries";
+import type { Tier } from "@/features/tier/types";
 
 const { push } = useToast();
+const form = reactive<{
+  proprietarioId: string;
+  dataAbate: string;
+  frigorificoId: string;
+  qtd: number;
+  consumos: { tierId: string; qtdConsumida: number }[];
+}>({
+  proprietarioId: "",
+  dataAbate: "",
+  frigorificoId: "",
+  qtd: 0,
+  consumos: [],
+});
+
 const abatesQuery = useAbates();
-const tiersQuery = useAvailableTiers();
+const tiersQuery = useTiers(
+  () => ({ proprietarioId: form.proprietarioId || undefined }),
+  () => Boolean(form.proprietarioId),
+);
+const propQuery = useProprietarios();
 const frigQuery = useFrigorificos();
 const abates = computed(() => abatesQuery.data.value ?? []);
-const availableTiers = computed(() => tiersQuery.data.value ?? []);
+const availableTiers = computed(() => tiersQuery.data.value?.rows ?? []);
+const proprietarios = computed(() => propQuery.data.value?.rows ?? []);
 const frigorificos = computed(() => frigQuery.data.value?.rows ?? []);
 const loading = computed(() => abatesQuery.isPending.value);
 const createMut = useCreateAbate();
@@ -123,32 +177,25 @@ const saving = computed(() => createMut.isPending.value);
 
 function reload() {
   void abatesQuery.refetch();
-  void tiersQuery.refetch();
+  if (form.proprietarioId) void tiersQuery.refetch();
+  void propQuery.refetch();
   void frigQuery.refetch();
 }
 
-const form = reactive<{
-  dataAbate: string;
-  frigorificoId: string;
-  qtd: number;
-  consumos: { tierId: string; qtdConsumida: number }[];
-}>({
-  dataAbate: "",
-  frigorificoId: "",
-  qtd: 0,
-  consumos: [],
-});
+watch(
+  () => form.proprietarioId,
+  () => {
+    form.consumos = [];
+  },
+);
 
 const consumoSum = computed(() => form.consumos.reduce((s, r) => s + (Number(r.qtdConsumida) || 0), 0));
+const proprietarioOptions = computed(() => proprietarios.value.map((p) => ({ value: p.id, label: p.nome })));
+const tierOptions = computed(() => availableTiers.value.map((tier) => ({ value: tier.id, label: tierLabel(tier) })));
 
-function tierLabel(t: TierDetail) {
-  const prop = t.proprietario?.nome ?? "?";
-  const faz = t.fazenda?.nome ?? "?";
-  return `${prop} · ${faz} — saldo ${t.saldo}`;
-}
-
-function saldoOf(tierId: string) {
-  return availableTiers.value.find((t: TierDetail) => t.id === tierId)?.saldo ?? 0;
+function tierLabel(tier: Tier) {
+  const fazenda = tier.fazenda?.nome ?? "Fazenda não informada";
+  return `${fazenda} · ${tier.qtdAnimais} animais · ${tier.status}`;
 }
 
 function frigNome(id: string | null) {
@@ -165,27 +212,28 @@ function removeRow(i: number) {
 }
 
 async function save() {
-  if (!form.dataAbate || !form.qtd) return;
+  if (!form.proprietarioId || !form.dataAbate || !form.qtd) return;
   const consumos = form.consumos
     .filter((r) => r.tierId && r.qtdConsumida > 0)
     .map((r) => ({ tierId: r.tierId, qtdConsumida: Number(r.qtdConsumida) }));
   try {
     await createMut.mutateAsync({
+      proprietarioId: form.proprietarioId,
       dataAbate: form.dataAbate,
       frigorificoId: form.frigorificoId || undefined,
       qtd: Number(form.qtd),
       consumos: consumos.length ? consumos : undefined,
     });
     push({ kind: "success", title: "Abate lançado" });
+    form.proprietarioId = "";
     form.dataAbate = "";
     form.frigorificoId = "";
     form.qtd = 0;
     form.consumos = [];
-    void tiersQuery.refetch();
   } catch (err: unknown) {
     const message =
       (err as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error?.message ??
-      "Verifique o saldo dos tiers.";
+      "Verifique os dados do abate.";
     push({ kind: "error", title: "Falha ao lançar abate", message });
   }
 }
@@ -195,7 +243,6 @@ async function remove(id: string) {
   try {
     await deleteMut.mutateAsync(id);
     push({ kind: "success", title: "Abate excluído" });
-    void tiersQuery.refetch();
   } catch {
     push({ kind: "error", title: "Falha ao excluir abate" });
   }

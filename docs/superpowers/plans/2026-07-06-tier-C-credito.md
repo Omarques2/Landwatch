@@ -332,24 +332,25 @@ Require `proprietarioId` in `createAbate`. Add `listCreditos(): Promise<CreditoR
 
 Keep `tierKeys.credito()` as the invalidation prefix. Add `creditoByProprietario(id)` and `creditos()`. Point `useCredito(id)` to the individual key and add `useCreditos()` for the aggregate endpoint. Add an optional `enabled` argument to `useTiers` so the Abates and Credito views do not fetch owner tiers before an owner is selected.
 
-- [ ] **Step 5: Verify web GREEN**
+- [ ] **Step 5: Verify query-key GREEN**
 
-Run: `npm test -- --run src/features/tier/queries.spec.ts` and `npm run typecheck` from `apps/web`.
+Run: `npm test -- --run src/features/tier/queries.spec.ts` from `apps/web`.
 
-Expected: query-key tests PASS and typecheck exits 0.
+Expected: query-key tests PASS. Full typecheck follows Task 5 because making `proprietarioId` required intentionally breaks the old Abates submit contract until that view is migrated.
 
-- [ ] **Step 6: Commit web contracts**
+- [ ] **Step 6: Keep contracts uncommitted through Task 5**
 
-```bash
-git add apps/web/src/features/tier
-git commit -m "feat(tier-web): add credit query contracts"
-```
+Do not commit a type-broken intermediate state. Task 5 commits these contracts together with their first owner-aware consumer.
 
 ---
 
 ### Task 5: Make Abates owner-first
 
 **Files:**
+- Modify: `apps/web/src/features/tier/types.ts`
+- Modify: `apps/web/src/features/tier/api.ts`
+- Modify: `apps/web/src/features/tier/queries.ts`
+- Test: `apps/web/src/features/tier/queries.spec.ts`
 - Modify: `apps/web/src/views/tier/AbatesView.vue`
 - Create: `apps/web/src/views/tier/AbatesView.spec.ts`
 
@@ -384,7 +385,7 @@ Expected: source contract PASS and typecheck exits 0.
 - [ ] **Step 6: Commit Abates UI**
 
 ```bash
-git add apps/web/src/views/tier/AbatesView.vue apps/web/src/views/tier/AbatesView.spec.ts
+git add apps/web/src/features/tier apps/web/src/views/tier/AbatesView.vue apps/web/src/views/tier/AbatesView.spec.ts
 git commit -m "feat(tier-web): make abates owner-first"
 ```
 

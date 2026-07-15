@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient, type QueryKey } from "@tanstack/vue-query";
-import { toValue, type MaybeRefOrGetter } from "vue";
+import { computed, toValue, type MaybeRefOrGetter } from "vue";
 import * as api from "./api";
 
 export const tierKeys = {
@@ -7,6 +7,8 @@ export const tierKeys = {
   proprietarios: (params: Record<string, unknown> = {}) => ["tier", "proprietarios", params] as const,
   proprietario: (id: string) => ["tier", "proprietarios", id] as const,
   credito: () => ["tier", "credito"] as const,
+  creditoByProprietario: (id: string) => ["tier", "credito", "proprietario", id] as const,
+  creditos: () => ["tier", "credito", "list"] as const,
   fazendas: (params: Record<string, unknown> = {}) => ["tier", "fazendas", params] as const,
   cars: (fazendaId: string) => ["tier", "cars", fazendaId] as const,
   frigorificos: (params: Record<string, unknown> = {}) => ["tier", "frigorificos", params] as const,
@@ -61,14 +63,16 @@ export function useTiers(
     fazendaId?: string;
     status?: string;
   }> = () => ({}),
+  enabled: MaybeRefOrGetter<boolean> = () => true,
 ) {
   return useQuery({
-    queryKey: tierKeys.tiers(toValue(filters)),
+    queryKey: computed(() => tierKeys.tiers(toValue(filters))),
     queryFn: () =>
       api.listTiers({
         ...toValue(filters),
         pageSize: 200,
       } as Parameters<typeof api.listTiers>[0]),
+    enabled: computed(() => toValue(enabled)),
   });
 }
 
@@ -119,9 +123,16 @@ export function useAvailableTiers() {
 
 export function useCredito(id: MaybeRefOrGetter<string>) {
   return useQuery({
-    queryKey: tierKeys.credito(),
+    queryKey: computed(() => tierKeys.creditoByProprietario(toValue(id))),
     queryFn: () => api.getCredito(toValue(id)),
     enabled: () => !!toValue(id),
+  });
+}
+
+export function useCreditos() {
+  return useQuery({
+    queryKey: tierKeys.creditos(),
+    queryFn: api.listCreditos,
   });
 }
 

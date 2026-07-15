@@ -6,6 +6,7 @@ import type {
   Car,
   CarAnalise,
   Credito,
+  CreditoRow,
   Documento,
   Fazenda,
   Frigorifico,
@@ -53,6 +54,11 @@ export async function deleteProprietario(id: string): Promise<{ id: string }> {
 
 export async function getCredito(proprietarioId: string): Promise<Credito> {
   const res = await http.get<ApiEnvelope<Credito>>(`/v1/tier/proprietarios/${proprietarioId}/credito`);
+  return unwrapData(res.data);
+}
+
+export async function listCreditos(): Promise<CreditoRow[]> {
+  const res = await http.get<ApiEnvelope<CreditoRow[]>>("/v1/tier/credito");
   return unwrapData(res.data);
 }
 
@@ -338,6 +344,7 @@ export async function listAbates(): Promise<Abate[]> {
 }
 
 export async function createAbate(body: {
+  proprietarioId: string;
   dataAbate: string;
   frigorificoId?: string;
   qtd: number;

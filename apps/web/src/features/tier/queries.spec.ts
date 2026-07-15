@@ -12,5 +12,12 @@ describe("tierKeys", () => {
     expect(tierKeys.tier("t1")).toEqual(["tier", "tiers", "t1"]);
     expect(tierKeys.lotes("t1")).toEqual(["tier", "lotes", "t1"]);
     expect(tierKeys.credito()).toEqual(["tier", "credito"]);
+    expect(tierKeys.creditoByProprietario("p1")).toEqual([
+      "tier",
+      "credito",
+      "proprietario",
+      "p1",
+    ]);
+    expect(tierKeys.creditos()).toEqual(["tier", "credito", "list"]);
   });
 });

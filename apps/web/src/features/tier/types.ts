@@ -173,10 +173,12 @@ export interface AbateConsumo {
 
 export interface Abate {
   id: string;
+  proprietarioId: string;
   dataAbate: string;
   frigorificoId: string | null;
   qtd: number;
   consumos?: AbateConsumo[];
+  proprietario?: Proprietario;
   frigorifico?: Frigorifico | null;
 }
 
@@ -185,6 +187,10 @@ export interface Credito {
   aprovados: number;
   abatidos: number;
   creditoRestante: number;
+}
+
+export interface CreditoRow extends Credito {
+  nome: string;
 }
 
 export interface CarAnalise {
