@@ -10,6 +10,7 @@ export { default as CardContent } from "./CardContent.vue";
 export { default as CardFooter } from "./CardFooter.vue";
 export { default as Skeleton } from "./Skeleton.vue";
 export { default as Select } from "./Select.vue";
+export { default as Combobox } from "./Combobox.vue";
 export { default as Badge } from "./Badge.vue";
 export { default as Tabs } from "./Tabs.vue";
 export { default as Sheet } from "./Sheet.vue";
