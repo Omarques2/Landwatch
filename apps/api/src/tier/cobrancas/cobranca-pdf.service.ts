@@ -13,7 +13,7 @@ export class CobrancaPdfService {
     const pdf = await PDFDocument.create();
     const regular = await pdf.embedFont(StandardFonts.Helvetica);
     const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
-    const page = pdf.addPage([595, 842]);
+    let page = pdf.addPage([595, 842]);
     let y = 790;
     const text = (value: string, x = 40, size = 10, font = regular) => {
       page.drawText(value, { x, y, size, font, color: rgb(0.12, 0.14, 0.18) });
@@ -72,7 +72,7 @@ export class CobrancaPdfService {
       y -= 15;
       if (y < 80) {
         y = 790;
-        pdf.addPage([595, 842]);
+        page = pdf.addPage([595, 842]);
       }
     }
     y -= 18;
