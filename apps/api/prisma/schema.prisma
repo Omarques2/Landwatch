@@ -992,7 +992,9 @@ model Tier {
   proprietarioId                 String     @map("proprietario_id") @db.Uuid
   fazendaId                      String     @map("fazenda_id") @db.Uuid
   frigorificoId                  String?    @map("frigorifico_id") @db.Uuid
-  qtdAnimais                     Int        @map("qtd_animais")
+  qtdMacho                       Int        @default(0) @map("qtd_macho")
+  qtdFemea                       Int        @default(0) @map("qtd_femea")
+  qtdIndefinido                  Int        @default(0) @map("qtd_indefinido")
   status                         TierStatus @default(SUBMETIDO)
   data                           DateTime   @db.Date
   validadoPor                    String?    @map("validado_por")
@@ -1084,7 +1086,9 @@ model TierAbate {
   proprietarioId String   @map("proprietario_id") @db.Uuid
   dataAbate      DateTime @map("data_abate") @db.Date
   frigorificoId  String?  @map("frigorifico_id") @db.Uuid
-  qtd            Int
+  qtdMacho       Int      @default(0) @map("qtd_macho")
+  qtdFemea       Int      @default(0) @map("qtd_femea")
+  qtdIndefinido  Int      @default(0) @map("qtd_indefinido")
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
