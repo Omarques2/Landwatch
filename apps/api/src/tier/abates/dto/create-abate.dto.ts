@@ -8,6 +8,7 @@ import {
   Min,
   ValidateNested,
 } from 'class-validator';
+import { SexoQuantidadeValida } from '../../common/sexo-quantidade';
 
 export class AbateConsumoDto {
   @IsUUID() tierId!: string;
@@ -18,7 +19,9 @@ export class CreateAbateDto {
   @IsUUID() proprietarioId!: string;
   @IsDateString() dataAbate!: string;
   @IsOptional() @IsUUID() frigorificoId?: string;
-  @IsInt() @Min(1) qtd!: number;
+  @IsInt() @Min(0) @SexoQuantidadeValida() qtdMacho!: number;
+  @IsInt() @Min(0) qtdFemea!: number;
+  @IsInt() @Min(0) qtdIndefinido!: number;
   // Optional and informational: owner credit is calculated from the abate total.
   @IsOptional()
   @IsArray()

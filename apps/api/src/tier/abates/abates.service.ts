@@ -5,16 +5,18 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateAbateDto } from './dto/create-abate.dto';
+import { totalSexo } from '../common/sexo-quantidade';
 
 @Injectable()
 export class AbatesService {
   constructor(private readonly prisma: PrismaService) {}
 
-  list() {
-    return this.prisma.tierAbate.findMany({
+  async list() {
+    const rows = await this.prisma.tierAbate.findMany({
       orderBy: { dataAbate: 'desc' },
       include: { consumos: true, frigorifico: true, proprietario: true },
     });
+    return rows.map((row) => ({ ...row, qtd: totalSexo(row) }));
   }
 
   async get(id: string) {
@@ -32,7 +34,7 @@ export class AbatesService {
         message: 'Abate não encontrado',
       });
     }
-    return row;
+    return { ...row, qtd: totalSexo(row) };
   }
 
   // Optional consumos are informational, but must belong to the abate owner.
@@ -53,7 +55,9 @@ export class AbatesService {
           proprietarioId: dto.proprietarioId,
           dataAbate: new Date(dto.dataAbate),
           frigorificoId: dto.frigorificoId ?? null,
-          qtd: dto.qtd,
+          qtdMacho: dto.qtdMacho,
+          qtdFemea: dto.qtdFemea,
+          qtdIndefinido: dto.qtdIndefinido,
         },
       });
 
@@ -80,10 +84,11 @@ export class AbatesService {
         });
       }
 
-      return tx.tierAbate.findUnique({
+      const row = await tx.tierAbate.findUnique({
         where: { id: abate.id },
         include: { consumos: true, frigorifico: true, proprietario: true },
       });
+      return row ? { ...row, qtd: totalSexo(row) } : row;
     });
   }
 

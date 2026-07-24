@@ -30,6 +30,7 @@ describe('AbatesService', () => {
   });
 
   it('lists abates with their owner relation', async () => {
+    prisma.tierAbate.findMany.mockResolvedValue([]);
     await service.list();
     expect(prisma.tierAbate.findMany).toHaveBeenCalledWith({
       orderBy: { dataAbate: 'desc' },
@@ -43,7 +44,9 @@ describe('AbatesService', () => {
       service.create({
         proprietarioId: 'p1',
         dataAbate: '2026-04-16',
-        qtd: 100,
+        qtdMacho: 100,
+        qtdFemea: 0,
+        qtdIndefinido: 0,
       } as any),
     ).rejects.toMatchObject({
       response: expect.objectContaining({
@@ -56,10 +59,17 @@ describe('AbatesService', () => {
     await service.create({
       proprietarioId: 'p1',
       dataAbate: '2026-04-16',
-      qtd: 100,
+      qtdMacho: 60,
+      qtdFemea: 40,
+      qtdIndefinido: 0,
     } as any);
     expect(tx.tierAbate.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({ proprietarioId: 'p1', qtd: 100 }),
+      data: expect.objectContaining({
+        proprietarioId: 'p1',
+        qtdMacho: 60,
+        qtdFemea: 40,
+        qtdIndefinido: 0,
+      }),
     });
     expect(tx.tierAbateConsumo.create).not.toHaveBeenCalled();
   });
@@ -73,7 +83,9 @@ describe('AbatesService', () => {
       service.create({
         proprietarioId: 'p1',
         dataAbate: '2026-04-16',
-        qtd: 50,
+        qtdMacho: 50,
+        qtdFemea: 0,
+        qtdIndefinido: 0,
         consumos: [{ tierId: 't1', qtdConsumida: 50 }],
       } as any),
     ).rejects.toMatchObject({
@@ -93,7 +105,9 @@ describe('AbatesService', () => {
     await service.create({
       proprietarioId: 'p1',
       dataAbate: '2026-04-16',
-      qtd: 50,
+      qtdMacho: 50,
+      qtdFemea: 0,
+      qtdIndefinido: 0,
       consumos: [{ tierId: 't1', qtdConsumida: 50 }],
     } as any);
     expect(tx.tierAbateConsumo.create).toHaveBeenCalledWith({
