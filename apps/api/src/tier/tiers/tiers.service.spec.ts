@@ -24,10 +24,26 @@ describe('TiersService', () => {
       Object.assign(new CreateTierDto(), {
         proprietarioId: '550e8400-e29b-41d4-a716-446655440000',
         fazendaId: '550e8400-e29b-41d4-a716-446655440001',
-        qtdAnimais: 1,
+        qtdMacho: 1,
+        qtdFemea: 0,
+        qtdIndefinido: 0,
       }),
     );
     expect(errors.some((error) => error.property === 'data')).toBe(true);
+  });
+
+  it('rejects a CreateTierDto whose sexo total is zero', async () => {
+    const errors = await validate(
+      Object.assign(new CreateTierDto(), {
+        proprietarioId: '550e8400-e29b-41d4-a716-446655440000',
+        fazendaId: '550e8400-e29b-41d4-a716-446655440001',
+        qtdMacho: 0,
+        qtdFemea: 0,
+        qtdIndefinido: 0,
+        data: '2026-07-15',
+      }),
+    );
+    expect(errors.some((e) => e.property === 'qtdMacho')).toBe(true);
   });
 
   it('snapshots proprietario contract values into the tier on create', async () => {
