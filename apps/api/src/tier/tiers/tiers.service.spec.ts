@@ -58,7 +58,9 @@ describe('TiersService', () => {
     const res = await service.create({
       proprietarioId: 'p1',
       fazendaId: 'f1',
-      qtdAnimais: 100,
+      qtdMacho: 60,
+      qtdFemea: 40,
+      qtdIndefinido: 0,
       data: '2026-07-15',
     } as any);
     expect(res.contratoValorAnimal).toBe('1.50');
@@ -81,7 +83,9 @@ describe('TiersService', () => {
     await service.create({
       proprietarioId: 'p1',
       fazendaId: 'f1',
-      qtdAnimais: 1,
+      qtdMacho: 1,
+      qtdFemea: 0,
+      qtdIndefinido: 0,
       data: '2026-07-16',
     } as any);
 
@@ -96,7 +100,9 @@ describe('TiersService', () => {
       service.create({
         proprietarioId: 'x',
         fazendaId: 'f',
-        qtdAnimais: 1,
+        qtdMacho: 1,
+        qtdFemea: 0,
+        qtdIndefinido: 0,
       } as any),
     ).rejects.toThrow('Proprietário não encontrado');
   });
@@ -124,7 +130,9 @@ describe('TiersService', () => {
     prisma.tier.findUnique.mockResolvedValue({
       id: 't1',
       status: 'APROVADO',
-      qtdAnimais: 100,
+      qtdMacho: 60,
+      qtdFemea: 40,
+      qtdIndefinido: 0,
       contratoValorAnimal: '1.50',
       contratoValorAdicionalAprovado: '0.30',
     });
@@ -132,6 +140,7 @@ describe('TiersService', () => {
       _sum: { qtdConsumida: 30 },
     });
     const res = await service.get('t1');
+    expect(res.qtdAnimais).toBe(100);
     expect(res.abatido).toBe(30);
     expect(res.saldo).toBe(70);
     // 100*1.50 + 100*0.30 = 180
@@ -142,7 +151,9 @@ describe('TiersService', () => {
     prisma.tier.findUnique.mockResolvedValue({
       id: 't1',
       status: 'SUBMETIDO',
-      qtdAnimais: 100,
+      qtdMacho: 100,
+      qtdFemea: 0,
+      qtdIndefinido: 0,
       contratoValorAnimal: '1.50',
       contratoValorAdicionalAprovado: '0.30',
     });

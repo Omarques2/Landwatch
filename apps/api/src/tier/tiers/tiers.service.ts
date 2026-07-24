@@ -6,6 +6,7 @@ import { UpdateTierDto } from './dto/update-tier.dto';
 import { SetTierStatusDto } from './dto/set-status.dto';
 import { SetTierContratoDto } from './dto/set-contrato.dto';
 import { ListTiersQuery } from './dto/list-tiers.query';
+import { totalSexo } from '../common/sexo-quantidade';
 
 @Injectable()
 export class TiersService {
@@ -29,7 +30,12 @@ export class TiersService {
       }),
       this.prisma.tier.count({ where }),
     ]);
-    return { page, pageSize, total, rows };
+    return {
+      page,
+      pageSize,
+      total,
+      rows: rows.map((row) => ({ ...row, qtdAnimais: totalSexo(row) })),
+    };
   }
 
   private async findOrThrow(id: string) {
@@ -61,13 +67,13 @@ export class TiersService {
     });
     const abatido = agg._sum.qtdConsumida ?? 0;
     const aprovado = tier.status === 'APROVADO';
-    const saldo = aprovado ? tier.qtdAnimais - abatido : 0;
+    const total = totalSexo(tier);
+    const saldo = aprovado ? total - abatido : 0;
     const valorAnimal = Number(tier.contratoValorAnimal);
     const valorAdicional = Number(tier.contratoValorAdicionalAprovado);
     const receita =
-      tier.qtdAnimais * valorAnimal +
-      (aprovado ? tier.qtdAnimais * valorAdicional : 0);
-    return { ...tier, abatido, saldo, receita };
+      total * valorAnimal + (aprovado ? total * valorAdicional : 0);
+    return { ...tier, qtdAnimais: total, abatido, saldo, receita };
   }
 
   // Copies the proprietario's current contract values into the tier (snapshot).
@@ -81,31 +87,39 @@ export class TiersService {
         message: 'Proprietário não encontrado',
       });
     }
-    return this.prisma.tier.create({
+    const created = await this.prisma.tier.create({
       data: {
         proprietarioId: dto.proprietarioId,
         fazendaId: dto.fazendaId,
         frigorificoId: dto.frigorificoId ?? null,
-        qtdAnimais: dto.qtdAnimais,
+        qtdMacho: dto.qtdMacho,
+        qtdFemea: dto.qtdFemea,
+        qtdIndefinido: dto.qtdIndefinido,
         data: new Date(dto.data),
         contratoValorAnimal: prop.contratoValorAnimal,
         contratoValorAdicionalAprovado: prop.contratoValorAdicionalAprovado,
       },
     });
+    return { ...created, qtdAnimais: totalSexo(created) };
   }
 
   async update(id: string, dto: UpdateTierDto) {
     await this.findOrThrow(id);
-    return this.prisma.tier.update({
+    const updated = await this.prisma.tier.update({
       where: { id },
       data: {
-        ...(dto.qtdAnimais !== undefined ? { qtdAnimais: dto.qtdAnimais } : {}),
+        ...(dto.qtdMacho !== undefined ? { qtdMacho: dto.qtdMacho } : {}),
+        ...(dto.qtdFemea !== undefined ? { qtdFemea: dto.qtdFemea } : {}),
+        ...(dto.qtdIndefinido !== undefined
+          ? { qtdIndefinido: dto.qtdIndefinido }
+          : {}),
         ...(dto.frigorificoId !== undefined
           ? { frigorificoId: dto.frigorificoId }
           : {}),
         ...(dto.data !== undefined ? { data: new Date(dto.data) } : {}),
       },
     });
+    return { ...updated, qtdAnimais: totalSexo(updated) };
   }
 
   // All-or-nothing approval. dataAprovacao set only when moving to APROVADO.
