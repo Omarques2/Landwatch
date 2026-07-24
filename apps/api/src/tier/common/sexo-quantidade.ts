@@ -1,4 +1,8 @@
-import { registerDecorator, ValidationOptions } from 'class-validator';
+import {
+  registerDecorator,
+  ValidationArguments,
+  ValidationOptions,
+} from 'class-validator';
 
 export interface SexoQuantidade {
   qtdMacho: number;
@@ -23,8 +27,8 @@ export function SexoQuantidadeValida(options?: ValidationOptions) {
       propertyName,
       options,
       validator: {
-        validate(_value: unknown, args) {
-          const o = args.object as Record<string, unknown>;
+        validate(_value: unknown, args?: ValidationArguments) {
+          const o = (args?.object ?? {}) as Record<string, unknown>;
           const vals = [o.qtdMacho, o.qtdFemea, o.qtdIndefinido];
           const presentes = vals.filter((v) => v !== undefined && v !== null);
           if (presentes.length === 0) return true;

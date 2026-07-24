@@ -4,6 +4,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { CreateProprietarioDto } from './dto/create-proprietario.dto';
 import { UpdateProprietarioDto } from './dto/update-proprietario.dto';
 import { ListProprietariosQuery } from './dto/list-proprietarios.query';
+import { totalSexo } from '../common/sexo-quantidade';
 
 @Injectable()
 export class ProprietariosService {
@@ -60,16 +61,24 @@ export class ProprietariosService {
     await this.get(id);
     const [aprovadosAgg, abatidosAgg] = await Promise.all([
       this.prisma.tier.aggregate({
-        _sum: { qtdAnimais: true },
+        _sum: { qtdMacho: true, qtdFemea: true, qtdIndefinido: true },
         where: { proprietarioId: id, status: 'APROVADO' },
       }),
       this.prisma.tierAbate.aggregate({
-        _sum: { qtd: true },
+        _sum: { qtdMacho: true, qtdFemea: true, qtdIndefinido: true },
         where: { proprietarioId: id },
       }),
     ]);
-    const aprovados = aprovadosAgg._sum.qtdAnimais ?? 0;
-    const abatidos = abatidosAgg._sum.qtd ?? 0;
+    const aprovados = totalSexo({
+      qtdMacho: aprovadosAgg._sum.qtdMacho ?? 0,
+      qtdFemea: aprovadosAgg._sum.qtdFemea ?? 0,
+      qtdIndefinido: aprovadosAgg._sum.qtdIndefinido ?? 0,
+    });
+    const abatidos = totalSexo({
+      qtdMacho: abatidosAgg._sum.qtdMacho ?? 0,
+      qtdFemea: abatidosAgg._sum.qtdFemea ?? 0,
+      qtdIndefinido: abatidosAgg._sum.qtdIndefinido ?? 0,
+    });
     return {
       proprietarioId: id,
       aprovados,

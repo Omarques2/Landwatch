@@ -16,10 +16,16 @@ describe('CreditoService', () => {
       { id: 'p2', nome: 'Bruno' },
     ]);
     prisma.tier.groupBy.mockResolvedValue([
-      { proprietarioId: 'p1', _sum: { qtdAnimais: 630 } },
+      {
+        proprietarioId: 'p1',
+        _sum: { qtdMacho: 400, qtdFemea: 200, qtdIndefinido: 30 },
+      },
     ]);
     prisma.tierAbate.groupBy.mockResolvedValue([
-      { proprietarioId: 'p1', _sum: { qtd: 181 } },
+      {
+        proprietarioId: 'p1',
+        _sum: { qtdMacho: 100, qtdFemea: 80, qtdIndefinido: 1 },
+      },
     ]);
 
     await expect(service.list()).resolves.toEqual([
@@ -41,11 +47,11 @@ describe('CreditoService', () => {
     expect(prisma.tier.groupBy).toHaveBeenCalledWith({
       by: ['proprietarioId'],
       where: { status: 'APROVADO' },
-      _sum: { qtdAnimais: true },
+      _sum: { qtdMacho: true, qtdFemea: true, qtdIndefinido: true },
     });
     expect(prisma.tierAbate.groupBy).toHaveBeenCalledWith({
       by: ['proprietarioId'],
-      _sum: { qtd: true },
+      _sum: { qtdMacho: true, qtdFemea: true, qtdIndefinido: true },
     });
   });
 });

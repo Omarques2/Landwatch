@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { totalSexo } from '../common/sexo-quantidade';
 
 @Injectable()
 export class CreditoService {
@@ -14,19 +15,33 @@ export class CreditoService {
       this.prisma.tier.groupBy({
         by: ['proprietarioId'],
         where: { status: 'APROVADO' },
-        _sum: { qtdAnimais: true },
+        _sum: { qtdMacho: true, qtdFemea: true, qtdIndefinido: true },
       }),
       this.prisma.tierAbate.groupBy({
         by: ['proprietarioId'],
-        _sum: { qtd: true },
+        _sum: { qtdMacho: true, qtdFemea: true, qtdIndefinido: true },
       }),
     ]);
 
     const aprovadosPorProprietario = new Map(
-      aprovados.map((row) => [row.proprietarioId, row._sum.qtdAnimais ?? 0]),
+      aprovados.map((row) => [
+        row.proprietarioId,
+        totalSexo({
+          qtdMacho: row._sum.qtdMacho ?? 0,
+          qtdFemea: row._sum.qtdFemea ?? 0,
+          qtdIndefinido: row._sum.qtdIndefinido ?? 0,
+        }),
+      ]),
     );
     const abatidosPorProprietario = new Map(
-      abatidos.map((row) => [row.proprietarioId, row._sum.qtd ?? 0]),
+      abatidos.map((row) => [
+        row.proprietarioId,
+        totalSexo({
+          qtdMacho: row._sum.qtdMacho ?? 0,
+          qtdFemea: row._sum.qtdFemea ?? 0,
+          qtdIndefinido: row._sum.qtdIndefinido ?? 0,
+        }),
+      ]),
     );
 
     return proprietarios.map((proprietario) => {

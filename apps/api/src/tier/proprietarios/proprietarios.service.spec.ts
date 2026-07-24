@@ -41,8 +41,12 @@ describe('ProprietariosService', () => {
 
   it('credito returns aprovados - abatidos', async () => {
     prisma.tierProprietario.findUnique.mockResolvedValue({ id: 'p1' });
-    prisma.tier.aggregate.mockResolvedValue({ _sum: { qtdAnimais: 630 } });
-    prisma.tierAbate.aggregate.mockResolvedValue({ _sum: { qtd: 181 } });
+    prisma.tier.aggregate.mockResolvedValue({
+      _sum: { qtdMacho: 400, qtdFemea: 200, qtdIndefinido: 30 },
+    });
+    prisma.tierAbate.aggregate.mockResolvedValue({
+      _sum: { qtdMacho: 100, qtdFemea: 80, qtdIndefinido: 1 },
+    });
     const res = await service.credito('p1');
     expect(res).toEqual({
       proprietarioId: 'p1',
@@ -51,7 +55,7 @@ describe('ProprietariosService', () => {
       creditoRestante: 449,
     });
     expect(prisma.tierAbate.aggregate).toHaveBeenCalledWith({
-      _sum: { qtd: true },
+      _sum: { qtdMacho: true, qtdFemea: true, qtdIndefinido: true },
       where: { proprietarioId: 'p1' },
     });
   });
