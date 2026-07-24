@@ -25,6 +25,9 @@
           <div>
             <div class="text-xs text-muted-foreground">Animais</div>
             <div class="text-lg font-semibold tabular-nums">{{ tier.qtdAnimais }}</div>
+            <div class="text-xs text-muted-foreground">
+              M {{ tier.qtdMacho }} · F {{ tier.qtdFemea }} · I {{ tier.qtdIndefinido }}
+            </div>
           </div>
           <div>
             <div class="text-xs text-muted-foreground">Abatidos</div>

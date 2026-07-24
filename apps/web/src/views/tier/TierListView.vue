@@ -46,7 +46,10 @@
               {{ row.proprietario?.nome ?? "—" }}
             </td>
             <td class="px-3 py-2">{{ row.fazenda?.nome ?? "—" }}</td>
-            <td class="px-3 py-2 tabular-nums">{{ row.qtdAnimais }}</td>
+            <td class="px-3 py-2 tabular-nums">
+              {{ row.qtdAnimais }}
+              <span class="text-xs text-muted-foreground">(M {{ row.qtdMacho }} · F {{ row.qtdFemea }} · I {{ row.qtdIndefinido }})</span>
+            </td>
             <td class="px-3 py-2">
               <span class="inline-block rounded-full px-2 py-0.5 text-xs font-medium" :class="statusClass(row.status)">
                 {{ row.status }}
@@ -81,11 +84,22 @@
             </option>
           </UiSelect>
         </div>
-        <div class="flex flex-col gap-1">
-          <UiLabel for="t-qtd">Quantidade de animais</UiLabel>
-          <UiInput id="t-qtd" v-model.number="form.qtdAnimais" type="number" min="1" />
+        <div class="col-span-2 grid grid-cols-3 gap-2">
+          <div class="flex flex-col gap-1">
+            <UiLabel for="t-macho">Macho</UiLabel>
+            <UiInput id="t-macho" v-model.number="form.qtdMacho" type="number" min="0" />
+          </div>
+          <div class="flex flex-col gap-1">
+            <UiLabel for="t-femea">Fêmea</UiLabel>
+            <UiInput id="t-femea" v-model.number="form.qtdFemea" type="number" min="0" />
+          </div>
+          <div class="flex flex-col gap-1">
+            <UiLabel for="t-indef">Indefinido</UiLabel>
+            <UiInput id="t-indef" v-model.number="form.qtdIndefinido" type="number" min="0" />
+          </div>
         </div>
-        <div class="flex flex-col gap-1">
+        <p class="col-span-2 text-sm text-muted-foreground">Total: {{ qtdTotal }}</p>
+        <div class="col-span-2 flex flex-col gap-1">
           <UiLabel for="t-data">Data</UiLabel>
           <UiInput id="t-data" v-model="form.data" type="date" />
         </div>
@@ -101,7 +115,7 @@
       </form>
       <UiDialogFooter>
         <UiButton variant="outline" @click="dialogOpen = false">Cancelar</UiButton>
-        <UiButton :disabled="saving || !form.proprietarioId || !form.fazendaId || !form.qtdAnimais || !form.data" @click="save">
+        <UiButton :disabled="saving || !form.proprietarioId || !form.fazendaId || !qtdTotal || !form.data" @click="save">
           {{ saving ? "Salvando…" : "Criar tier" }}
         </UiButton>
       </UiDialogFooter>
@@ -148,10 +162,15 @@ const dialogOpen = ref(false);
 const form = reactive({
   proprietarioId: "",
   fazendaId: "",
-  qtdAnimais: 0,
+  qtdMacho: 0,
+  qtdFemea: 0,
+  qtdIndefinido: 0,
   data: "",
   frigorificoId: "",
 });
+const qtdTotal = computed(
+  () => (Number(form.qtdMacho) || 0) + (Number(form.qtdFemea) || 0) + (Number(form.qtdIndefinido) || 0),
+);
 
 function statusClass(status: TierStatus) {
   if (status === "APROVADO") return "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300";
@@ -167,7 +186,9 @@ function openCreate() {
   Object.assign(form, {
     proprietarioId: "",
     fazendaId: "",
-    qtdAnimais: 0,
+    qtdMacho: 0,
+    qtdFemea: 0,
+    qtdIndefinido: 0,
     data: "",
     frigorificoId: "",
   });
@@ -175,12 +196,14 @@ function openCreate() {
 }
 
 async function save() {
-  if (!form.proprietarioId || !form.fazendaId || !form.qtdAnimais || !form.data) return;
+  if (!form.proprietarioId || !form.fazendaId || !qtdTotal.value || !form.data) return;
   try {
     const created = (await createMut.mutateAsync({
       proprietarioId: form.proprietarioId,
       fazendaId: form.fazendaId,
-      qtdAnimais: Number(form.qtdAnimais),
+      qtdMacho: Number(form.qtdMacho),
+      qtdFemea: Number(form.qtdFemea),
+      qtdIndefinido: Number(form.qtdIndefinido),
       frigorificoId: form.frigorificoId || undefined,
       data: form.data,
     })) as Tier;
