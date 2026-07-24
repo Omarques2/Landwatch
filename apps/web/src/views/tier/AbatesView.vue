@@ -37,10 +37,20 @@
           </UiSelect>
         </div>
         <div class="flex flex-col gap-1">
-          <UiLabel for="a-qtd">Quantidade total</UiLabel>
-          <UiInput id="a-qtd" v-model.number="form.qtd" type="number" min="1" />
+          <UiLabel for="a-macho">Macho</UiLabel>
+          <UiInput id="a-macho" v-model.number="form.qtdMacho" type="number" min="0" />
+        </div>
+        <div class="flex flex-col gap-1">
+          <UiLabel for="a-femea">Fêmea</UiLabel>
+          <UiInput id="a-femea" v-model.number="form.qtdFemea" type="number" min="0" />
+        </div>
+        <div class="flex flex-col gap-1">
+          <UiLabel for="a-indef">Indefinido</UiLabel>
+          <UiInput id="a-indef" v-model.number="form.qtdIndefinido" type="number" min="0" />
         </div>
       </div>
+
+      <p class="mt-2 text-sm text-muted-foreground">Total: {{ qtdTotal }}</p>
 
       <div class="mt-4">
         <div class="mb-2 flex items-center justify-between">
@@ -72,15 +82,15 @@
         </div>
 
         <p
-          v-if="form.consumos.length && consumoSum !== Number(form.qtd)"
+          v-if="form.consumos.length && consumoSum !== qtdTotal"
           class="text-xs text-amber-600 dark:text-amber-400"
         >
-          Soma dos consumos ({{ consumoSum }}) difere do total ({{ form.qtd || 0 }}).
+          Soma dos consumos ({{ consumoSum }}) difere do total ({{ qtdTotal }}).
         </p>
       </div>
 
       <div class="mt-4">
-        <UiButton :disabled="saving || !form.proprietarioId || !form.dataAbate || !form.qtd" @click="save">
+        <UiButton :disabled="saving || !form.proprietarioId || !form.dataAbate || !qtdTotal" @click="save">
           {{ saving ? "Salvando…" : "Lançar abate" }}
         </UiButton>
       </div>
@@ -110,7 +120,10 @@
             <td class="px-3 py-2">{{ a.dataAbate?.slice(0, 10) }}</td>
             <td class="px-3 py-2">{{ a.proprietario?.nome ?? "—" }}</td>
             <td class="px-3 py-2">{{ frigNome(a.frigorificoId) }}</td>
-            <td class="px-3 py-2 tabular-nums">{{ a.qtd }}</td>
+            <td class="px-3 py-2 tabular-nums">
+              {{ a.qtd }}
+              <span class="text-xs text-muted-foreground">(M {{ a.qtdMacho }} · F {{ a.qtdFemea }} · I {{ a.qtdIndefinido }})</span>
+            </td>
             <td class="px-3 py-2 tabular-nums">{{ a.consumos?.length ?? 0 }}</td>
             <td class="px-3 py-2 text-right">
               <UiButton size="sm" variant="outline" @click="remove(a.id)"> Excluir </UiButton>
@@ -149,13 +162,17 @@ const form = reactive<{
   proprietarioId: string;
   dataAbate: string;
   frigorificoId: string;
-  qtd: number;
+  qtdMacho: number;
+  qtdFemea: number;
+  qtdIndefinido: number;
   consumos: { tierId: string; qtdConsumida: number }[];
 }>({
   proprietarioId: "",
   dataAbate: "",
   frigorificoId: "",
-  qtd: 0,
+  qtdMacho: 0,
+  qtdFemea: 0,
+  qtdIndefinido: 0,
   consumos: [],
 });
 
@@ -190,6 +207,9 @@ watch(
 );
 
 const consumoSum = computed(() => form.consumos.reduce((s, r) => s + (Number(r.qtdConsumida) || 0), 0));
+const qtdTotal = computed(
+  () => (Number(form.qtdMacho) || 0) + (Number(form.qtdFemea) || 0) + (Number(form.qtdIndefinido) || 0),
+);
 const proprietarioOptions = computed(() => proprietarios.value.map((p) => ({ value: p.id, label: p.nome })));
 const tierOptions = computed(() => availableTiers.value.map((tier) => ({ value: tier.id, label: tierLabel(tier) })));
 
@@ -212,7 +232,7 @@ function removeRow(i: number) {
 }
 
 async function save() {
-  if (!form.proprietarioId || !form.dataAbate || !form.qtd) return;
+  if (!form.proprietarioId || !form.dataAbate || !qtdTotal.value) return;
   const consumos = form.consumos
     .filter((r) => r.tierId && r.qtdConsumida > 0)
     .map((r) => ({ tierId: r.tierId, qtdConsumida: Number(r.qtdConsumida) }));
@@ -221,14 +241,18 @@ async function save() {
       proprietarioId: form.proprietarioId,
       dataAbate: form.dataAbate,
       frigorificoId: form.frigorificoId || undefined,
-      qtd: Number(form.qtd),
+      qtdMacho: Number(form.qtdMacho),
+      qtdFemea: Number(form.qtdFemea),
+      qtdIndefinido: Number(form.qtdIndefinido),
       consumos: consumos.length ? consumos : undefined,
     });
     push({ kind: "success", title: "Abate lançado" });
     form.proprietarioId = "";
     form.dataAbate = "";
     form.frigorificoId = "";
-    form.qtd = 0;
+    form.qtdMacho = 0;
+    form.qtdFemea = 0;
+    form.qtdIndefinido = 0;
     form.consumos = [];
   } catch (err: unknown) {
     const message =

@@ -15,4 +15,11 @@ describe("AbatesView owner contract", () => {
     expect(source).not.toContain("useAvailableTiers");
     expect(source).not.toContain("saldoOf");
   });
+
+  it("captures per-sexo quantities on create", () => {
+    expect(source).toContain("form.qtdMacho");
+    expect(source).toContain("form.qtdFemea");
+    expect(source).toContain("form.qtdIndefinido");
+    expect(source).not.toContain('v-model.number="form.qtd"');
+  });
 });
