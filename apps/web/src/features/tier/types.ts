@@ -79,7 +79,10 @@ export interface Tier {
   proprietarioId: string;
   fazendaId: string;
   frigorificoId: string | null;
-  qtdAnimais: number;
+  qtdAnimais: number; // total derivado (soma dos sexos), vindo da API
+  qtdMacho: number;
+  qtdFemea: number;
+  qtdIndefinido: number;
   status: TierStatus;
   data: string;
   validadoPor: string | null;
@@ -176,7 +179,10 @@ export interface Abate {
   proprietarioId: string;
   dataAbate: string;
   frigorificoId: string | null;
-  qtd: number;
+  qtd: number; // total derivado (soma dos sexos), vindo da API
+  qtdMacho: number;
+  qtdFemea: number;
+  qtdIndefinido: number;
   consumos?: AbateConsumo[];
   proprietario?: Proprietario;
   frigorifico?: Frigorifico | null;

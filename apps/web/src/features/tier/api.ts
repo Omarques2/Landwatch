@@ -282,7 +282,9 @@ export async function getTier(id: string): Promise<TierDetail> {
 export async function createTier(body: {
   proprietarioId: string;
   fazendaId: string;
-  qtdAnimais: number;
+  qtdMacho: number;
+  qtdFemea: number;
+  qtdIndefinido: number;
   frigorificoId?: string;
   data: string;
 }): Promise<Tier> {
@@ -292,7 +294,13 @@ export async function createTier(body: {
 
 export async function updateTier(
   id: string,
-  body: { qtdAnimais?: number; frigorificoId?: string; data?: string },
+  body: {
+    qtdMacho?: number;
+    qtdFemea?: number;
+    qtdIndefinido?: number;
+    frigorificoId?: string;
+    data?: string;
+  },
 ): Promise<Tier> {
   const res = await http.put<ApiEnvelope<Tier>>(`/v1/tier/tiers/${id}`, body);
   return unwrapData(res.data);
@@ -429,7 +437,9 @@ export async function createAbate(body: {
   proprietarioId: string;
   dataAbate: string;
   frigorificoId?: string;
-  qtd: number;
+  qtdMacho: number;
+  qtdFemea: number;
+  qtdIndefinido: number;
   consumos?: { tierId: string; qtdConsumida: number }[];
 }): Promise<Abate> {
   const res = await http.post<ApiEnvelope<Abate>>("/v1/tier/abates", body);
