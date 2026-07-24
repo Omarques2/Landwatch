@@ -17,26 +17,27 @@ const zero = () => new Prisma.Decimal(0);
 export function snapshotTier(tier: {
   id: string;
   data: Date;
-  qtdAnimais: number;
+  qtdMacho: number;
+  qtdFemea: number;
+  qtdIndefinido: number;
   status: 'SUBMETIDO' | 'APROVADO' | 'RECUSADO';
   contratoValorAnimal: Prisma.Decimal | string;
   contratoValorAdicionalAprovado: Prisma.Decimal | string;
 }): CobrancaSnapshot {
+  const total = tier.qtdMacho + tier.qtdFemea + tier.qtdIndefinido;
   const contratoValorAnimal = new Prisma.Decimal(tier.contratoValorAnimal);
   const contratoValorAdicionalAprovado = new Prisma.Decimal(
     tier.contratoValorAdicionalAprovado,
   );
-  const valorBase = new Prisma.Decimal(tier.qtdAnimais).mul(
-    contratoValorAnimal,
-  );
+  const valorBase = new Prisma.Decimal(total).mul(contratoValorAnimal);
   const valorAdicional =
     tier.status === 'APROVADO'
-      ? new Prisma.Decimal(tier.qtdAnimais).mul(contratoValorAdicionalAprovado)
+      ? new Prisma.Decimal(total).mul(contratoValorAdicionalAprovado)
       : zero();
   return {
     tierId: tier.id,
     tierData: tier.data,
-    qtdAnimais: tier.qtdAnimais,
+    qtdAnimais: total,
     status: tier.status,
     contratoValorAnimal,
     contratoValorAdicionalAprovado,
@@ -70,15 +71,18 @@ export function isSnapshotStale(
   snapshot: CobrancaSnapshot,
   tier: {
     data: Date;
-    qtdAnimais: number;
+    qtdMacho: number;
+    qtdFemea: number;
+    qtdIndefinido: number;
     status: string;
     contratoValorAnimal: Prisma.Decimal | string;
     contratoValorAdicionalAprovado: Prisma.Decimal | string;
   } | null,
 ): boolean {
   if (!tier) return true;
+  const total = tier.qtdMacho + tier.qtdFemea + tier.qtdIndefinido;
   return (
-    snapshot.qtdAnimais !== tier.qtdAnimais ||
+    snapshot.qtdAnimais !== total ||
     snapshot.status !== tier.status ||
     snapshot.tierData.getTime() !== tier.data.getTime() ||
     !snapshot.contratoValorAnimal.equals(tier.contratoValorAnimal) ||

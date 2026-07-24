@@ -9,7 +9,9 @@ const tier = (overrides: Record<string, unknown> = {}) =>
   ({
     id: 't1',
     data: new Date('2026-07-15'),
-    qtdAnimais: 100,
+    qtdMacho: 60,
+    qtdFemea: 40,
+    qtdIndefinido: 0,
     status: 'SUBMETIDO',
     contratoValorAnimal: new Prisma.Decimal('1.50'),
     contratoValorAdicionalAprovado: new Prisma.Decimal('0.30'),
@@ -51,7 +53,7 @@ describe('cobranca calculator', () => {
     const snapshot = snapshotTier(tier());
     expect(isSnapshotStale(snapshot, tier())).toBe(false);
     for (const changed of [
-      { qtdAnimais: 99 },
+      { qtdMacho: 59 },
       { status: 'APROVADO' },
       { contratoValorAnimal: new Prisma.Decimal('2.00') },
       { contratoValorAdicionalAprovado: new Prisma.Decimal('0.40') },
