@@ -613,7 +613,10 @@ def _normalize_ogr_encoding(value: str) -> str:
     return aliases.get(normalized, value.strip().strip('"').strip("'"))
 
 
-def detect_shp_encoding(shp_path: Path) -> Tuple[Optional[str], str]:
+def detect_shp_encoding(
+    shp_path: Path,
+    preferred_encoding: Optional[str] = None,
+) -> Tuple[Optional[str], str]:
     cpg_path = shp_path.with_suffix(".cpg")
     if cpg_path.exists():
         raw = cpg_path.read_bytes()
@@ -630,6 +633,9 @@ def detect_shp_encoding(shp_path: Path) -> Tuple[Optional[str], str]:
         if first_line:
             return _normalize_ogr_encoding(first_line), f"cpg:{cpg_path.name}"
         log_warn(f"CPG vazio para {shp_path.name}; aplicando fallback de encoding.")
+    if preferred_encoding:
+        normalized = _normalize_ogr_encoding(preferred_encoding)
+        return normalized, f"preferred:{normalized}"
     if OGR2OGR_ENCODING:
         return _normalize_ogr_encoding(OGR2OGR_ENCODING), "env:LANDWATCH_OGR2OGR_ENCODING"
     return None, "auto"
@@ -681,7 +687,12 @@ def _build_ogr_cmd(
     return ogr_cmd
 
 
-def create_stg_raw_shp(conn, shp_path: Path, file_size_bytes: int):
+def create_stg_raw_shp(
+    conn,
+    shp_path: Path,
+    file_size_bytes: int,
+    preferred_encoding: Optional[str] = None,
+):
     drop_table(conn, "landwatch.stg_raw")
     conn.commit()
     ogr_env = os.environ.copy()
@@ -689,7 +700,10 @@ def create_stg_raw_shp(conn, shp_path: Path, file_size_bytes: int):
         ogr_env["GDAL_DATA"] = GDAL_DATA
     if PROJ_LIB:
         ogr_env["PROJ_LIB"] = PROJ_LIB
-    shp_encoding, encoding_source = detect_shp_encoding(shp_path)
+    shp_encoding, encoding_source = detect_shp_encoding(
+        shp_path,
+        preferred_encoding=preferred_encoding,
+    )
     if shp_encoding:
         log_info(f"OGR encoding (shp)= {shp_encoding} (source={encoding_source})")
     else:
@@ -1178,7 +1192,13 @@ def process_shp(conn, dataset_id: int, dataset_code: str, shp_path: Path, snapsh
     log_info(f"SHP arquivos={len(parts)} tamanho_total={_format_bytes(total_size)}")
     log_info(f"natural_id_col='{natural_id_col}'")
 
-    create_stg_raw_shp(conn, shp_path, total_size)
+    preferred_encoding = "UTF-8" if dataset_code.upper().startswith("CAR_") else None
+    create_stg_raw_shp(
+        conn,
+        shp_path,
+        total_size,
+        preferred_encoding=preferred_encoding,
+    )
     if not natural_id_col:
         log_warn("natural_id_col não definido para dataset; feature_key será hash completo.")
     create_stg_payload_from_raw_shp(conn, natural_id_col)

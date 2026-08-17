@@ -74,6 +74,18 @@ class BulkIngestNaturalIdTest(unittest.TestCase):
         self.assertEqual(encoding, "ISO-8859-1")
         self.assertEqual(source, "env:LANDWATCH_OGR2OGR_ENCODING")
 
+    def test_detect_shp_encoding_prefers_sicar_utf8_when_cpg_missing(self):
+        with tempfile.TemporaryDirectory(prefix="bulk_ingest_encoding_") as tmp:
+            shp = Path(tmp) / "CAR_MG.shp"
+            shp.write_bytes(b"")
+            with patch.object(bulk_ingest, "OGR2OGR_ENCODING", "LATIN1"):
+                encoding, source = bulk_ingest.detect_shp_encoding(
+                    shp,
+                    preferred_encoding="UTF-8",
+                )
+        self.assertEqual(encoding, "UTF-8")
+        self.assertEqual(source, "preferred:UTF-8")
+
     def test_build_ogr_cmd_omits_encoding_override_when_not_set(self):
         shp = Path("C:/tmp/ucs.shp")
         with (

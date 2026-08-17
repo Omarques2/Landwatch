@@ -34,6 +34,22 @@
             <span v-else>{{ farms.length }} itens</span>
           </div>
         </div>
+        <div class="mt-4 flex flex-col gap-2 sm:flex-row">
+          <UiInput
+            v-model="searchQuery"
+            data-testid="farms-search"
+            aria-label="Pesquisar fazendas"
+            placeholder="Pesquisar por nome, CAR ou documento"
+            @keyup.enter="loadFarms"
+          />
+          <UiButton
+            variant="outline"
+            data-testid="farms-search-submit"
+            @click="loadFarms"
+          >
+            Pesquisar
+          </UiButton>
+        </div>
         <div class="mt-4 space-y-3">
           <div
             v-if="loadingFarms"
@@ -328,6 +344,7 @@ const farmsLoaded = ref(false);
 const isOperator = ref(false);
 const orgs = ref<OrgOption[]>([]);
 const orgFilter = ref<string>("");
+const searchQuery = ref("");
 const createOpen = ref(false);
 const savingFarm = ref(false);
 const farmForm = reactive({ name: "", carKey: "", documents: [] as string[] });
@@ -442,6 +459,7 @@ function farmsCacheKey() {
     pageSize: 100,
     includeDocs: true,
     orgId: orgFilter.value || "",
+    q: searchQuery.value.trim(),
   });
 }
 
@@ -489,6 +507,7 @@ async function loadFarms(options?: { background?: boolean }) {
         pageSize: 100,
         includeDocs: true,
         orgId: orgFilter.value || undefined,
+        q: searchQuery.value.trim() || undefined,
       },
     });
     farms.value = unwrapPaged(res.data).rows;

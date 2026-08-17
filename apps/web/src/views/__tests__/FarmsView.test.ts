@@ -51,4 +51,26 @@ describe("FarmsView", () => {
     expect(wrapper.text()).toContain("Fazenda Cache");
     clearListCache();
   });
+
+  it("sends the text search to the farms API", async () => {
+    clearListCache();
+    vi.clearAllMocks();
+    (http.get as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      data: { data: [], meta: { page: 1, pageSize: 100, total: 0 } },
+    });
+
+    const wrapper = mount(FarmsView);
+    await flushPromises();
+
+    await wrapper.find('[data-testid="farms-search"]').setValue("Fazenda Azul");
+    await wrapper.find('[data-testid="farms-search-submit"]').trigger("click");
+    await flushPromises();
+
+    expect(
+      (http.get as unknown as ReturnType<typeof vi.fn>).mock.calls.some(
+        ([url, config]) =>
+          url === "/v1/farms" && config?.params?.q === "Fazenda Azul",
+      ),
+    ).toBe(true);
+  });
 });
