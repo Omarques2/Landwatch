@@ -314,6 +314,7 @@ const featureLabels: Record<AdminOrgFeature, string> = {
   ANALYSIS_CREATE: 'Nova análise',
   CAR_SEARCH: 'Buscar CAR',
   SCHEDULES: 'Agendamento',
+  TIER: 'Tier',
 };
 
 const featuresDirty = computed(() => {

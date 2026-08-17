@@ -67,6 +67,7 @@ describe("AdminView", () => {
       { feature: "ANALYSIS_CREATE", enabled: false },
       { feature: "CAR_SEARCH", enabled: true },
       { feature: "SCHEDULES", enabled: false },
+      { feature: "TIER", enabled: true },
     ]);
     (listAdminUsers as unknown as ReturnType<typeof vi.fn>).mockResolvedValue([
       {
@@ -91,6 +92,7 @@ describe("AdminView", () => {
       { feature: "ANALYSIS_CREATE", enabled: false },
       { feature: "CAR_SEARCH", enabled: true },
       { feature: "SCHEDULES", enabled: false },
+      { feature: "TIER", enabled: true },
     ]);
   });
 
@@ -126,6 +128,7 @@ describe("AdminView", () => {
     expect(listAdminOrgFeatures).toHaveBeenCalledWith("org-1");
     expect(wrapper.text()).toContain("Fazendas");
     expect(wrapper.text()).toContain("Análises");
+    expect(wrapper.text()).toContain("Tier");
     expect(wrapper.text()).not.toContain("Anexos");
 
     const analysesInput = wrapper

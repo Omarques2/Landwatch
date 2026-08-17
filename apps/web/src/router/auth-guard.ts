@@ -47,6 +47,7 @@ const FEATURE_ROUTE: Array<{ feature: AppFeature; path: string }> = [
   { feature: "ANALYSES", path: "/analyses" },
   { feature: "FARMS", path: "/farms" },
   { feature: "SCHEDULES", path: "/schedules" },
+  { feature: "TIER", path: "/tier" },
 ];
 
 function landingRouteFor(access: AccessMeResponse | null): string | null {

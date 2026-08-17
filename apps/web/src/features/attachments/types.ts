@@ -323,7 +323,8 @@ export type AdminOrgFeature =
   | 'ANALYSES'
   | 'ANALYSIS_CREATE'
   | 'CAR_SEARCH'
-  | 'SCHEDULES';
+  | 'SCHEDULES'
+  | 'TIER';
 
 export type AdminOrgFeatureRow = {
   feature: AdminOrgFeature;

@@ -130,6 +130,20 @@ describe("AppShellView", () => {
     expect(wrapper.text()).toContain("Fornecedores");
   });
 
+  it("hides the Tier item from the main navigation", async () => {
+    const wrapper = mount(AppShellView, {
+      global: {
+        stubs: {
+          RouterView: true,
+          UiSheet: { template: "<div><slot /></div>" },
+        },
+      },
+    });
+
+    await flushPromises();
+    expect(wrapper.text()).not.toContain("Tier");
+  });
+
   it("hides platform-only navigation for tenants", async () => {
     (getAccessCached as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       isPlatformAdmin: false,

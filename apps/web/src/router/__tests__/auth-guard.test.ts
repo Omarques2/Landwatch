@@ -300,6 +300,24 @@ describe("createAuthNavigationGuard", () => {
     expect(result).toBe("/403");
   });
 
+  it("sends a Tier-only user to /tier when the default route is unavailable", async () => {
+    const deps = makeDeps({
+      getMeResult: meResult({ kind: "ok", me: { status: "active" } }),
+      getAccessCached: vi.fn().mockResolvedValue({
+        isPlatformAdmin: false,
+        features: ["TIER"],
+      }),
+    });
+
+    const guard = createAuthNavigationGuard(deps);
+    const result = await guard({
+      ...route("/analyses/new"),
+      meta: { requiresAuth: true, feature: "ANALYSIS_CREATE" },
+    } as any);
+
+    expect(result).toBe("/tier");
+  });
+
   it("self-heals a stale active org: refreshes identity and retries access once", async () => {
     const getAccessCached = vi
       .fn()

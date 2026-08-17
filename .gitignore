@@ -33,6 +33,7 @@ apps/storage/
 
 # Generated repository snapshots
 repomix*.md
+exports/
 
 # Local design references
 Design e conceitos para anexos/

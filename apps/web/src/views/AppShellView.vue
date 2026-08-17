@@ -156,7 +156,6 @@ import {
   Beef,
   Paperclip,
   Shield,
-  ClipboardList,
 } from "lucide-vue-next";
 import { logout } from "@/auth/auth";
 import { clearMeCache, getAccessCached, getMeCached, type AccessMeResponse, type AppFeature, type MeResponse } from "@/auth/me";
@@ -210,7 +209,6 @@ const baseNavItems: ShellNavItem[] = [
   { key: "schedules", label: "Agendamento", icon: CalendarClock, feature: "SCHEDULES" },
   { key: "attachments", label: "Anexos", icon: Paperclip, platformUser: true },
   { key: "fornecedores", label: "Fornecedores", icon: Beef, platformUser: true },
-  { key: "tier", label: "Tier", icon: ClipboardList, feature: "TIER" },
   { key: "new-analysis", label: "Nova análise", icon: ClipboardPlus, feature: "ANALYSIS_CREATE" },
   { key: "car-search", label: "Buscar CAR", icon: LocateFixed, feature: "CAR_SEARCH" },
 ];
