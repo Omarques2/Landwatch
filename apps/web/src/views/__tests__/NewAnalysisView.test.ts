@@ -227,6 +227,32 @@ describe("NewAnalysisView", () => {
     expect(wrapper.text()).toContain("Base geoespacial em atualização");
   });
 
+  it("submits a KML file as a geometry analysis", async () => {
+    (http.post as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      data: { data: { analysisId: "analysis-geometry-1" } },
+    });
+
+    const wrapper = mount(NewAnalysisView);
+    await wrapper.find('[data-testid="geometry-mode-toggle"]').trigger("click");
+    await wrapper.find('[data-testid="geometry-name"]').setValue("Fazendas do projeto");
+    const file = new File(["<kml />"], "fazendas.kml", {
+      type: "application/vnd.google-earth.kml+xml",
+    });
+    const fileInput = wrapper.find('[data-testid="geometry-file"]');
+    Object.defineProperty(fileInput.element, "files", { value: [file] });
+    await fileInput.trigger("change");
+    await wrapper.find('[data-testid="analysis-submit"]').trigger("click");
+    await flushPromises();
+
+    const call = (http.post as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(call).toBeDefined();
+    const [url, body] = call!;
+    expect(url).toBe("/v1/analyses/geometry");
+    expect(body).toBeInstanceOf(FormData);
+    expect(body.get("name")).toBe("Fazendas do projeto");
+    expect(body.get("file")).toBeInstanceOf(File);
+  });
+
   it("blocks submit on invalid CPF", async () => {
     const wrapper = mount(NewAnalysisView);
 

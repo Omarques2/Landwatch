@@ -131,6 +131,7 @@ const props = withDefaults(defineProps<{
   showSatellite?: boolean;
   enableContextMenu?: boolean;
   radius?: { lat: number; lng: number; m: number } | null;
+  subjectGeometry?: { type: "MultiPolygon"; coordinates: number[][][][] } | null;
 }>(), {
   activeLegendCode: null,
   carKey: null,
@@ -140,6 +141,7 @@ const props = withDefaults(defineProps<{
   showSatellite: true,
   enableContextMenu: false,
   radius: null,
+  subjectGeometry: null,
 });
 
 const emit = defineEmits<{
@@ -202,6 +204,9 @@ const SELECTED_LINE_LAYER_ID = "analysis-selected-line";
 const RADIUS_CIRCLE_SOURCE_ID = "analysis-radius-circle-source";
 const RADIUS_CIRCLE_FILL_LAYER_ID = "analysis-radius-circle-fill";
 const RADIUS_CIRCLE_LINE_LAYER_ID = "analysis-radius-circle-line";
+const SUBJECT_GEOMETRY_SOURCE_ID = "analysis-subject-geometry-source";
+const SUBJECT_GEOMETRY_FILL_LAYER_ID = "analysis-subject-geometry-fill";
+const SUBJECT_GEOMETRY_LINE_LAYER_ID = "analysis-subject-geometry-line";
 
 const hasRadiusCircle = computed(
   () =>
@@ -379,6 +384,16 @@ function syncLegendVisibility() {
     }
     if (map.getLayer(RADIUS_CIRCLE_LINE_LAYER_ID)) {
       map.setLayoutProperty(RADIUS_CIRCLE_LINE_LAYER_ID, "visibility", radiusVisibility);
+    }
+  }
+  if (props.subjectGeometry) {
+    const active = props.activeLegendCode?.trim();
+    const visibility = !active || active === "SICAR" || active === "GEOMETRY" ? "visible" : "none";
+    if (map.getLayer(SUBJECT_GEOMETRY_FILL_LAYER_ID)) {
+      map.setLayoutProperty(SUBJECT_GEOMETRY_FILL_LAYER_ID, "visibility", visibility);
+    }
+    if (map.getLayer(SUBJECT_GEOMETRY_LINE_LAYER_ID)) {
+      map.setLayoutProperty(SUBJECT_GEOMETRY_LINE_LAYER_ID, "visibility", visibility);
     }
   }
 }
@@ -571,6 +586,45 @@ function removeRadiusCircle() {
   if (map.getSource(RADIUS_CIRCLE_SOURCE_ID)) map.removeSource(RADIUS_CIRCLE_SOURCE_ID);
 }
 
+function removeSubjectGeometry() {
+  if (!map) return;
+  if (map.getLayer(SUBJECT_GEOMETRY_LINE_LAYER_ID)) map.removeLayer(SUBJECT_GEOMETRY_LINE_LAYER_ID);
+  if (map.getLayer(SUBJECT_GEOMETRY_FILL_LAYER_ID)) map.removeLayer(SUBJECT_GEOMETRY_FILL_LAYER_ID);
+  if (map.getSource(SUBJECT_GEOMETRY_SOURCE_ID)) map.removeSource(SUBJECT_GEOMETRY_SOURCE_ID);
+}
+
+function syncSubjectGeometry() {
+  if (!map || !map.isStyleLoaded()) return;
+  const geometry = props.subjectGeometry;
+  if (!geometry) {
+    removeSubjectGeometry();
+    return;
+  }
+  const data = {
+    type: "FeatureCollection" as const,
+    features: [{ type: "Feature" as const, properties: {}, geometry }],
+  };
+  const existing = map.getSource(SUBJECT_GEOMETRY_SOURCE_ID) as maplibregl.GeoJSONSource | undefined;
+  if (existing) {
+    existing.setData(data);
+  } else {
+    map.addSource(SUBJECT_GEOMETRY_SOURCE_ID, { type: "geojson", data });
+    map.addLayer({
+      id: SUBJECT_GEOMETRY_FILL_LAYER_ID,
+      type: "fill",
+      source: SUBJECT_GEOMETRY_SOURCE_ID,
+      paint: { "fill-color": "#0f766e", "fill-opacity": 0.12 },
+    });
+    map.addLayer({
+      id: SUBJECT_GEOMETRY_LINE_LAYER_ID,
+      type: "line",
+      source: SUBJECT_GEOMETRY_SOURCE_ID,
+      paint: { "line-color": "#0f766e", "line-width": 2.5 },
+    });
+  }
+  syncLegendVisibility();
+}
+
 function syncRadiusCircle() {
   if (!map || !map.isStyleLoaded()) return;
   const data = radiusCircleData();
@@ -633,6 +687,7 @@ function ensureSourceAndLayers() {
     if (map.getLayer(SICAR_FILL_LAYER_ID)) map.removeLayer(SICAR_FILL_LAYER_ID);
     if (map.getSource(SOURCE_ID)) map.removeSource(SOURCE_ID);
     scheduleRadiusCircle();
+    syncSubjectGeometry();
     return;
   }
 
@@ -731,6 +786,7 @@ function ensureSourceAndLayers() {
   }
 
   scheduleRadiusCircle();
+  syncSubjectGeometry();
   moveAnalysisSicarOutlineLayersToFront(map);
   syncLegendVisibility();
 }
@@ -870,6 +926,19 @@ watch(
     if (!map) return;
     scheduleRadiusCircle();
     fitToSourceBounds(true);
+  },
+  { deep: true },
+);
+
+watch(
+  () => props.subjectGeometry,
+  () => {
+    if (!map) return;
+    if (map.isStyleLoaded()) {
+      syncSubjectGeometry();
+    } else {
+      map.once("idle", () => syncSubjectGeometry());
+    }
   },
   { deep: true },
 );

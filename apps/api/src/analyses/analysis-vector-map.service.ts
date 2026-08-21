@@ -170,6 +170,10 @@ export class AnalysisVectorMapService {
       this.fetchCarBounds(id, analysisDate, analysisKind),
       this.fetchLegendItems(id, analysisDate, analysisKind),
     ]);
+    const subjectBounds =
+      analysis.subjectType === SubjectType.GEOMETRY
+        ? await this.fetchSubjectBounds(id)
+        : null;
     // Radius analyses have no subject row in analysis_result (the circle is
     // rendered client-side), so a zero-hit analysis would otherwise have null
     // bounds and no map at all. Always cover the full circle.
@@ -181,7 +185,10 @@ export class AnalysisVectorMapService {
     );
     return {
       renderMode: 'mvt',
-      bounds: this.mergeBounds(bounds, radiusBounds),
+      bounds: this.mergeBounds(
+        this.mergeBounds(bounds, radiusBounds),
+        subjectBounds,
+      ),
       carBounds,
       minzoom: this.defaultMinZoom,
       maxzoom: this.defaultMaxZoom,
@@ -452,6 +459,39 @@ export class AnalysisVectorMapService {
         SELECT ST_Extent(geom_4326) AS bounds
         FROM feature_rows
         WHERE geom_4326 IS NOT NULL
+      )
+      SELECT
+        ST_XMin(bounds) AS west,
+        ST_YMin(bounds) AS south,
+        ST_XMax(bounds) AS east,
+        ST_YMax(bounds) AS north
+      FROM extent
+    `);
+    const row = rows[0];
+    if (
+      !row ||
+      [row.west, row.south, row.east, row.north].some((value) => value === null)
+    ) {
+      return null;
+    }
+    return [row.west!, row.south!, row.east!, row.north!] as [
+      number,
+      number,
+      number,
+      number,
+    ];
+  }
+
+  private async fetchSubjectBounds(id: string) {
+    const rows = await this.prisma.$queryRaw<BoundsRow[]>(Prisma.sql`
+      WITH subject AS (
+        SELECT ST_Transform(geom, 4326) AS geom
+        FROM "app"."analysis_subject_geometry"
+        WHERE analysis_id = ${id}::uuid
+      ),
+      extent AS (
+        SELECT ST_Extent(geom) AS bounds
+        FROM subject
       )
       SELECT
         ST_XMin(bounds) AS west,

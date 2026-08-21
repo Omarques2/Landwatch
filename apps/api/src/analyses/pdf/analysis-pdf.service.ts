@@ -55,8 +55,12 @@ import {
 type AnalysisDetail = {
   id: string;
   carKey: string | null;
-  subjectType?: 'CAR' | 'RADIUS' | string | null;
+  subjectType?: 'CAR' | 'RADIUS' | 'GEOMETRY' | string | null;
   radius?: { lat: number | null; lng: number | null; m: number | null } | null;
+  subjectGeometry?: {
+    type: 'MultiPolygon';
+    coordinates: number[][][][];
+  } | null;
   farmName?: string | null;
   municipio?: string | null;
   uf?: string | null;
@@ -184,14 +188,19 @@ export class AnalysisPdfService {
     ]);
     const hasAttachments = attachments.length > 0;
     const isRadius = detail.subjectType === 'RADIUS';
+    const isGeometry = detail.subjectType === 'GEOMETRY';
     const radiusFeature = isRadius
       ? this.buildRadiusCircleFeature(detail.radius)
       : null;
+    const subjectFeature = isGeometry
+      ? this.buildSubjectGeometryFeature(detail.subjectGeometry)
+      : null;
     const mapFeatures = [
       ...(radiusFeature ? [radiusFeature] : []),
+      ...(subjectFeature ? [subjectFeature] : []),
       ...this.geoJsonToMapFeatures(geojson),
     ];
-    const legend = this.buildLegend(mapFeatures, isRadius);
+    const legend = this.buildLegend(mapFeatures, isRadius, isGeometry);
     const mapScale = this.mapScale();
     const mapImage = await this.map.renderMap({
       features: mapFeatures,
@@ -499,6 +508,7 @@ export class AnalysisPdfService {
     }
 
     const isRadius = detail.subjectType === 'RADIUS';
+    const isGeometry = detail.subjectType === 'GEOMETRY';
     const farm = toTitleCase(detail.farmName) || 'Fazenda sem cadastro';
     const farmLine = `Estabelecimento: ${farm}`;
     this.drawText(state, farmLine, PDF.margin, state.y, 9, false, '#475569');
@@ -506,6 +516,17 @@ export class AnalysisPdfService {
       this.drawText(
         state,
         this.formatRadiusSummary(detail.radius),
+        PDF.margin,
+        state.y - 14,
+        9,
+        false,
+        '#475569',
+      );
+      state.y -= 14;
+    } else if (isGeometry) {
+      this.drawText(
+        state,
+        'Base: Geometria enviada por arquivo',
         PDF.margin,
         state.y - 14,
         9,
@@ -577,6 +598,7 @@ export class AnalysisPdfService {
     y: number,
   ) {
     const isRadius = detail.subjectType === 'RADIUS';
+    const isGeometry = detail.subjectType === 'GEOMETRY';
     const sicarAreaHa = this.sicarAreaHa(detail);
     const justified = getJustificationCoverageSummary(detail.datasetGroups);
     const rows = [
@@ -604,12 +626,14 @@ export class AnalysisPdfService {
             'Raio:',
             detail.radius?.m != null ? `${detail.radius.m} m` : '-',
           ]
-        : [
+        : isGeometry
+          ? ['Base:', 'Geometria enviada por arquivo', '', '']
+          : [
             'Coordenadas do CAR:',
             formatCoordinates(detail.sicarCoordinates ?? null),
             '',
             '',
-          ],
+            ],
       isRadius
         ? ['', '', '', '']
         : ['Área (ha):', formatAreaHa(sicarAreaHa), '', ''],
@@ -1550,9 +1574,16 @@ export class AnalysisPdfService {
       }));
   }
 
-  private buildLegend(features: AnalysisPdfMapFeature[], isRadius = false) {
+  private buildLegend(
+    features: AnalysisPdfMapFeature[],
+    isRadius = false,
+    isGeometry = false,
+  ) {
     const entries: Array<{ label: string; color: string }> = [
-      { label: isRadius ? 'Raio' : 'CAR', color: '#ef4444' },
+      {
+        label: isRadius ? 'Raio' : isGeometry ? 'Arquivo' : 'CAR',
+        color: '#ef4444',
+      },
     ];
     const ucsEntries = buildUcsLegendItems(features);
     const seen = new Set<string>();
@@ -1624,6 +1655,21 @@ export class AnalysisPdfService {
       naturalId: null,
       isSicar: true,
       geometry: { type: 'Polygon', coordinates: [ring] },
+    };
+  }
+
+  private buildSubjectGeometryFeature(
+    geometry?: {
+      type: 'MultiPolygon';
+      coordinates: number[][][][];
+    } | null,
+  ): AnalysisPdfMapFeature | null {
+    if (!geometry?.coordinates?.length) return null;
+    return {
+      datasetCode: 'GEOMETRY',
+      categoryCode: 'GEOMETRY',
+      isSicar: true,
+      geometry,
     };
   }
 

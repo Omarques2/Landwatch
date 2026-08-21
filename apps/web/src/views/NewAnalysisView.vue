@@ -36,6 +36,21 @@
             <FileText class="h-4 w-4" />
             Análise por GTA
           </button>
+          <button
+            type="button"
+            data-testid="geometry-mode-toggle"
+            class="inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition"
+            :class="
+              geometryMode
+                ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                : 'border-border bg-background text-foreground'
+            "
+            :aria-pressed="geometryMode"
+            @click="toggleGeometryMode"
+          >
+            <Upload class="h-4 w-4" />
+            Análise por arquivo
+          </button>
         </div>
       </div>
       <div
@@ -45,7 +60,40 @@
         Base geoespacial em atualização. Aguarde para gerar uma nova análise.
       </div>
       <div v-if="!gtaMode" class="mt-4 grid gap-3">
-        <template v-if="!radiusMode">
+        <template v-if="geometryMode">
+          <UiLabel for="geometry-name">Nome da análise</UiLabel>
+          <UiInput
+            id="geometry-name"
+            v-model="geometryName"
+            data-testid="geometry-name"
+            placeholder="Nome da análise"
+          />
+          <label
+            for="geometry-file"
+            class="flex cursor-pointer flex-col gap-2 rounded-xl border border-dashed border-border bg-background p-4 transition hover:border-emerald-400"
+          >
+            <span class="flex items-center gap-2 text-sm font-medium">
+              <Upload class="h-4 w-4" />
+              Selecionar KML ou shapefile ZIP
+            </span>
+            <span class="text-xs text-muted-foreground">
+              O arquivo será usado somente para extrair a geometria e não será armazenado.
+            </span>
+            <span class="truncate text-xs font-medium text-foreground">
+              {{ geometryFile?.name ?? "Nenhum arquivo selecionado" }}
+            </span>
+            <input
+              id="geometry-file"
+              data-testid="geometry-file"
+              class="sr-only"
+              type="file"
+              accept=".kml,.zip,application/vnd.google-earth.kml+xml,application/zip"
+              @change="onGeometryFileChange"
+            />
+          </label>
+          <div v-if="geometryMessage" class="text-xs text-red-500">{{ geometryMessage }}</div>
+        </template>
+        <template v-else-if="!radiusMode">
           <UiLabel for="analysis-name">Nome da fazenda</UiLabel>
           <UiInput
             id="analysis-name"
@@ -57,7 +105,7 @@
           </div>
         </template>
 
-        <template v-if="!radiusMode">
+        <template v-if="!radiusMode && !geometryMode">
           <UiLabel for="analysis-car">CAR (cod_imovel)</UiLabel>
           <div class="flex gap-2">
             <UiInput
@@ -86,7 +134,7 @@
           </div>
         </template>
 
-        <template v-else>
+        <template v-else-if="radiusMode">
           <UiLabel for="radius-name">Nome da análise</UiLabel>
           <UiInput
             id="radius-name"
@@ -230,7 +278,7 @@
           class="mt-2 inline-flex w-full items-center justify-center gap-2 sm:w-auto"
           data-testid="analysis-submit"
           :disabled="isSubmitting || mvBusy"
-          @click="radiusMode ? submitRadiusAnalysis() : submitAnalysis()"
+          @click="geometryMode ? submitGeometryAnalysis() : radiusMode ? submitRadiusAnalysis() : submitAnalysis()"
         >
           <span v-if="isSubmitting" class="inline-flex items-center gap-2">
             <span
@@ -600,7 +648,7 @@
 import { computed, nextTick, onMounted, reactive, ref, watch } from "vue";
 import type { Geometry } from "geojson";
 import { useRoute, useRouter } from "vue-router";
-import { FileText, LocateFixed, Loader2, MapPin, Maximize2, Minimize2, Search, SlidersHorizontal } from "lucide-vue-next";
+import { FileText, LocateFixed, Loader2, MapPin, Maximize2, Minimize2, Search, SlidersHorizontal, Upload } from "lucide-vue-next";
 import {
   Button as UiButton,
   Dialog as UiDialog,
@@ -626,6 +674,7 @@ import CarSelectMap from "@/components/maps/CarSelectMap.vue";
 import { isValidCpfCnpj, sanitizeDoc } from "@/lib/doc-utils";
 import { mvBusy } from "@/state/landwatch-status";
 import { parseSearchQuery, serializeSearchQuery } from "@/lib/search-query";
+import { validateGeometryFile } from "@/features/analyses/geometry-file";
 
 type CarSearchVectorSource = {
   tiles: string[];
@@ -673,6 +722,10 @@ const isSubmitting = ref(false);
 const confirmMissingOpen = ref(false);
 const radiusMode = ref(false);
 const radiusName = ref("");
+const geometryMode = ref(false);
+const geometryName = ref("");
+const geometryFile = ref<File | null>(null);
+const geometryMessage = ref("");
 
 // --- Análise por GTA mode ---
 const gtaMode = ref(false);
@@ -688,14 +741,31 @@ function resetGta() {
 }
 function toggleRadiusMode() {
   radiusMode.value = !radiusMode.value;
-  if (radiusMode.value) gtaMode.value = false;
+  if (radiusMode.value) {
+    gtaMode.value = false;
+    geometryMode.value = false;
+  }
+}
+function toggleGeometryMode() {
+  geometryMode.value = !geometryMode.value;
+  if (geometryMode.value) {
+    radiusMode.value = false;
+    gtaMode.value = false;
+  }
 }
 function toggleGtaMode() {
   gtaMode.value = !gtaMode.value;
   if (gtaMode.value) {
     radiusMode.value = false;
+    geometryMode.value = false;
     resetGta();
   }
+}
+function onGeometryFileChange(event: Event) {
+  const input = event.target as HTMLInputElement;
+  const file = input.files?.[0] ?? null;
+  geometryFile.value = file;
+  geometryMessage.value = validateGeometryFile(file) ?? "";
 }
 function onGtaInvalid(msg: string) {
   gtaError.value = msg;
@@ -1070,6 +1140,62 @@ async function submitRadiusAnalysis() {
       err?.response?.data?.error?.message ??
       err?.response?.data?.message ??
       "Falha ao criar análise.";
+  } finally {
+    isSubmitting.value = false;
+  }
+}
+
+async function submitGeometryAnalysis() {
+  message.value = "";
+  if (isSubmitting.value) return;
+  commitDocIfValid();
+  if (mvBusy.value) {
+    message.value = "Base geoespacial em atualização. Aguarde para continuar.";
+    return;
+  }
+  const name = geometryName.value.trim();
+  if (!name) {
+    message.value = "Nome da análise é obrigatório.";
+    return;
+  }
+  const fileError = validateGeometryFile(geometryFile.value);
+  if (fileError) {
+    geometryMessage.value = fileError;
+    return;
+  }
+  if (docError.value) {
+    message.value = docError.value;
+    return;
+  }
+  if (dateError.value) {
+    message.value = "Data inválida.";
+    return;
+  }
+  isSubmitting.value = true;
+  message.value = "Criando análise...";
+  const formData = new FormData();
+  formData.append("file", geometryFile.value!);
+  formData.append("name", name);
+  const normalizedDate = normalizeAnalysisDate(analysisForm.analysisDate);
+  if (normalizedDate) formData.append("analysisDate", normalizedDate);
+  if (analysisForm.documents.length) {
+    formData.append("documents", JSON.stringify(analysisForm.documents));
+  }
+  try {
+    const res = await http.post<ApiEnvelope<{ analysisId: string }>>(
+      "/v1/analyses/geometry",
+      formData,
+    );
+    const created = unwrapData(res.data);
+    message.value = "Análise criada. Aguardando processamento.";
+    if (created?.analysisId) {
+      await router.push(`/analyses/${created.analysisId}`);
+    }
+  } catch (err: any) {
+    message.value =
+      err?.response?.data?.error?.message ??
+      err?.response?.data?.message ??
+      "Falha ao criar análise por arquivo.";
   } finally {
     isSubmitting.value = false;
   }

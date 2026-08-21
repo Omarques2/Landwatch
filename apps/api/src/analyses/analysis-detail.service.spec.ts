@@ -1059,6 +1059,58 @@ describe('AnalysisDetailService', () => {
     expect(detail.sicarStatus).toBeNull();
   });
 
+  it('exposes the persisted subject geometry for GEOMETRY analyses', async () => {
+    const prisma = makePrismaMock();
+    prisma.analysis.findUnique.mockResolvedValue({
+      id: 'analysis-geometry-1',
+      carKey: null,
+      subjectType: 'GEOMETRY',
+      analysisDate: new Date('2026-01-31'),
+      analysisKind: AnalysisKind.STANDARD,
+      analysisDocs: [],
+      status: 'completed',
+      farm: { name: 'Fazendas KML' },
+      results: [],
+    });
+    const docInfo = { buildDocInfo: jest.fn() };
+    const service = new AnalysisDetailService(
+      prisma as any,
+      docInfo as any,
+      () => now,
+    );
+    jest.spyOn(service as any, 'fetchSubjectGeometry').mockResolvedValue({
+      type: 'MultiPolygon',
+      coordinates: [[[
+        [-49.2, -22.0],
+        [-49.1, -22.0],
+        [-49.1, -21.9],
+        [-49.2, -21.9],
+        [-49.2, -22.0],
+      ]]],
+    });
+    jest.spyOn(service as any, 'fetchDatasets').mockResolvedValue([]);
+    jest
+      .spyOn(service as any, 'fetchJustificationCoverage')
+      .mockResolvedValue(new Map());
+    jest.spyOn(service as any, 'fetchIndigenaPhases').mockResolvedValue([]);
+    jest.spyOn(service as any, 'fetchUcsCategories').mockResolvedValue([]);
+    jest
+      .spyOn(service as any, 'fetchIndigenaPhaseHits')
+      .mockResolvedValue(new Set());
+    jest
+      .spyOn(service as any, 'fetchUcsCategoryHits')
+      .mockResolvedValue(new Set());
+
+    const detail = await service.getById('analysis-geometry-1');
+
+    expect(detail.subjectType).toBe('GEOMETRY');
+    expect(detail.subjectGeometry?.type).toBe('MultiPolygon');
+    expect(detail.subjectGeometry?.coordinates[0]?.[0]?.[0]).toEqual([
+      -49.2,
+      -22,
+    ]);
+  });
+
   it('keeps DETER dataset labels distinct by dataset code', () => {
     const prisma = makePrismaMock();
     const docInfo = { buildDocInfo: jest.fn() };

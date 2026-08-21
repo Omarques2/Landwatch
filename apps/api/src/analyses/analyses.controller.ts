@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -9,7 +10,10 @@ import {
   Res,
   StreamableFile,
   UnauthorizedException,
+  UploadedFile,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
 import type { AuthedRequest } from '../auth/authed-request.type';
 import { AccessService } from '../auth/access.service';
@@ -17,8 +21,33 @@ import { ActorContextService } from '../auth/actor-context.service';
 import { AnalysesService } from './analyses.service';
 import { CreateAnalysisDto } from './dto/create-analysis.dto';
 import { CreateRadiusAnalysisDto } from './dto/create-radius-analysis.dto';
+import { CreateGeometryAnalysisDto } from './dto/create-geometry-analysis.dto';
 import { ListAnalysesQuery } from './dto/list-analyses.query';
 import { resolveApiOrigin, resolveWebOrigin } from './request-origin';
+
+const MAX_GEOMETRY_FILE_BYTES = 50 * 1024 * 1024;
+
+type UploadedGeometryFile = {
+  buffer: Buffer;
+  originalname: string;
+  mimetype: string;
+  size?: number;
+};
+
+function normalizeMultipartDocuments(value: unknown): string[] | undefined {
+  if (Array.isArray(value)) {
+    return value.filter((item): item is string => typeof item === 'string');
+  }
+  if (typeof value !== 'string' || value.trim().length === 0) return undefined;
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return Array.isArray(parsed)
+      ? parsed.filter((item): item is string => typeof item === 'string')
+      : [value];
+  } catch {
+    return [value];
+  }
+}
 
 @Controller('v1/analyses')
 export class AnalysesController {
@@ -59,6 +88,44 @@ export class AnalysesController {
     });
     await this.access.requireTenantFeature(actor, 'ANALYSIS_CREATE');
     return this.analyses.createRadiusForActor(actor, dto);
+  }
+
+  @Post('geometry')
+  @UseInterceptors(
+    FileInterceptor('file', { limits: { fileSize: MAX_GEOMETRY_FILE_BYTES } }),
+  )
+  async createGeometry(
+    @Req() req: AuthedRequest,
+    @UploadedFile() file: UploadedGeometryFile | undefined,
+    @Body() dto: CreateGeometryAnalysisDto,
+  ) {
+    if (!req.user) {
+      throw new UnauthorizedException({
+        code: 'UNAUTHORIZED',
+        message: 'Missing user claims',
+      });
+    }
+    if (!file?.buffer) {
+      throw new BadRequestException({
+        code: 'GEOMETRY_FILE_REQUIRED',
+        message: 'Envie um arquivo KML ou shapefile ZIP.',
+      });
+    }
+    if (file.buffer.length > MAX_GEOMETRY_FILE_BYTES) {
+      throw new BadRequestException({
+        code: 'GEOMETRY_FILE_TOO_LARGE',
+        message: 'O arquivo de geometria excede 50MB.',
+      });
+    }
+    const actor = await this.actorContext.fromRequest(req, {
+      orgMode: 'tenant',
+    });
+    await this.access.requireTenantFeature(actor, 'ANALYSIS_CREATE');
+    return this.analyses.createGeometryForActor(actor, {
+      ...dto,
+      documents: normalizeMultipartDocuments(dto.documents),
+      file,
+    });
   }
 
   @Get()

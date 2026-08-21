@@ -9,6 +9,7 @@ describe('AnalysisVectorMapService.getVectorMapMetadataById', () => {
     boundsRow?: Array<Record<string, unknown>>;
     carBoundsRow?: Array<Record<string, unknown>>;
     legendRows?: Array<Record<string, unknown>>;
+    subjectBoundsRow?: Array<Record<string, unknown>>;
   }) {
     const prisma = {
       analysis: {
@@ -18,7 +19,8 @@ describe('AnalysisVectorMapService.getVectorMapMetadataById', () => {
         .fn()
         .mockResolvedValueOnce(overrides.boundsRow ?? nullBoundsRow)
         .mockResolvedValueOnce(overrides.carBoundsRow ?? nullBoundsRow)
-        .mockResolvedValueOnce(overrides.legendRows ?? []),
+        .mockResolvedValueOnce(overrides.legendRows ?? [])
+        .mockResolvedValueOnce(overrides.subjectBoundsRow ?? nullBoundsRow),
     } as unknown as PrismaService;
     return new AnalysisVectorMapService(prisma);
   }
@@ -88,6 +90,22 @@ describe('AnalysisVectorMapService.getVectorMapMetadataById', () => {
     const metadata = await service.getVectorMapMetadataById('analysis-1');
 
     expect(metadata.bounds).toBeNull();
+  });
+
+  it('includes the persisted subject geometry bounds for GEOMETRY analyses', async () => {
+    const service = buildService({
+      analysis: {
+        ...baseAnalysis,
+        subjectType: 'GEOMETRY',
+      },
+      subjectBoundsRow: [
+        { west: -49.2, south: -22.0, east: -49.1, north: -21.9 },
+      ],
+    });
+
+    const metadata = await service.getVectorMapMetadataById('analysis-1');
+
+    expect(metadata.bounds).toEqual([-49.2, -22.0, -49.1, -21.9]);
   });
 
   it('ignores invalid radius data instead of producing broken bounds', async () => {

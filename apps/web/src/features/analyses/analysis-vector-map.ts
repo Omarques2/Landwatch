@@ -148,6 +148,7 @@ export type AnalysisLegendEntry = {
 export function buildAnalysisLegendEntries(
   vectorMap: AnalysisVectorMap | null | undefined,
   isRadius = false,
+  isGeometry = false,
 ) {
   const legendItems = vectorMap?.legendItems ?? [];
   const ucsItems = legendItems.filter((item) => item.kind === "ucs");
@@ -155,7 +156,11 @@ export function buildAnalysisLegendEntries(
   let ucsIndex = 0;
 
   const entries: AnalysisLegendEntry[] = [
-    { code: "SICAR", label: isRadius ? "Raio" : "CAR", color: "#ef4444" },
+    {
+      code: "SICAR",
+      label: isRadius ? "Raio" : isGeometry ? "Arquivo" : "CAR",
+      color: "#ef4444",
+    },
   ];
   for (const item of legendItems) {
     if (item.kind === "ucs") {

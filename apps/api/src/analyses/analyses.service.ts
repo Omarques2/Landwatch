@@ -26,6 +26,7 @@ import {
   type AnalysisVectorMapMetadata,
 } from './analysis-vector-map.service';
 import { AnalysisPostprocessService } from './analysis-postprocess.service';
+import { AnalysisSubjectParserService } from './analysis-subject-parser.service';
 import { AnalysisPdfService } from './pdf/analysis-pdf.service';
 import type { AnalysisPdfRequestContext } from './pdf/analysis-pdf.types';
 import { LandwatchStatusService } from '../landwatch-status/landwatch-status.service';
@@ -55,6 +56,20 @@ type CreateRadiusAnalysisInput = {
   lng: number;
   radiusMeters: number;
   name: string;
+  documents?: string[];
+  analysisDate?: string;
+};
+
+type GeometryUpload = {
+  buffer: Buffer;
+  originalname: string;
+  mimetype: string;
+  size?: number;
+};
+
+type CreateGeometryAnalysisInput = {
+  name: string;
+  file: GeometryUpload;
   documents?: string[];
   analysisDate?: string;
 };
@@ -116,10 +131,14 @@ export class AnalysesService {
     private readonly pdf: AnalysisPdfService,
     private readonly landwatchStatus: LandwatchStatusService,
     @Optional() @Inject(NOW_PROVIDER) nowProvider?: () => Date,
+    @Optional() subjectParser?: AnalysisSubjectParserService,
   ) {
     this.nowProvider =
       typeof nowProvider === 'function' ? nowProvider : () => new Date();
+    this.subjectParser = subjectParser ?? new AnalysisSubjectParserService();
   }
+
+  private readonly subjectParser: AnalysisSubjectParserService;
 
   private getSchema(): string {
     const schema = process.env.LANDWATCH_SCHEMA ?? 'landwatch';
@@ -492,6 +511,126 @@ export class AnalysesService {
       status: analysis.status,
       analysisKind: analysis.analysisKind,
       subjectType: analysis.subjectType,
+    };
+  }
+
+  async createGeometryForActor(
+    actor: CreateActor,
+    input: CreateGeometryAnalysisInput,
+  ) {
+    const { userId, orgId } = actor;
+    if (!orgId) {
+      throw new ForbiddenException({
+        code: 'ORG_REQUIRED',
+        message: 'Organization context required to create analysis',
+      });
+    }
+
+    const analysisDate = this.normalizeDate(input.analysisDate);
+    const documents = this.normalizeDocuments(input.documents);
+    const name = this.normalizeFarmNameInput(input.name);
+    if (!name) {
+      throw new BadRequestException({
+        code: 'INVALID_ANALYSIS_NAME',
+        message: 'Nome da análise é obrigatório',
+      });
+    }
+
+    if (this.isCurrentAnalysisDate(analysisDate)) {
+      await this.landwatchStatus.assertNotRefreshing();
+    }
+
+    const parsed = await this.subjectParser.parse(
+      input.file.buffer,
+      input.file.originalname,
+      input.file.mimetype,
+    );
+    const analysis = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.analysis.create({
+        data: {
+          subjectType: 'GEOMETRY',
+          carKey: null,
+          analysisDocs: documents as Prisma.InputJsonValue,
+          analysisDate: new Date(analysisDate),
+          status: 'pending',
+          analysisKind: AnalysisKind.STANDARD,
+          createdByUserId: userId,
+          orgId,
+          farmId: null,
+          farmNameSnapshot: name,
+          hasIntersections: false,
+          intersectionCount: 0,
+        },
+        select: {
+          id: true,
+          analysisDate: true,
+          status: true,
+          analysisKind: true,
+          subjectType: true,
+        },
+      });
+
+      const inserted = await tx.$executeRaw<number>(Prisma.sql`
+        WITH normalized AS (
+          SELECT ST_Multi(
+            ST_CollectionExtract(
+              ST_UnaryUnion(
+                ST_MakeValid(
+                  ST_Transform(
+                    ST_SetSRID(
+                      ST_GeomFromGeoJSON(${JSON.stringify(parsed.geometry)}),
+                      4326
+                    ),
+                    4674
+                  )
+                )
+              ),
+              3
+            )
+          ) AS geom
+        )
+        INSERT INTO app.analysis_subject_geometry
+          (analysis_id, geom, source_format, feature_count, area_m2)
+        SELECT
+          ${created.id}::uuid,
+          geom,
+          ${parsed.sourceFormat},
+          ${parsed.featureCount},
+          ST_Area(geom::geography)
+        FROM normalized
+        WHERE NOT ST_IsEmpty(geom)
+          AND ST_IsValid(geom)
+      `);
+      if (inserted !== 1) {
+        throw new BadRequestException({
+          code: 'GEOMETRY_INVALID',
+          message: 'A geometria não contém uma área válida.',
+        });
+      }
+      return created;
+    });
+
+    this.runner.enqueue(analysis.id);
+    const cnpjDocs = documents
+      .filter((doc) => doc.docType === FarmDocType.CNPJ)
+      .map((doc) => doc.docNormalized);
+    await Promise.all(
+      cnpjDocs.map((docNormalized) =>
+        this.postprocess.enqueue({
+          jobType: AnalysisPostprocessJobType.CNPJ_REFRESH,
+          docNormalized,
+          dedupeKey: `cnpj:${docNormalized}`,
+        }),
+      ),
+    );
+
+    return {
+      analysisId: analysis.id,
+      analysisDate: analysis.analysisDate,
+      status: analysis.status,
+      analysisKind: analysis.analysisKind,
+      subjectType: analysis.subjectType,
+      sourceFormat: parsed.sourceFormat,
     };
   }
 

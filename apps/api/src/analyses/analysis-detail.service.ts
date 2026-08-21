@@ -115,6 +115,7 @@ export type AnalysisGeoJsonCollection = {
       datasets: number;
       overlapAreaM2: number;
     };
+    subjectGeometry?: AnalysisSubjectGeometry | null;
   };
   features: AnalysisGeoJsonFeature[];
 };
@@ -123,6 +124,11 @@ type GeoJsonGeometryLike = Record<string, unknown> & {
   type?: string;
   coordinates?: unknown;
   geometries?: GeoJsonGeometryLike[];
+};
+
+type AnalysisSubjectGeometry = {
+  type: 'MultiPolygon';
+  coordinates: number[][][][];
 };
 
 function assertIdentifier(value: string, name: string): string {
@@ -218,6 +224,7 @@ export class AnalysisDetailService {
     const sicarRow = filteredResults.find((row) => isBaseSicarResult(row));
     const analysisDocs = this.normalizeAnalysisDocs(analysis.analysisDocs);
     const isRadius = analysis.subjectType === 'RADIUS';
+    const isGeometry = analysis.subjectType === 'GEOMETRY';
 
     const [
       sicarCoordinates,
@@ -226,10 +233,15 @@ export class AnalysisDetailService {
       datasets,
       justificationCoverage,
       docMatches,
+      subjectGeometry,
     ] = await Promise.all([
-      this.fetchSicarCoordinates(schema, analysis.carKey ?? '', analysisDate),
-      this.fetchBiomas(schema, analysis.carKey ?? '', analysisDate),
-      isRadius || !analysis.carKey
+      isRadius || isGeometry
+        ? Promise.resolve(null)
+        : this.fetchSicarCoordinates(schema, analysis.carKey ?? '', analysisDate),
+      isRadius || isGeometry
+        ? Promise.resolve([])
+        : this.fetchBiomas(schema, analysis.carKey ?? '', analysisDate),
+      isRadius || isGeometry || !analysis.carKey
         ? Promise.resolve({ municipio: null, uf: null, status: null })
         : this.fetchSicarMeta(
             schema,
@@ -242,6 +254,9 @@ export class AnalysisDetailService {
       analysisDocs.length
         ? this.fetchDocMatches(schema, analysisDocs, analysisDate)
         : Promise.resolve([]),
+      isGeometry
+        ? this.fetchSubjectGeometry(analysis.id)
+        : Promise.resolve(null),
     ]);
 
     if (analysisKind === AnalysisKind.DETER) {
@@ -251,6 +266,7 @@ export class AnalysisDetailService {
         farmName: resolvedFarmName,
         subjectType: analysis.subjectType,
         radius: this.buildRadius(analysis),
+        subjectGeometry,
         municipio: sicarMeta.municipio,
         uf: sicarMeta.uf,
         sicarStatus: sicarMeta.status,
@@ -354,6 +370,7 @@ export class AnalysisDetailService {
       farmName: farm?.name ?? null,
       subjectType: analysis.subjectType,
       radius: this.buildRadius(analysis),
+      subjectGeometry,
       municipio: sicarMeta.municipio,
       uf: sicarMeta.uf,
       sicarStatus: sicarMeta.status,
@@ -432,6 +449,33 @@ export class AnalysisDetailService {
           : null,
       m: analysis.radiusM ?? null,
     };
+  }
+
+  private async fetchSubjectGeometry(
+    analysisId: string,
+  ): Promise<AnalysisSubjectGeometry | null> {
+    const rows = await this.prisma.$queryRaw<Array<{ geom: string | null }>>(
+      Prisma.sql`
+        SELECT ST_AsGeoJSON(geom) AS geom
+        FROM "app"."analysis_subject_geometry"
+        WHERE analysis_id = ${analysisId}::uuid
+        LIMIT 1
+      `,
+    );
+    const value = rows[0]?.geom;
+    if (!value) return null;
+    try {
+      const parsed = JSON.parse(value) as AnalysisSubjectGeometry;
+      return parsed.type === 'MultiPolygon' ? parsed : null;
+    } catch {
+      this.logger.warn(
+        JSON.stringify({
+          event: 'analysis.subject_geometry.invalid_json',
+          analysisId,
+        }),
+      );
+      return null;
+    }
   }
 
   private normalizeDisplayFarmName(value?: string | null): string | null {
@@ -669,6 +713,7 @@ export class AnalysisDetailService {
         id: true,
         status: true,
         carKey: true,
+        subjectType: true,
         analysisDate: true,
         analysisKind: true,
       },
@@ -680,6 +725,10 @@ export class AnalysisDetailService {
       });
     }
     if (analysis.status !== 'completed') {
+      const subjectGeometry =
+        analysis.subjectType === 'GEOMETRY'
+          ? await this.fetchSubjectGeometry(analysis.id)
+          : null;
       return {
         type: 'FeatureCollection',
         properties: {
@@ -705,6 +754,7 @@ export class AnalysisDetailService {
             datasets: 0,
             overlapAreaM2: 0,
           },
+          subjectGeometry,
         },
         features: [],
       };
@@ -720,6 +770,10 @@ export class AnalysisDetailService {
         : 0.0001;
     const analysisKind = analysis.analysisKind ?? AnalysisKind.STANDARD;
     const whereByKind = this.buildResultWhereByKind(analysisKind);
+    const subjectGeometry =
+      analysis.subjectType === 'GEOMETRY'
+        ? await this.fetchSubjectGeometry(analysis.id)
+        : null;
 
     type GeoJsonRow = {
       analysis_result_id: string;
@@ -1020,6 +1074,7 @@ export class AnalysisDetailService {
           ).size,
           overlapAreaM2: overlapAreaM2Total,
         },
+        subjectGeometry,
       },
       features,
     };

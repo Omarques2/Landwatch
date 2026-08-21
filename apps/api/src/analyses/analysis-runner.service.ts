@@ -179,6 +179,14 @@ export class AnalysisRunnerService implements OnModuleInit, OnModuleDestroy {
         );
         rawIntersections = r.rows;
         strategy = 'radius_area';
+      } else if (analysis.subjectType === 'GEOMETRY') {
+        const r = await this.executeGeometryIntersectionsQuery(
+          schema,
+          analysisId,
+          analysisDate,
+        );
+        rawIntersections = r.rows;
+        strategy = 'geometry_area';
       } else {
         const r = await this.executeIntersectionsQuery(
           schema,
@@ -475,6 +483,66 @@ export class AnalysisRunnerService implements OnModuleInit, OnModuleDestroy {
     this.logEvent('analysis.intersections.query.raw', {
       analysisId,
       strategy: 'radius_area',
+      durationMs: this.elapsedMs(startedAt),
+      rowCount: Array.isArray(rows) ? rows.length : 0,
+    });
+    return { rows };
+  }
+
+  private buildGeometryCurrentAreaQuery(schema: string, analysisId: string) {
+    const fn = Prisma.raw(`"${schema}"."fn_intersections_current_area_geom"`);
+    return Prisma.sql`
+      WITH subject AS (
+        SELECT geom
+        FROM "app"."analysis_subject_geometry"
+        WHERE analysis_id = ${analysisId}::uuid
+      ),
+      intersections AS (
+        SELECT * FROM ${fn}((SELECT geom FROM subject))
+      )
+      SELECT
+        i.*,
+        ST_GeometryType(i.geom) AS geometry_type
+      FROM intersections i
+    `;
+  }
+
+  private buildGeometryAsofAreaQuery(
+    schema: string,
+    analysisId: string,
+    analysisDate: string,
+  ) {
+    const fn = Prisma.raw(`"${schema}"."fn_intersections_asof_area_geom"`);
+    return Prisma.sql`
+      WITH subject AS (
+        SELECT geom
+        FROM "app"."analysis_subject_geometry"
+        WHERE analysis_id = ${analysisId}::uuid
+      ),
+      intersections AS (
+        SELECT * FROM ${fn}((SELECT geom FROM subject), ${analysisDate}::date)
+      )
+      SELECT
+        i.*,
+        ST_GeometryType(i.geom) AS geometry_type
+      FROM intersections i
+    `;
+  }
+
+  private async executeGeometryIntersectionsQuery(
+    schema: string,
+    analysisId: string,
+    analysisDate: string | undefined,
+  ): Promise<{ rows: IntersectionRow[] }> {
+    const query =
+      analysisDate && !this.isCurrentAnalysisDate(analysisDate)
+        ? this.buildGeometryAsofAreaQuery(schema, analysisId, analysisDate)
+        : this.buildGeometryCurrentAreaQuery(schema, analysisId);
+    const startedAt = process.hrtime.bigint();
+    const rows = await this.prisma.$queryRaw<IntersectionRow[]>(query);
+    this.logEvent('analysis.intersections.query.raw', {
+      analysisId,
+      strategy: 'geometry_area',
       durationMs: this.elapsedMs(startedAt),
       rowCount: Array.isArray(rows) ? rows.length : 0,
     });

@@ -390,6 +390,42 @@ describe('AnalysisPdfService', () => {
     expect(legend[0].label).toBe('Raio');
   });
 
+  it('adds the uploaded subject geometry to the PDF map', async () => {
+    const { service, map } = makeService({
+      detail: {
+        ...completedDetail,
+        subjectType: 'GEOMETRY',
+        subjectGeometry: {
+          type: 'MultiPolygon',
+          coordinates: [[[
+            [-49.2, -22.0],
+            [-49.1, -22.0],
+            [-49.1, -21.9],
+            [-49.2, -21.9],
+            [-49.2, -22.0],
+          ]]],
+        },
+        sicarStatus: null,
+      },
+    });
+
+    await service.generateForUser('analysis-1', {
+      userSubject: 'user-sub',
+      orgHeader: 'org-1',
+    });
+
+    const features = map.renderMap.mock.calls[0][0].features as Array<{
+      datasetCode: string;
+      geometry: { type: string };
+    }>;
+    const subject = features.find((feature) => feature.datasetCode === 'GEOMETRY');
+    expect(subject?.geometry.type).toBe('MultiPolygon');
+    const legend = (service as any).buildLegend(features, false, true) as Array<{
+      label: string;
+    }>;
+    expect(legend[0].label).toBe('Arquivo');
+  });
+
   it('adds a clickable dataset status icon when a justified dataset has effective attachments', async () => {
     const { service } = makeService({
       detail: {

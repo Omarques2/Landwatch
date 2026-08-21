@@ -11,6 +11,7 @@ import { AnalysisPostprocessService } from './analysis-postprocess.service';
 import { DocInfoService } from './doc-info.service';
 import { AnalysisPdfService } from './pdf/analysis-pdf.service';
 import { AnalysisPdfMapService } from './pdf/analysis-pdf-map.service';
+import { AnalysisSubjectParserService } from './analysis-subject-parser.service';
 import { LandwatchStatusModule } from '../landwatch-status/landwatch-status.module';
 import { AlertsModule } from '../alerts/alerts.module';
 import { AttachmentsModule } from '../attachments/attachments.module';
@@ -32,6 +33,7 @@ import { AttachmentsModule } from '../attachments/attachments.module';
     DocInfoService,
     AnalysisPdfService,
     AnalysisPdfMapService,
+    AnalysisSubjectParserService,
   ],
   exports: [AnalysesService],
 })

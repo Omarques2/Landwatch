@@ -152,6 +152,10 @@
           <span class="font-semibold">Raio:</span>
           {{ formatRadiusKm(analysis?.radius?.m) }}
         </div>
+        <div v-else-if="isGeometryAnalysis">
+          <span class="font-semibold">Base:</span>
+          Geometria enviada por arquivo
+        </div>
         <div v-else>
           <span class="font-semibold">Coordenadas do CAR:</span>
           {{ formatCoordinates(analysis?.sicarCoordinates ?? null) }}
@@ -193,6 +197,7 @@
             :active-legend-code="activeLegendCode"
             :car-key="analysis?.carKey ?? null"
             :radius="isRadiusAnalysis && analysis?.radius ? analysis.radius : null"
+            :subject-geometry="isGeometryAnalysis ? analysis?.subjectGeometry : null"
             auth-mode="private"
             :enable-context-menu="true"
             @feature-contextmenu="onMapFeatureContextMenu"
@@ -433,8 +438,9 @@ type DocInfo = {
 type AnalysisDetail = {
   id: string;
   carKey: string;
-  subjectType?: "CAR" | "RADIUS";
+  subjectType?: "CAR" | "RADIUS" | "GEOMETRY";
   radius?: { lat: number; lng: number; m: number } | null;
+  subjectGeometry?: { type: "MultiPolygon"; coordinates: number[][][][] } | null;
   analysisKind?: "STANDARD" | "DETER";
   farmName?: string | null;
   municipio?: string | null;
@@ -687,7 +693,11 @@ const canDownloadPdf = computed(() => {
 });
 
 const legendEntries = computed(() =>
-  buildAnalysisLegendEntries(vectorMap.value, isRadiusAnalysis.value),
+  buildAnalysisLegendEntries(
+    vectorMap.value,
+    isRadiusAnalysis.value,
+    isGeometryAnalysis.value,
+  ),
 );
 const featureContextMenuStyle = computed(() => {
   const width = 196;
@@ -727,6 +737,7 @@ function formatCoordinates(coords?: { lat: number; lng: number } | null) {
 }
 
 const isRadiusAnalysis = computed(() => analysis.value?.subjectType === "RADIUS");
+const isGeometryAnalysis = computed(() => analysis.value?.subjectType === "GEOMETRY");
 
 function formatRadiusKm(meters?: number | null) {
   if (typeof meters !== "number" || !Number.isFinite(meters)) return "-";

@@ -120,6 +120,50 @@ describe('AnalysesController', () => {
     expect(result).toEqual({ analysisId: 'a-1' });
   });
 
+  it('resolves tenant actor and delegates multipart geometry analysis', async () => {
+    const analysesService = {
+      createGeometryForActor: jest.fn().mockResolvedValue({ analysisId: 'a-geometry' }),
+    };
+    const actorContext = {
+      fromRequest: jest.fn().mockResolvedValue(actor),
+    };
+    const access = {
+      requireTenantFeature: jest.fn().mockResolvedValue(undefined),
+      assertCanReadAnalysis: jest.fn().mockResolvedValue(undefined),
+    };
+    const module: TestingModule = await Test.createTestingModule({
+      controllers: [AnalysesController],
+      providers: [
+        { provide: AnalysesService, useValue: analysesService },
+        { provide: ActorContextService, useValue: actorContext },
+        { provide: AccessService, useValue: access },
+      ],
+    }).compile();
+
+    const controller = module.get(AnalysesController);
+    const req = { user: { sub: 'user-sub' }, headers: {} } as any;
+    const file = {
+      buffer: Buffer.from('kml'),
+      originalname: 'fazendas.kml',
+      mimetype: 'application/vnd.google-earth.kml+xml',
+    };
+
+    const result = await controller.createGeometry(req, file, {
+      name: 'Fazendas KML',
+      documents: '["52998224725"]',
+    } as any);
+
+    expect(analysesService.createGeometryForActor).toHaveBeenCalledWith(
+      actor,
+      expect.objectContaining({
+        name: 'Fazendas KML',
+        file,
+        documents: ['52998224725'],
+      }),
+    );
+    expect(result).toEqual({ analysisId: 'a-geometry' });
+  });
+
   it('forwards map and geojson requests with parsed tolerance', async () => {
     const analysesService = {
       create: jest.fn(),

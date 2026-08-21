@@ -1,6 +1,7 @@
 import { AnalysesService } from './analyses.service';
 import { AnalysisKind } from '@prisma/client';
 import { ANALYSIS_CACHE_VERSION } from './analysis-cache.constants';
+import type { ParsedAnalysisSubject } from './analysis-subject-parser.service';
 
 // Org-scoped tenant actor used by create tests (analysis creation is always
 // org-scoped now). Farm mocks carry the same orgId so the cross-org guard
@@ -43,6 +44,7 @@ function makePrismaMock() {
       count: jest.fn(),
     },
     $queryRaw: jest.fn(),
+    $executeRaw: jest.fn().mockResolvedValue(1),
   };
   prisma.$transaction = jest.fn(async (input: any) => {
     if (typeof input === 'function') {
@@ -83,6 +85,9 @@ describe('AnalysesService', () => {
       },
       landwatchStatus: {
         assertNotRefreshing: jest.fn().mockResolvedValue(undefined),
+      },
+      subjectParser: {
+        parse: jest.fn(),
       },
     };
   }
@@ -150,6 +155,76 @@ describe('AnalysesService', () => {
         }),
       }),
     );
+  });
+
+  it('creates a geometry analysis and persists the normalized subject geometry', async () => {
+    const prisma = makePrismaMock();
+    const deps = makeDeps();
+    const parsed: ParsedAnalysisSubject = {
+      sourceFormat: 'KML',
+      featureCount: 2,
+      geometry: {
+        type: 'MultiPolygon',
+        coordinates: [[[
+          [-49.2, -22.0],
+          [-49.1, -22.0],
+          [-49.1, -21.9],
+          [-49.2, -21.9],
+          [-49.2, -22.0],
+        ]]],
+      },
+    };
+    deps.subjectParser.parse.mockResolvedValue(parsed);
+    prisma.analysis.create.mockResolvedValue({
+      id: 'analysis-geometry-1',
+      analysisDate: new Date('2026-02-01T00:00:00Z'),
+      status: 'pending',
+      analysisKind: AnalysisKind.STANDARD,
+      subjectType: 'GEOMETRY',
+    });
+
+    const service = new AnalysesService(
+      prisma,
+      deps.runner as any,
+      deps.detail as any,
+      deps.cache as any,
+      deps.vectorMap as any,
+      deps.postprocess as any,
+      deps.pdf as any,
+      deps.landwatchStatus as any,
+      () => now,
+      deps.subjectParser as any,
+    );
+
+    const result = await service.createGeometryForActor(tenantActor, {
+      name: 'Fazendas do arquivo',
+      file: {
+        buffer: Buffer.from('kml'),
+        originalname: 'fazendas.kml',
+        mimetype: 'application/vnd.google-earth.kml+xml',
+        size: 3,
+      },
+    });
+
+    expect(deps.subjectParser.parse).toHaveBeenCalledWith(
+      Buffer.from('kml'),
+      'fazendas.kml',
+      'application/vnd.google-earth.kml+xml',
+    );
+    expect(prisma.analysis.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          subjectType: 'GEOMETRY',
+          carKey: null,
+          farmId: null,
+          farmNameSnapshot: 'Fazendas do arquivo',
+        }),
+      }),
+    );
+    expect(prisma.$executeRaw).toHaveBeenCalled();
+    expect(deps.runner.enqueue).toHaveBeenCalledWith('analysis-geometry-1');
+    expect(result.subjectType).toBe('GEOMETRY');
+    expect(result.sourceFormat).toBe('KML');
   });
 
   it('does not update farm when requested name matches current name after trim', async () => {

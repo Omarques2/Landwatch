@@ -20,7 +20,7 @@
         <div class="public-subtitle">
           <span>{{ displayFarmName }}</span>
           <span class="public-divider">·</span>
-          <span>{{ analysis?.carKey ?? "-" }}</span>
+          <span>{{ isGeometryAnalysis ? "Base por arquivo" : analysis?.carKey ?? "-" }}</span>
           <span
             v-if="analysis?.sicarStatus"
             class="public-badge"
@@ -103,8 +103,8 @@
         <div><span class="font-semibold">Bioma(s):</span> {{ formatBiomas(analysis?.biomas) }}</div>
         <div><span class="font-semibold">Interseções:</span> {{ analysis?.intersectionCount ?? 0 }}</div>
         <div>
-          <span class="font-semibold">Coordenadas do CAR:</span>
-          {{ formatCoordinates(analysis?.sicarCoordinates ?? null) }}
+          <span class="font-semibold">{{ isGeometryAnalysis ? "Base:" : "Coordenadas do CAR:" }}</span>
+          {{ isGeometryAnalysis ? "Geometria enviada por arquivo" : formatCoordinates(analysis?.sicarCoordinates ?? null) }}
         </div>
         <div>
           <span class="font-semibold">Área (ha):</span>
@@ -131,6 +131,7 @@
             :vector-source="vectorMap?.vectorSource ?? null"
             :legend-items="vectorMap?.legendItems ?? []"
             :active-legend-code="activeLegendCode"
+            :subject-geometry="analysis?.subjectType === 'GEOMETRY' ? analysis?.subjectGeometry : null"
             auth-mode="public"
           />
           <div
@@ -329,6 +330,8 @@ type DocInfo = {
 type AnalysisDetail = {
   id: string;
   carKey: string;
+  subjectType?: "CAR" | "RADIUS" | "GEOMETRY";
+  subjectGeometry?: { type: "MultiPolygon"; coordinates: number[][][][] } | null;
   analysisKind?: "STANDARD" | "DETER";
   farmName?: string | null;
   municipio?: string | null;
@@ -398,6 +401,8 @@ const mapSectionTitle = computed(() =>
   isPreventiveDeter.value ? "Mapa da análise preventiva DETER" : "Mapa da análise",
 );
 
+const isGeometryAnalysis = computed(() => analysis.value?.subjectType === "GEOMETRY");
+
 const intersectionsSectionTitle = computed(() =>
   isPreventiveDeter.value ? "Alertas DETER (preventivo)" : "Interseções",
 );
@@ -453,7 +458,9 @@ const docBadgeOk = (info: DocInfo) => {
   return true;
 };
 
-const legendEntries = computed(() => buildAnalysisLegendEntries(vectorMap.value));
+const legendEntries = computed(() =>
+  buildAnalysisLegendEntries(vectorMap.value, false, isGeometryAnalysis.value),
+);
 
 const publicActionButtonClass =
   "rounded-md border border-border bg-white px-3 py-1 text-xs font-semibold transition-colors duration-150 hover:bg-muted hover:text-foreground active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-white";
