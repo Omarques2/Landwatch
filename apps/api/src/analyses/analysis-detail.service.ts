@@ -454,7 +454,7 @@ export class AnalysisDetailService {
   private async fetchSubjectGeometry(
     analysisId: string,
   ): Promise<AnalysisSubjectGeometry | null> {
-    const rows = await this.prisma.$queryRaw<Array<{ geom: string | null }>>(
+    const rows = await this.prisma.$queryRaw<Array<{ geom: unknown }>>(
       Prisma.sql`
         SELECT ST_AsGeoJSON(geom) AS geom
         FROM "app"."analysis_subject_geometry"
@@ -465,8 +465,20 @@ export class AnalysisDetailService {
     const value = rows[0]?.geom;
     if (!value) return null;
     try {
-      const parsed = JSON.parse(value) as AnalysisSubjectGeometry;
-      return parsed.type === 'MultiPolygon' ? parsed : null;
+      const parsed =
+        typeof value === 'string' ? JSON.parse(value) : value;
+      if (
+        !parsed ||
+        typeof parsed !== 'object' ||
+        (parsed as { type?: unknown }).type !== 'MultiPolygon' ||
+        !Array.isArray((parsed as { coordinates?: unknown }).coordinates)
+      ) {
+        return null;
+      }
+      return {
+        type: 'MultiPolygon',
+        coordinates: (parsed as { coordinates: number[][][][] }).coordinates,
+      };
     } catch {
       this.logger.warn(
         JSON.stringify({

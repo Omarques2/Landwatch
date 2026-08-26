@@ -1,5 +1,6 @@
 import { colorForDataset } from "./analysis-colors";
 import { colorForUcsLegendItem } from "./analysis-legend";
+import type { FeatureCollection } from "geojson";
 
 export const ANALYSIS_SICAR_OUTLINE_LAYER_ID = "analysis-sicar-line";
 
@@ -9,6 +10,30 @@ export const ANALYSIS_SICAR_OUTLINE_PAINT = {
   "line-opacity": 1,
   "line-dasharray": [1.3, 1.3],
 };
+
+export type AnalysisSubjectGeometry = {
+  type: "MultiPolygon";
+  coordinates: number[][][][];
+  [key: string]: unknown;
+};
+
+export function buildAnalysisSubjectGeometryGeoJson(
+  geometry: AnalysisSubjectGeometry | null | undefined,
+): FeatureCollection {
+  return {
+    type: "FeatureCollection",
+    features: geometry
+      ? geometry.coordinates.map((coordinates) => ({
+          type: "Feature",
+          properties: {},
+          geometry: {
+            type: "Polygon" as const,
+            coordinates,
+          },
+        }))
+      : [],
+  };
+}
 
 export function moveAnalysisSicarOutlineLayersToFront(map: {
   getLayer: (layerId: string) => unknown;

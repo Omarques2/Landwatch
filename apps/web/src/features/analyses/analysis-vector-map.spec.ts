@@ -4,12 +4,47 @@ import {
   ANALYSIS_SICAR_OUTLINE_LAYER_ID,
   ANALYSIS_SICAR_OUTLINE_PAINT,
   MAX_ANALYSIS_SELECTED_FEATURES,
+  buildAnalysisSubjectGeometryGeoJson,
   buildAnalysisSelectedFilterExpression,
   getAnalysisContextSelection,
   moveAnalysisSicarOutlineLayersToFront,
   normalizeAnalysisOverlapCandidates,
   updateAnalysisSelectedFeatures,
 } from "./analysis-vector-map";
+
+describe("analysis subject geometry", () => {
+  it("splits MultiPolygon parts into renderable Polygon features", () => {
+    expect(
+      buildAnalysisSubjectGeometryGeoJson({
+        type: "MultiPolygon",
+        coordinates: [[[
+          [-49.2, -22.0],
+          [-49.1, -22.0],
+          [-49.1, -21.9],
+          [-49.2, -21.9],
+          [-49.2, -22.0],
+        ]]],
+        crs: { type: "name", properties: { name: "EPSG:4674" } },
+      }),
+    ).toEqual({
+      type: "FeatureCollection",
+      features: [{
+        type: "Feature",
+        properties: {},
+        geometry: {
+          type: "Polygon",
+          coordinates: [[
+            [-49.2, -22.0],
+            [-49.1, -22.0],
+            [-49.1, -21.9],
+            [-49.2, -21.9],
+            [-49.2, -22.0],
+          ]],
+        },
+      }],
+    });
+  });
+});
 
 describe("analysis vector map CAR outline", () => {
   it("moves the dashed CAR outline above thematic layers", () => {

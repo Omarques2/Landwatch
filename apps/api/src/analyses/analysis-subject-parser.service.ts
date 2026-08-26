@@ -7,6 +7,11 @@ export type PolygonGeometry =
   | { type: 'Polygon'; coordinates: number[][][] }
   | { type: 'MultiPolygon'; coordinates: number[][][][] };
 
+type LineStringGeometry = {
+  type: 'LineString';
+  coordinates: number[][];
+};
+
 export type ParsedAnalysisSubject = {
   geometry: { type: 'MultiPolygon'; coordinates: number[][][][] };
   sourceFormat: 'KML' | 'SHP';
@@ -23,6 +28,7 @@ type GeoJsonFeatureCollection = {
 };
 
 const MAX_COORDINATE_COUNT = 2_000_000;
+const LINE_STRING_CLOSURE_TOLERANCE_DEGREES = 0.0001;
 
 function geometryError(code: string, message: string): BadRequestException {
   return new BadRequestException({ code, message });
@@ -32,6 +38,23 @@ function isPolygonGeometry(
   geometry: GeoJsonFeature['geometry'],
 ): geometry is PolygonGeometry {
   return geometry?.type === 'Polygon' || geometry?.type === 'MultiPolygon';
+}
+
+function isLineStringGeometry(
+  geometry: GeoJsonFeature['geometry'],
+): geometry is LineStringGeometry {
+  return geometry?.type === 'LineString';
+}
+
+function isNearlyClosedLineString(coordinates: number[][]): boolean {
+  if (coordinates.length < 4) return false;
+  const first = coordinates[0];
+  const last = coordinates.at(-1);
+  if (!first || !last) return false;
+  return (
+    Math.abs(first[0] - last[0]) <= LINE_STRING_CLOSURE_TOLERANCE_DEGREES &&
+    Math.abs(first[1] - last[1]) <= LINE_STRING_CLOSURE_TOLERANCE_DEGREES
+  );
 }
 
 function collectCoordinateCount(value: unknown): number {
@@ -102,13 +125,17 @@ export class AnalysisSubjectParserService {
       );
     }
 
+    if (extension === 'kmz' || mimetype?.includes('kmz')) {
+      return this.parseKmz(buffer);
+    }
+
     if (extension === 'zip' || mimetype === 'application/zip') {
       return this.parseShapefileZip(buffer);
     }
 
     throw geometryError(
       'GEOMETRY_FILE_TYPE_UNSUPPORTED',
-      'Formato não suportado. Envie um arquivo KML ou um shapefile ZIP.',
+      'Formato não suportado. Envie um arquivo KML, KMZ ou shapefile ZIP.',
     );
   }
 
@@ -129,6 +156,29 @@ export class AnalysisSubjectParserService {
 
     const collection = kml(document) as unknown as GeoJsonFeatureCollection;
     return this.normalizeFeatures([collection], 'KML');
+  }
+
+  private async parseKmz(buffer: Buffer): Promise<ParsedAnalysisSubject> {
+    let zip: JSZip;
+    try {
+      zip = await JSZip.loadAsync(buffer);
+    } catch {
+      throw geometryError('KMZ_INVALID', 'O arquivo KMZ não é válido.');
+    }
+
+    const files = Object.values(zip.files).filter((file) => !file.dir);
+    const kmlFile =
+      files.find(
+        (file) => file.name.toLowerCase().split('/').pop() === 'doc.kml',
+      ) ?? files.find((file) => file.name.toLowerCase().endsWith('.kml'));
+    if (!kmlFile) {
+      throw geometryError(
+        'KMZ_KML_REQUIRED',
+        'O arquivo KMZ precisa conter um arquivo KML.',
+      );
+    }
+
+    return this.parseKml(await kmlFile.async('nodebuffer'));
   }
 
   private async parseShapefileZip(
@@ -194,12 +244,21 @@ export class AnalysisSubjectParserService {
     for (const collection of collections) {
       for (const feature of collection.features ?? []) {
         const geometry = feature.geometry;
-        if (!isPolygonGeometry(geometry)) continue;
+        const isPolygon = isPolygonGeometry(geometry);
+        const isLineString = isLineStringGeometry(geometry);
+        if (!isPolygon && !isLineString) continue;
         let coordinates: PolygonGeometry['coordinates'];
         try {
-          coordinates = stripAltitude(
-            geometry.coordinates,
-          ) as PolygonGeometry['coordinates'];
+          const stripped = stripAltitude(geometry.coordinates);
+          if (isLineString) {
+            const lineCoordinates = stripped as number[][];
+            if (!isNearlyClosedLineString(lineCoordinates)) continue;
+            const ring = [...lineCoordinates];
+            ring[ring.length - 1] = [...ring[0]];
+            coordinates = [ring];
+          } else {
+            coordinates = stripped as PolygonGeometry['coordinates'];
+          }
         } catch (error) {
           if (error instanceof BadRequestException) throw error;
           throw geometryError(
@@ -215,7 +274,7 @@ export class AnalysisSubjectParserService {
             'A geometria excede o limite de vértices permitido.',
           );
         }
-        if (geometry.type === 'Polygon') {
+        if (isLineString || geometry.type === 'Polygon') {
           polygons.push(coordinates as number[][][]);
         } else {
           polygons.push(...(coordinates as number[][][][]));

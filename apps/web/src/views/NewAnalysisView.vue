@@ -74,7 +74,7 @@
           >
             <span class="flex items-center gap-2 text-sm font-medium">
               <Upload class="h-4 w-4" />
-              Selecionar KML ou shapefile ZIP
+              Selecionar KML, KMZ ou shapefile ZIP
             </span>
             <span class="text-xs text-muted-foreground">
               O arquivo será usado somente para extrair a geometria e não será armazenado.
@@ -87,7 +87,7 @@
               data-testid="geometry-file"
               class="sr-only"
               type="file"
-              accept=".kml,.zip,application/vnd.google-earth.kml+xml,application/zip"
+              accept=".kml,.kmz,.zip,application/vnd.google-earth.kml+xml,application/vnd.google-earth.kmz,application/zip"
               @change="onGeometryFileChange"
             />
           </label>

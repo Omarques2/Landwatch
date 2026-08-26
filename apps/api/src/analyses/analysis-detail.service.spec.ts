@@ -1111,6 +1111,83 @@ describe('AnalysisDetailService', () => {
     ]);
   });
 
+  it('returns subject geometry as canonical GeoJSON without PostGIS foreign members', async () => {
+    const prisma = makePrismaMock();
+    prisma.$queryRaw.mockResolvedValue([
+      {
+        geom: JSON.stringify({
+          type: 'MultiPolygon',
+          coordinates: [[[
+            [-49.2, -22.0],
+            [-49.1, -22.0],
+            [-49.1, -21.9],
+            [-49.2, -21.9],
+            [-49.2, -22.0],
+          ]]],
+          crs: {
+            type: 'name',
+            properties: { name: 'EPSG:4674' },
+          },
+        }),
+      },
+    ]);
+    const service = new AnalysisDetailService(
+      prisma as any,
+      { buildDocInfo: jest.fn() } as any,
+      () => now,
+    );
+
+    await expect(
+      (service as any).fetchSubjectGeometry('analysis-geometry-1'),
+    ).resolves.toEqual({
+      type: 'MultiPolygon',
+      coordinates: [[[
+        [-49.2, -22.0],
+        [-49.1, -22.0],
+        [-49.1, -21.9],
+        [-49.2, -21.9],
+        [-49.2, -22.0],
+      ]]],
+    });
+  });
+
+  it('normalizes object-shaped PostGIS GeoJSON values as well', async () => {
+    const prisma = makePrismaMock();
+    prisma.$queryRaw.mockResolvedValue([
+      {
+        geom: {
+          type: 'MultiPolygon',
+          coordinates: [[[
+            [-49.2, -22.0],
+            [-49.1, -22.0],
+            [-49.1, -21.9],
+            [-49.2, -21.9],
+            [-49.2, -22.0],
+          ]]],
+          crs: { type: 'name', properties: { name: 'EPSG:4674' } },
+        },
+      },
+    ]);
+    const service = new AnalysisDetailService(
+      prisma as any,
+      { buildDocInfo: jest.fn() } as any,
+      () => now,
+    );
+
+    await expect(
+      (service as any).fetchSubjectGeometry('analysis-geometry-1'),
+    ).resolves.toEqual({
+      type: 'MultiPolygon',
+      coordinates: [[[
+        [-49.2, -22.0],
+        [-49.1, -22.0],
+        [-49.1, -21.9],
+        [-49.2, -21.9],
+        [-49.2, -22.0],
+      ]]],
+    });
+  });
+
   it('keeps DETER dataset labels distinct by dataset code', () => {
     const prisma = makePrismaMock();
     const docInfo = { buildDocInfo: jest.fn() };

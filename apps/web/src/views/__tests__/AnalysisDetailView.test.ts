@@ -433,6 +433,99 @@ describe("AnalysisDetailView", () => {
     clickSpy.mockRestore();
   });
 
+  it("downloads geojson when a geometry analysis has no intersection features", async () => {
+    const getMock = http.get as unknown as ReturnType<typeof vi.fn>;
+    const subjectGeometry = {
+      type: "MultiPolygon",
+      coordinates: [[[
+        [-49.2, -22],
+        [-49.1, -22],
+        [-49.1, -21.9],
+        [-49.2, -21.9],
+        [-49.2, -22],
+      ]]],
+    };
+    getMock.mockImplementation((url: string) => {
+      if (url === "/v1/analyses/analysis-deter-1/status") {
+        return Promise.resolve({
+          data: { data: completedStatus({ intersectionCount: 0, hasIntersections: false }) },
+        });
+      }
+      if (url === "/v1/analyses/analysis-deter-1") {
+        return Promise.resolve({
+          data: {
+            data: {
+              id: "analysis-deter-1",
+              carKey: null,
+              farmName: "Fazenda KML",
+              analysisDate: "2026-02-12",
+              status: "completed",
+              analysisKind: "STANDARD",
+              subjectType: "GEOMETRY",
+              subjectGeometry,
+              biomas: [],
+              intersectionCount: 0,
+              datasetGroups: [],
+              results: [],
+            },
+          },
+        });
+      }
+      if (url === "/v1/analyses/analysis-deter-1/vector-map") {
+        return Promise.resolve({ data: { data: vectorMapPayload([], true) } });
+      }
+      if (url === "/v1/analyses/analysis-deter-1/geojson") {
+        return Promise.resolve({
+          data: {
+            data: {
+              type: "FeatureCollection",
+              properties: {
+                analysisId: "analysis-deter-1",
+                subjectGeometry,
+              },
+              features: [],
+            },
+          },
+        });
+      }
+      return Promise.reject(new Error(`unexpected request: ${url}`));
+    });
+
+    if (!("createObjectURL" in URL)) {
+      Object.defineProperty(URL, "createObjectURL", {
+        configurable: true,
+        writable: true,
+        value: vi.fn(),
+      });
+    }
+    if (!("revokeObjectURL" in URL)) {
+      Object.defineProperty(URL, "revokeObjectURL", {
+        configurable: true,
+        writable: true,
+        value: vi.fn(),
+      });
+    }
+    const createObjectUrlSpy = vi
+      .spyOn(URL, "createObjectURL")
+      .mockReturnValue("blob:geometry-analysis");
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+    const clickSpy = vi
+      .spyOn(HTMLAnchorElement.prototype, "click")
+      .mockImplementation(() => {});
+
+    const wrapper = mount(AnalysisDetailView);
+    await flushPromises();
+    const downloadButton = wrapper
+      .findAll("button")
+      .find((item) => item.text().includes("Baixar GeoJSON"));
+
+    await downloadButton!.trigger("click");
+    await flushPromises();
+
+    expect(createObjectUrlSpy).toHaveBeenCalledOnce();
+    expect(clickSpy).toHaveBeenCalledOnce();
+  });
+
   it("downloads PDF from the backend when clicking Baixar PDF on a completed analysis", async () => {
     const getMock = http.get as unknown as ReturnType<typeof vi.fn>;
     getMock.mockImplementation((url: string, config?: Record<string, unknown>) => {
@@ -1205,4 +1298,3 @@ describe("AnalysisDetailView", () => {
     expect(pushMock).not.toHaveBeenCalled();
   });
 });
-

@@ -74,6 +74,7 @@ import { useToast, Sheet as UiSheet, Button as UiButton } from "@/components/ui"
 import {
   ANALYSIS_SICAR_OUTLINE_LAYER_ID,
   ANALYSIS_SICAR_OUTLINE_PAINT,
+  buildAnalysisSubjectGeometryGeoJson,
   buildAnalysisSelectedFilterExpression,
   getAnalysisContextSelection,
   type AnalysisOverlapCandidate,
@@ -600,10 +601,7 @@ function syncSubjectGeometry() {
     removeSubjectGeometry();
     return;
   }
-  const data = {
-    type: "FeatureCollection" as const,
-    features: [{ type: "Feature" as const, properties: {}, geometry }],
-  };
+  const data = buildAnalysisSubjectGeometryGeoJson(geometry);
   const existing = map.getSource(SUBJECT_GEOMETRY_SOURCE_ID) as maplibregl.GeoJSONSource | undefined;
   if (existing) {
     existing.setData(data);
@@ -619,10 +617,19 @@ function syncSubjectGeometry() {
       id: SUBJECT_GEOMETRY_LINE_LAYER_ID,
       type: "line",
       source: SUBJECT_GEOMETRY_SOURCE_ID,
-      paint: { "line-color": "#0f766e", "line-width": 2.5 },
+      paint: ANALYSIS_SICAR_OUTLINE_PAINT,
     });
   }
   syncLegendVisibility();
+}
+
+function scheduleSubjectGeometry() {
+  if (!map) return;
+  if (map.isStyleLoaded()) {
+    syncSubjectGeometry();
+  } else {
+    map.once("idle", () => syncSubjectGeometry());
+  }
 }
 
 function syncRadiusCircle() {
@@ -687,7 +694,7 @@ function ensureSourceAndLayers() {
     if (map.getLayer(SICAR_FILL_LAYER_ID)) map.removeLayer(SICAR_FILL_LAYER_ID);
     if (map.getSource(SOURCE_ID)) map.removeSource(SOURCE_ID);
     scheduleRadiusCircle();
-    syncSubjectGeometry();
+    scheduleSubjectGeometry();
     return;
   }
 
@@ -786,7 +793,7 @@ function ensureSourceAndLayers() {
   }
 
   scheduleRadiusCircle();
-  syncSubjectGeometry();
+  scheduleSubjectGeometry();
   moveAnalysisSicarOutlineLayersToFront(map);
   syncLegendVisibility();
 }
@@ -933,12 +940,7 @@ watch(
 watch(
   () => props.subjectGeometry,
   () => {
-    if (!map) return;
-    if (map.isStyleLoaded()) {
-      syncSubjectGeometry();
-    } else {
-      map.once("idle", () => syncSubjectGeometry());
-    }
+    scheduleSubjectGeometry();
   },
   { deep: true },
 );

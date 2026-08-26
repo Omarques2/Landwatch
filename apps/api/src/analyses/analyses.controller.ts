@@ -108,7 +108,7 @@ export class AnalysesController {
     if (!file?.buffer) {
       throw new BadRequestException({
         code: 'GEOMETRY_FILE_REQUIRED',
-        message: 'Envie um arquivo KML ou shapefile ZIP.',
+        message: 'Envie um arquivo KML, KMZ ou shapefile ZIP.',
       });
     }
     if (file.buffer.length > MAX_GEOMETRY_FILE_BYTES) {

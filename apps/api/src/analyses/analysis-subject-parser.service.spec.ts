@@ -1,4 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
+import JSZip from 'jszip';
 import {
   AnalysisSubjectParserService,
   type ParsedAnalysisSubject,
@@ -55,6 +56,80 @@ describe('AnalysisSubjectParserService', () => {
         }),
       }),
     );
+  });
+
+  it('converts a nearly closed KML LineString into a polygon', async () => {
+    const kml = Buffer.from(`
+      <kml xmlns="http://www.opengis.net/kml/2.2">
+        <Placemark>
+          <LineString>
+            <coordinates>
+              -48.9492,-19.6276,0 -48.9488,-19.6261,0 -48.9494,-19.6251,0
+              -48.9503,-19.6237,0 -48.94922,-19.62763,0
+            </coordinates>
+          </LineString>
+        </Placemark>
+      </kml>
+    `);
+
+    const result = await parser.parse(kml, 'limite.kml', 'application/xml');
+
+    expect(result.sourceFormat).toBe('KML');
+    expect(result.featureCount).toBe(1);
+    expect(result.geometry.type).toBe('MultiPolygon');
+    expect(result.geometry.coordinates[0]?.[0]?.at(-1)).toEqual(
+      result.geometry.coordinates[0]?.[0]?.[0],
+    );
+  });
+
+  it('does not convert an open KML LineString into an analysis area', async () => {
+    const kml = Buffer.from(`
+      <kml xmlns="http://www.opengis.net/kml/2.2">
+        <Placemark>
+          <LineString><coordinates>0,0 1,0 1,1</coordinates></LineString>
+        </Placemark>
+      </kml>
+    `);
+
+    await expect(
+      parser.parse(kml, 'linha.kml', 'application/xml'),
+    ).rejects.toEqual(
+      expect.objectContaining<BadRequestException>({
+        response: expect.objectContaining({
+          code: 'GEOMETRY_POLYGON_REQUIRED',
+        }),
+      }),
+    );
+  });
+
+  it('reads a KMZ document containing polygon features', async () => {
+    const zip = new JSZip();
+    zip.file(
+      'doc.kml',
+      `
+        <kml xmlns="http://www.opengis.net/kml/2.2">
+          <Folder>
+            <Placemark><Point><coordinates>-48.9,-19.6</coordinates></Point></Placemark>
+            <Placemark>
+              <Polygon><outerBoundaryIs><LinearRing><coordinates>
+                -48.9,-19.6 -48.8,-19.6 -48.8,-19.5 -48.9,-19.5 -48.9,-19.6
+              </coordinates></LinearRing></outerBoundaryIs></Polygon>
+            </Placemark>
+          </Folder>
+        </kml>
+      `,
+    );
+    const kmz = await zip.generateAsync({ type: 'nodebuffer' });
+
+    const result = await parser.parse(
+      kmz,
+      'trevo.kmz',
+      'application/vnd.google-earth.kmz',
+    );
+
+    expect(result.sourceFormat).toBe('KML');
+    expect(result.featureCount).toBe(1);
+    expect(result.geometry.type).toBe('MultiPolygon');
   });
 
   it('requires a zipped shapefile with a projection file', async () => {

@@ -1,8 +1,10 @@
+CREATE EXTENSION IF NOT EXISTS postgis WITH SCHEMA public;
+
 ALTER TYPE "app"."subject_type" ADD VALUE IF NOT EXISTS 'GEOMETRY';
 
 CREATE TABLE IF NOT EXISTS app.analysis_subject_geometry (
   analysis_id uuid PRIMARY KEY,
-  geom geometry(MultiPolygon, 4674) NOT NULL,
+  geom public.geometry(MultiPolygon, 4674) NOT NULL,
   source_format text NOT NULL,
   feature_count integer NOT NULL,
   area_m2 numeric NOT NULL,

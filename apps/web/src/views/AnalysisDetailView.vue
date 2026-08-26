@@ -982,7 +982,7 @@ async function downloadGeoJson() {
     `/v1/analyses/${analysis.value.id}/geojson`,
   );
   const payload = unwrapData(res.data);
-  if (!payload || !Array.isArray(payload.features) || payload.features.length === 0) {
+  if (!payload || !Array.isArray(payload.features)) {
     return;
   }
   const blob = new Blob([JSON.stringify(payload)], {

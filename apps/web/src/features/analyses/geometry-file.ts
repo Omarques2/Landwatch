@@ -4,8 +4,8 @@ export function validateGeometryFile(file: File | null | undefined): string | nu
   if (!file) return 'Selecione um arquivo de geometria.';
   if (file.size > MAX_GEOMETRY_FILE_BYTES) return 'O arquivo excede 50MB.';
   const name = file.name.toLowerCase();
-  if (!name.endsWith('.kml') && !name.endsWith('.zip')) {
-    return 'Envie um arquivo KML ou shapefile ZIP.';
+  if (!name.endsWith('.kml') && !name.endsWith('.kmz') && !name.endsWith('.zip')) {
+    return 'Envie um arquivo KML, KMZ ou shapefile ZIP.';
   }
   return null;
 }
