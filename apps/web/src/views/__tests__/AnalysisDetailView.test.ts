@@ -175,6 +175,46 @@ describe("AnalysisDetailView", () => {
     expect(wrapper.text()).not.toContain("Sicar Mt-123 Ativo");
   });
 
+  it("shows the owning organization in the analysis header", async () => {
+    const getMock = http.get as unknown as ReturnType<typeof vi.fn>;
+    getMock.mockImplementation((url: string) => {
+      if (url === "/v1/analyses/analysis-deter-1/status") {
+        return Promise.resolve({ data: { data: completedStatus() } });
+      }
+      if (url === "/v1/analyses/analysis-deter-1") {
+        return Promise.resolve({
+          data: {
+            data: {
+              id: "analysis-deter-1",
+              carKey: "MT-123",
+              farmName: "Fazenda Teste",
+              orgName: "Teste",
+              analysisDate: "2026-02-12",
+              status: "completed",
+              analysisKind: "STANDARD",
+              biomas: [],
+              intersectionCount: 0,
+              datasetGroups: [],
+              results: [],
+            },
+          },
+        });
+      }
+      if (url === "/v1/analyses/analysis-deter-1/vector-map") {
+        return Promise.resolve({ data: { data: vectorMapPayload([], false) } });
+      }
+      return Promise.reject(new Error("unexpected request"));
+    });
+
+    const wrapper = mount(AnalysisDetailView);
+    await flushPromises();
+
+    expect(wrapper.get('[data-testid="analysis-owner-org-badge"]').text()).toBe(
+      "Teste",
+    );
+    expect(wrapper.text()).not.toContain("Organização proprietária: Teste");
+  });
+
   it("does not request a public token for the analysis public URL", async () => {
     const getMock = http.get as unknown as ReturnType<typeof vi.fn>;
     const postMock = http.post as unknown as ReturnType<typeof vi.fn>;

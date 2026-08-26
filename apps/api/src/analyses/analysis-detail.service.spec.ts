@@ -157,6 +157,38 @@ describe('AnalysisDetailService', () => {
     expect(docInfo.buildDocInfo).toHaveBeenCalledTimes(2);
   });
 
+  it('includes the owning organization in an incomplete analysis detail', async () => {
+    const prisma = makePrismaMock();
+    prisma.analysis.findUnique.mockResolvedValue({
+      id: 'analysis-1',
+      carKey: 'CAR-1',
+      analysisDate: new Date('2026-02-01'),
+      analysisKind: AnalysisKind.STANDARD,
+      status: 'pending',
+      farmNameSnapshot: 'Fazenda Teste',
+      farm: { name: 'Fazenda Teste' },
+      org: { id: 'org-teste', name: 'Teste' },
+      results: [],
+    });
+    const service = new AnalysisDetailService(
+      prisma as any,
+      { buildDocInfo: jest.fn() } as any,
+      () => now,
+    );
+
+    await expect(service.getById('analysis-1')).resolves.toEqual(
+      expect.objectContaining({ orgName: 'Teste' }),
+    );
+    expect(prisma.analysis.findUnique).toHaveBeenCalledWith({
+      where: { id: 'analysis-1' },
+      include: {
+        results: true,
+        farm: { select: { name: true } },
+        org: { select: { id: true, name: true } },
+      },
+    });
+  });
+
   it('filters BIOMAS/DETER from map results and stringifies featureId', async () => {
     const prisma = makePrismaMock();
     prisma.analysis.findUnique.mockResolvedValue({

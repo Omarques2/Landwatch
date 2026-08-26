@@ -10,9 +10,11 @@ import {
   AnalysisKind,
   AnalysisPostprocessJobType,
   FarmDocType,
+  OrgKind,
+  OrgStatus,
   Prisma,
 } from '@prisma/client';
-import type { ActorContext } from '../auth/actor-context.service';
+import type { ActorContext, ActorSource } from '../auth/actor-context.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { AnalysisRunnerService, NOW_PROVIDER } from './analysis-runner.service';
 import {
@@ -48,7 +50,10 @@ type CreateAnalysisInput = {
 type CreateActor = {
   userId: string;
   orgId: string | null;
+  orgKind?: OrgKind | null;
   isPlatformAdmin?: boolean;
+  isPlatformUser?: boolean;
+  source?: ActorSource;
 };
 
 type CreateRadiusAnalysisInput = {
@@ -99,6 +104,7 @@ type AnalysisStatusPayload = {
   analysisDate: Date;
   analysisKind: AnalysisKind;
   farmName: string | null;
+  orgName: string | null;
   status: string;
   intersectionCount: number;
   hasIntersections: boolean;
@@ -289,7 +295,12 @@ export class AnalysesService {
     const farm = input.farmId
       ? await this.prisma.farm.findUnique({
           where: { id: input.farmId },
-          select: { id: true, name: true, orgId: true },
+          select: {
+            id: true,
+            name: true,
+            orgId: true,
+            org: { select: { kind: true, status: true } },
+          },
         })
       : await this.findScopedFarm(actor, carKey);
 
@@ -300,15 +311,42 @@ export class AnalysesService {
       });
     }
 
-    // Cross-org guard applies to ALL actors (including platform admins): an
-    // analysis created in org X must not reference a farm owned by org Y.
-    // Public (null-org) farms are allowed and get copied into the target org.
-    if (farm && (farm.orgId ?? null) !== null && farm.orgId !== orgId) {
+    const isForeignFarm = Boolean(
+      input.farmId &&
+      farm &&
+      (farm.orgId ?? null) !== null &&
+      farm.orgId !== orgId,
+    );
+    const canUseForeignFarm = Boolean(
+      isForeignFarm &&
+      actor.source === 'user' &&
+      actor.orgKind === OrgKind.PLATFORM &&
+      (actor.isPlatformUser || actor.isPlatformAdmin),
+    );
+
+    // A platform member may create an analysis from a farm owned by a tenant,
+    // but the analysis remains owned by that tenant organization. API keys and
+    // regular tenant users keep the strict same-organization rule.
+    if (isForeignFarm && !canUseForeignFarm) {
       throw new ForbiddenException({
         code: 'FARM_ORG_FORBIDDEN',
         message: 'Farm belongs to another organization',
       });
     }
+    if (canUseForeignFarm && (!farm?.org || farm.org.kind !== OrgKind.TENANT)) {
+      throw new ForbiddenException({
+        code: 'FARM_ORG_INVALID',
+        message: 'Farm organization is not a tenant organization',
+      });
+    }
+    if (canUseForeignFarm && farm?.org?.status !== OrgStatus.active) {
+      throw new ForbiddenException({
+        code: 'FARM_ORG_DISABLED',
+        message: 'Farm organization is disabled',
+      });
+    }
+
+    const analysisOrgId = canUseForeignFarm ? farm!.orgId! : orgId;
 
     const shouldCopyPublicFarm =
       Boolean(farm && (farm.orgId ?? null) === null && orgId) &&
@@ -322,6 +360,9 @@ export class AnalysesService {
     let farmNameSnapshot = shouldCopyPublicFarm
       ? null
       : this.normalizeFarmNameInput(farm?.name ?? null);
+    if (canUseForeignFarm && requestedFarmName) {
+      farmNameSnapshot = requestedFarmName;
+    }
     const analysis = await this.prisma.$transaction(async (tx) => {
       const newFarmName =
         requestedFarmName ?? this.normalizeFarmNameInput(farm?.name ?? null);
@@ -331,7 +372,7 @@ export class AnalysesService {
             name: newFarmName,
             carKey,
             ownerUserId: userId,
-            orgId: orgId ?? undefined,
+            orgId: analysisOrgId ?? undefined,
           },
           select: { id: true, name: true },
         });
@@ -339,7 +380,12 @@ export class AnalysesService {
         farmNameSnapshot = this.normalizeFarmNameInput(createdFarm.name);
       }
 
-      if (farm && !shouldCopyPublicFarm && requestedFarmName) {
+      if (
+        farm &&
+        !shouldCopyPublicFarm &&
+        !canUseForeignFarm &&
+        requestedFarmName
+      ) {
         const currentFarmName =
           this.normalizeFarmNameInput(farm.name) ?? farm.name;
         if (requestedFarmName !== currentFarmName) {
@@ -363,7 +409,7 @@ export class AnalysesService {
         }
       }
 
-      if (farmId && documents.length) {
+      if (farmId && documents.length && !canUseForeignFarm) {
         for (const doc of documents) {
           await tx.farmDocument.upsert({
             where: {
@@ -390,7 +436,7 @@ export class AnalysesService {
           status: 'pending',
           analysisKind,
           createdByUserId: userId,
-          orgId: orgId ?? undefined,
+          orgId: analysisOrgId ?? undefined,
           farmId,
           farmNameSnapshot,
           hasIntersections: false,
@@ -431,7 +477,10 @@ export class AnalysesService {
       {
         userId: actor.userId,
         orgId: actor.orgId,
+        orgKind: actor.orgKind,
         isPlatformAdmin: actor.isPlatformAdmin,
+        isPlatformUser: actor.isPlatformUser,
+        source: actor.source,
       },
       input,
     );
@@ -638,13 +687,23 @@ export class AnalysesService {
     if (actor.orgId) {
       const orgFarm = await this.prisma.farm.findFirst({
         where: { carKey, orgId: actor.orgId },
-        select: { id: true, name: true, orgId: true },
+        select: {
+          id: true,
+          name: true,
+          orgId: true,
+          org: { select: { kind: true, status: true } },
+        },
       });
       if (orgFarm) return orgFarm;
     }
     return this.prisma.farm.findFirst({
       where: { carKey, orgId: null },
-      select: { id: true, name: true, orgId: true },
+      select: {
+        id: true,
+        name: true,
+        orgId: true,
+        org: { select: { kind: true, status: true } },
+      },
     });
   }
 
@@ -909,6 +968,7 @@ export class AnalysesService {
         completedAt: true,
         farmNameSnapshot: true,
         farm: { select: { name: true } },
+        org: { select: { name: true } },
       },
     });
     if (!analysis) {
@@ -923,6 +983,7 @@ export class AnalysesService {
       analysisDate: analysis.analysisDate,
       analysisKind: analysis.analysisKind ?? AnalysisKind.STANDARD,
       farmName: analysis.farmNameSnapshot ?? analysis.farm?.name ?? null,
+      orgName: analysis.org?.name ?? null,
       status: analysis.status,
       intersectionCount: analysis.intersectionCount,
       hasIntersections: analysis.hasIntersections,

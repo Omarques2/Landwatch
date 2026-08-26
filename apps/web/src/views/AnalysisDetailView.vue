@@ -68,7 +68,15 @@
           Análise preventiva DETER. Esta visão é voltada para prevenção e não substitui a análise socioambiental completa.
         </div>
       </div>
-      <div class="flex w-full flex-wrap gap-2 sm:w-auto">
+      <div class="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto">
+        <span
+          v-if="analysis?.orgName"
+          data-testid="analysis-owner-org-badge"
+          class="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700"
+          :title="`Organização proprietária: ${analysis.orgName}`"
+        >
+          {{ analysis.orgName }}
+        </span>
         <UiButton variant="outline" size="sm" @click="loadAnalysis">Atualizar</UiButton>
         <UiButton
           v-if="hasAnalysisAttachments"
@@ -443,6 +451,7 @@ type AnalysisDetail = {
   subjectGeometry?: { type: "MultiPolygon"; coordinates: number[][][][] } | null;
   analysisKind?: "STANDARD" | "DETER";
   farmName?: string | null;
+  orgName?: string | null;
   municipio?: string | null;
   uf?: string | null;
   sicarCoordinates?: { lat: number; lng: number } | null;
@@ -476,6 +485,7 @@ type AnalysisStatusPayload = {
   analysisDate: string;
   analysisKind: "STANDARD" | "DETER";
   farmName: string | null;
+  orgName: string | null;
   status: string;
   intersectionCount: number;
   hasIntersections: boolean;
@@ -855,6 +865,7 @@ function buildPendingAnalysis(status: AnalysisStatusPayload): AnalysisDetail {
     analysisDate: status.analysisDate,
     analysisKind: status.analysisKind,
     farmName: status.farmName,
+    orgName: status.orgName,
     status: status.status,
     intersectionCount: status.intersectionCount,
     hasIntersections: status.hasIntersections,

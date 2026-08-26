@@ -97,6 +97,32 @@ describe('FarmsService', () => {
     );
   });
 
+  it('includes the owning organization in farm details', async () => {
+    const prisma = makePrismaMock();
+    prisma.farm.findUnique.mockResolvedValue({
+      id: 'farm-1',
+      name: 'Fazenda Teste',
+      carKey: 'CAR-1',
+      orgId: 'org-teste',
+      org: { id: 'org-teste', name: 'Teste' },
+      documents: [],
+      _count: { documents: 0 },
+    });
+    const service = new FarmsService(prisma);
+
+    await expect(service.getById('farm-1')).resolves.toEqual(
+      expect.objectContaining({ orgId: 'org-teste', orgName: 'Teste' }),
+    );
+    expect(prisma.farm.findUnique).toHaveBeenCalledWith({
+      where: { id: 'farm-1' },
+      include: {
+        documents: true,
+        org: { select: { id: true, name: true } },
+        _count: { select: { documents: true } },
+      },
+    });
+  });
+
   describe('findByCarKeyForActor (scoped lookup)', () => {
     const tenantActor = {
       userId: 'user-1',

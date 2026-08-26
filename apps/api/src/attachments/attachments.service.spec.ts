@@ -947,6 +947,53 @@ describe('AttachmentsService', () => {
     ]);
   });
 
+  it('scopes platform-user analysis attachments to the analysis owner organization', async () => {
+    const prisma = makePrismaMock();
+    prisma.analysis.findUnique.mockResolvedValue({ orgId: 'org-merola' });
+    const service = new AttachmentsService(
+      prisma as any,
+      makeActorContextMock() as any,
+    );
+
+    await service.listAnalysisAttachments(
+      {
+        userId: 'sigfarm-user',
+        subject: 'sub-1',
+        orgId: 'org-sigfarm',
+        isPlatformAdmin: false,
+        isPlatformUser: true,
+      },
+      'analysis-merola',
+    );
+
+    expect(prisma.analysis.findUnique).toHaveBeenCalledWith({
+      where: { id: 'analysis-merola' },
+      select: { orgId: true },
+    });
+    expect(prisma.analysisAttachmentEffective.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          analysisId: 'analysis-merola',
+          AND: [
+            {
+              OR: [
+                { capturedScope: 'PLATFORM_FEATURE' },
+                { capturedScope: 'PLATFORM_CAR' },
+                { capturedAppliesOrgId: 'org-merola' },
+              ],
+            },
+            {
+              OR: [
+                { capturedVisibility: 'PUBLIC' },
+                { capturedAppliesOrgId: 'org-merola' },
+              ],
+            },
+          ],
+        }),
+      }),
+    );
+  });
+
   it('streams private attachment download from Azure Blob', async () => {
     process.env.ATTACHMENTS_BLOB_CONNECTION_STRING =
       'UseDevelopmentStorage=true';

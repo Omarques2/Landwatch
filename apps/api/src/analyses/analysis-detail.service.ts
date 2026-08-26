@@ -182,7 +182,11 @@ export class AnalysisDetailService {
   async getById(id: string) {
     const analysis = await this.prisma.analysis.findUnique({
       where: { id },
-      include: { results: true, farm: { select: { name: true } } },
+      include: {
+        results: true,
+        farm: { select: { name: true } },
+        org: { select: { id: true, name: true } },
+      },
     });
     if (!analysis) {
       throw new BadRequestException({
@@ -203,7 +207,7 @@ export class AnalysisDetailService {
       return this.buildIncompleteDetailResponse(analysis);
     }
 
-    const { farm, results, ...rest } = analysis;
+    const { farm, org, results, ...rest } = analysis;
     const resolvedFarmName =
       this.normalizeDisplayFarmName(analysis.farmNameSnapshot) ??
       this.normalizeDisplayFarmName(farm?.name) ??
@@ -264,6 +268,7 @@ export class AnalysisDetailService {
         ...rest,
         pdfPath: undefined,
         farmName: resolvedFarmName,
+        orgName: org?.name ?? null,
         subjectType: analysis.subjectType,
         radius: this.buildRadius(analysis),
         subjectGeometry,
@@ -368,6 +373,7 @@ export class AnalysisDetailService {
       ...rest,
       pdfPath: undefined,
       farmName: farm?.name ?? null,
+      orgName: org?.name ?? null,
       subjectType: analysis.subjectType,
       radius: this.buildRadius(analysis),
       subjectGeometry,
@@ -397,11 +403,12 @@ export class AnalysisDetailService {
       farm?: { name: string | null } | null;
       results?: unknown[];
       analysisKind?: AnalysisKind;
+      org?: { name: string } | null;
       [key: string]: unknown;
     } | null,
   ) {
     if (!analysis) return null;
-    const { farm, results: _results, ...rest } = analysis;
+    const { farm, org, results: _results, ...rest } = analysis;
     const resolvedFarmName =
       this.normalizeDisplayFarmName(analysis.farmNameSnapshot) ??
       this.normalizeDisplayFarmName(farm?.name) ??
@@ -410,6 +417,7 @@ export class AnalysisDetailService {
       ...rest,
       pdfPath: undefined,
       farmName: resolvedFarmName,
+      orgName: org?.name ?? null,
       analysisKind: analysis.analysisKind,
       subjectType: (analysis.subjectType as string | undefined) ?? null,
       radius: this.buildRadius(

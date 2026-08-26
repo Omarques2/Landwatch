@@ -103,6 +103,14 @@
           <div class="text-xs text-muted-foreground">
             Se não informar o nome, a análise será feita apenas com o CAR (sem cadastro).
           </div>
+          <div
+            v-if="analysisForm.farmId && analysisForm.farmOrgName"
+            data-testid="farm-owner-org"
+            class="text-xs text-muted-foreground"
+          >
+            Organização proprietária:
+            <span class="font-medium text-foreground">{{ analysisForm.farmOrgName }}</span>
+          </div>
         </template>
 
         <template v-if="!radiusMode && !geometryMode">
@@ -712,6 +720,7 @@ type Farm = {
   id: string;
   name: string;
   carKey: string;
+  orgName?: string | null;
   documents?: FarmDocument[];
 };
 
@@ -896,6 +905,7 @@ const canExportSearch = computed(
 const analysisForm = reactive({
   farmId: "",
   farmName: "",
+  farmOrgName: "",
   carKey: "",
   documents: [] as string[],
   analysisDate: "",
@@ -923,6 +933,7 @@ async function loadFarm(id: string) {
   const farm = unwrapData(res.data);
   analysisForm.farmId = farm.id;
   analysisForm.farmName = farm.name;
+  analysisForm.farmOrgName = farm.orgName ?? "";
   analysisForm.carKey = farm.carKey;
   farmDocuments.value = farm.documents ?? [];
 }
@@ -976,10 +987,12 @@ async function autoFillFarm(query: { type: "car" | "doc"; value: string }) {
     }
     if (!match) {
       autoFillMessage.value = "";
+      analysisForm.farmOrgName = "";
       farmDocuments.value = [];
       return;
     }
     analysisForm.farmId = match.id;
+    analysisForm.farmOrgName = match.orgName ?? "";
     if (!analysisForm.farmName.trim()) {
       analysisForm.farmName = match.name ?? "";
     }
@@ -1358,6 +1371,7 @@ function onCarInput(value: string) {
   analysisForm.carKey = masked;
   if (analysisForm.farmId) {
     analysisForm.farmId = "";
+    analysisForm.farmOrgName = "";
     farmDocuments.value = [];
   }
 }

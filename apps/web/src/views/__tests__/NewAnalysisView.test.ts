@@ -227,6 +227,28 @@ describe("NewAnalysisView", () => {
     expect(wrapper.text()).toContain("Base geoespacial em atualização");
   });
 
+  it("shows the owning organization for a selected farm", async () => {
+    routeQuery = { farmId: "farm-teste" };
+    (http.get as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      data: {
+        data: {
+          id: "farm-teste",
+          name: "Fazenda Teste",
+          carKey: "SP-1234567-0000000000000000000000000000000000",
+          orgName: "Teste",
+          documents: [],
+        },
+      },
+    });
+
+    const wrapper = mount(NewAnalysisView);
+    await flushPromises();
+
+    expect(wrapper.get('[data-testid="farm-owner-org"]').text()).toContain(
+      "Teste",
+    );
+  });
+
   it("submits a KML file as a geometry analysis", async () => {
     (http.post as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       data: { data: { analysisId: "analysis-geometry-1" } },

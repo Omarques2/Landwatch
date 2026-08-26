@@ -253,7 +253,11 @@ export class FarmsService {
   async getById(id: string) {
     const farm = await this.prisma.farm.findUnique({
       where: { id },
-      include: { documents: true, _count: { select: { documents: true } } },
+      include: {
+        documents: true,
+        org: { select: { id: true, name: true } },
+        _count: { select: { documents: true } },
+      },
     });
     if (!farm) {
       throw new NotFoundException({

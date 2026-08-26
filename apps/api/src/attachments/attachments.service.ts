@@ -4479,22 +4479,23 @@ export class AttachmentsService {
 
   private scopeFilterForActor(
     actor: ActorContext,
+    scopedOrgId: string | null | undefined = actor.orgId,
   ): Prisma.AnalysisAttachmentEffectiveWhereInput {
     if (actor.isPlatformAdmin) return {};
-    if (actor.orgId) {
+    if (scopedOrgId) {
       return {
         AND: [
           {
             OR: [
               { capturedScope: AttachmentScope.PLATFORM_FEATURE },
               { capturedScope: AttachmentScope.PLATFORM_CAR },
-              { capturedAppliesOrgId: actor.orgId },
+              { capturedAppliesOrgId: scopedOrgId },
             ],
           },
           {
             OR: [
               { capturedVisibility: AttachmentVisibility.PUBLIC },
-              { capturedAppliesOrgId: actor.orgId },
+              { capturedAppliesOrgId: scopedOrgId },
             ],
           },
         ],
@@ -4503,6 +4504,21 @@ export class AttachmentsService {
     return {
       attachment: { createdByUserId: actor.userId },
     };
+  }
+
+  private async scopeFilterForAnalysis(
+    actor: ActorContext,
+    analysisId: string,
+  ): Promise<Prisma.AnalysisAttachmentEffectiveWhereInput> {
+    if (actor.isPlatformAdmin || !actor.isPlatformUser) {
+      return this.scopeFilterForActor(actor);
+    }
+
+    const analysis = await this.prisma.analysis.findUnique({
+      where: { id: analysisId },
+      select: { orgId: true },
+    });
+    return this.scopeFilterForActor(actor, analysis?.orgId ?? actor.orgId);
   }
 
   private async ensureAnalysisEffectiveSnapshot(_analysisId: string) {
@@ -4678,7 +4694,7 @@ export class AttachmentsService {
     const where: Prisma.AnalysisAttachmentEffectiveWhereInput = {
       analysisId,
       capturedTargetStatus: AttachmentTargetStatus.APPROVED,
-      ...this.scopeFilterForActor(actor),
+      ...(await this.scopeFilterForAnalysis(actor, analysisId)),
     };
     const rows = await this.prisma.analysisAttachmentEffective.findMany({
       where,
@@ -4727,7 +4743,7 @@ export class AttachmentsService {
         analysisId,
         attachmentId,
         capturedTargetStatus: AttachmentTargetStatus.APPROVED,
-        ...this.scopeFilterForActor(actor),
+        ...(await this.scopeFilterForAnalysis(actor, analysisId)),
       },
       include: { attachment: true },
     });
@@ -4755,7 +4771,7 @@ export class AttachmentsService {
       where: {
         analysisId,
         capturedTargetStatus: AttachmentTargetStatus.APPROVED,
-        ...this.scopeFilterForActor(actor),
+        ...(await this.scopeFilterForAnalysis(actor, analysisId)),
       },
       include: {
         attachment: true,

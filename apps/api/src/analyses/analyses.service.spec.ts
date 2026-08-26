@@ -157,6 +157,56 @@ describe('AnalysesService', () => {
     );
   });
 
+  it('creates a platform user analysis in the foreign farm organization without mutating the farm', async () => {
+    const prisma = makePrismaMock();
+    prisma.$queryRaw.mockResolvedValueOnce([{ ok: 1 }]);
+    prisma.farm.findUnique.mockResolvedValue({
+      id: 'farm-merola',
+      name: 'Fazenda Merola',
+      orgId: 'org-merola',
+      org: { kind: 'TENANT', status: 'active' },
+    });
+    const deps = makeDeps();
+    const service = new AnalysesService(
+      prisma,
+      deps.runner as any,
+      deps.detail as any,
+      deps.cache as any,
+      deps.vectorMap as any,
+      deps.postprocess as any,
+      deps.pdf as any,
+      deps.landwatchStatus as any,
+      () => now,
+    );
+
+    await service.createForActor(
+      {
+        ...tenantActor,
+        orgId: 'org-sigfarm',
+        orgKind: 'PLATFORM',
+        isPlatformUser: true,
+      } as any,
+      {
+        carKey: 'CAR-1',
+        farmId: 'farm-merola',
+        farmName: 'Nome informado na análise',
+        documents: ['04252011000110'],
+      },
+    );
+
+    expect(prisma.analysis.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          orgId: 'org-merola',
+          farmId: 'farm-merola',
+          farmNameSnapshot: 'Nome informado na análise',
+        }),
+      }),
+    );
+    expect(prisma.farm.update).not.toHaveBeenCalled();
+    expect(prisma.farmDocument.upsert).not.toHaveBeenCalled();
+  });
+
   it('creates a geometry analysis and persists the normalized subject geometry', async () => {
     const prisma = makePrismaMock();
     const deps = makeDeps();
