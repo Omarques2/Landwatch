@@ -418,8 +418,8 @@ export class AnalysisPdfService {
     const mapH = this.printMapHeightPt(input.legend);
     const legendTitleY = mapTopY - mapH - 14;
     const legendItemsY = legendTitleY - 14;
-    const legendRows = this.legendRows(input.legend);
-    const legendBottom = legendItemsY - Math.max(0, legendRows - 1) * 13 - 9;
+    const legendBottom =
+      legendItemsY - this.legendLayout(state, input.legend, mapW).height + 4;
     const cardY = Math.max(122, legendBottom - PDF.cardPadding);
     const cardH = cardTop - cardY;
     this.drawCard(state.page, cardX, cardY, cardW, cardH);
@@ -787,34 +787,68 @@ export class AnalysisPdfService {
     y: number,
     width: number,
   ) {
+    const layout = this.legendLayout(state, legend, width);
+    layout.rows.forEach((rowItems, row) => {
+      const rowY =
+        y -
+        layout.rowHeights
+          .slice(0, row)
+          .reduce((sum, height) => sum + height, 0);
+      rowItems.forEach(({ item, lines }, col) => {
+        const itemX = x + col * layout.colW;
+        lines.forEach((line, lineIndex) => {
+          const itemY = rowY - lineIndex * 9;
+          if (lineIndex === 0) {
+            this.drawRoundedRect(
+              state.page,
+              itemX,
+              itemY - 1,
+              7.5,
+              7.5,
+              1.5,
+              item.color,
+              item.color,
+              0.75,
+            );
+          }
+          this.drawText(state, line, itemX + 12, itemY, 7.5, false, '#0f172a');
+        });
+      });
+    });
+  }
+
+  private legendLayout(
+    state: Pick<RenderState, 'fonts'>,
+    legend: Array<{ label: string; color: string }>,
+    width: number,
+  ) {
     const columns = legend.length <= 3 ? legend.length || 1 : 3;
     const colW = width / columns;
+    const rows: Array<
+      Array<{ item: { label: string; color: string }; lines: string[] }>
+    > = [];
     legend.forEach((item, index) => {
-      const col = index % columns;
       const row = Math.floor(index / columns);
-      const itemX = x + col * colW;
-      const itemY = y - row * 13;
-      this.drawRoundedRect(
-        state.page,
-        itemX,
-        itemY - 1,
-        7.5,
-        7.5,
-        1.5,
-        item.color,
-        item.color,
-        0.75,
-      );
-      this.drawText(
-        state,
-        item.label,
-        itemX + 12,
-        itemY,
-        7.5,
-        false,
-        '#0f172a',
-      );
+      rows[row] ??= [];
+      rows[row].push({
+        item,
+        lines: this.wrapTextAll(
+          item.label,
+          Math.max(24, colW - 12),
+          state.fonts.regular,
+          7.5,
+        ),
+      });
     });
+    const rowHeights = rows.map(
+      (row) => Math.max(...row.map(({ lines }) => lines.length)) * 9 + 4,
+    );
+    return {
+      colW,
+      rows,
+      rowHeights,
+      height: rowHeights.reduce((sum, height) => sum + height, 0),
+    };
   }
 
   private legendRows(legend: Array<{ label: string; color: string }>) {
@@ -1476,6 +1510,43 @@ export class AnalysisPdfService {
       output = `${output.slice(0, -2)}…`;
     }
     return output;
+  }
+
+  private wrapTextAll(
+    text: string,
+    maxWidth: number,
+    font: PDFFont,
+    size: number,
+  ) {
+    const lines: string[] = [];
+    let current = '';
+    for (const word of this.safeText(text).split(/\s+/).filter(Boolean)) {
+      let remaining = word;
+      while (remaining) {
+        const candidate = current ? `${current} ${remaining}` : remaining;
+        if (font.widthOfTextAtSize(candidate, size) <= maxWidth) {
+          current = candidate;
+          break;
+        }
+        if (current) {
+          lines.push(current);
+          current = '';
+          continue;
+        }
+        let length = 1;
+        while (
+          length < remaining.length &&
+          font.widthOfTextAtSize(remaining.slice(0, length + 1), size) <=
+            maxWidth
+        ) {
+          length += 1;
+        }
+        lines.push(remaining.slice(0, length));
+        remaining = remaining.slice(length);
+      }
+    }
+    if (current) lines.push(current);
+    return lines.length ? lines : [''];
   }
 
   private wrapText(

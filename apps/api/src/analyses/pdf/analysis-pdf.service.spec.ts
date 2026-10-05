@@ -323,6 +323,37 @@ describe('AnalysisPdfService', () => {
     drawTextSpy.mockRestore();
   });
 
+  it('wraps long preservation area names in the map legend without truncating them', async () => {
+    const { service } = makeService();
+    const pdfDoc = await PDFDocument.create();
+    const state = {
+      pdfDoc,
+      page: pdfDoc.addPage([595.28, 841.89]),
+      fonts: {
+        regular: await pdfDoc.embedFont(StandardFonts.Helvetica),
+        bold: await pdfDoc.embedFont(StandardFonts.HelveticaBold),
+      },
+      logo: null,
+      y: 820,
+    };
+    const label = 'Área de Proteção Ambiental da Serra da Mantiqueira e Região';
+    const drawTextSpy = jest.spyOn(service as any, 'drawText');
+
+    (service as any).drawLegend(
+      state,
+      [{ label, color: '#2563eb' }],
+      40,
+      700,
+      180,
+    );
+
+    const rendered = drawTextSpy.mock.calls.map((call) => call[1]).join(' ');
+    expect(rendered.replace(/\s+/g, ' ').trim()).toBe(label);
+    expect(rendered).not.toContain('…');
+    expect(drawTextSpy.mock.calls.length).toBeGreaterThan(1);
+    drawTextSpy.mockRestore();
+  });
+
   it('renders center and radius in the header for RADIUS analyses', async () => {
     const { service } = makeService();
     const pdfDoc = await PDFDocument.create();
