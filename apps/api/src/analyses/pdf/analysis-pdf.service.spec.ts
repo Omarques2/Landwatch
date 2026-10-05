@@ -354,6 +354,27 @@ describe('AnalysisPdfService', () => {
     drawTextSpy.mockRestore();
   });
 
+  it('keeps a gap between map legend columns', async () => {
+    const { service } = makeService();
+    const pdfDoc = await PDFDocument.create();
+    const fonts = {
+      regular: await pdfDoc.embedFont(StandardFonts.Helvetica),
+      bold: await pdfDoc.embedFont(StandardFonts.HelveticaBold),
+    };
+
+    const layout = (service as any).legendLayout(
+      { fonts },
+      [
+        { label: 'Área 1', color: '#2563eb' },
+        { label: 'Área 2', color: '#16a34a' },
+      ],
+      180,
+    );
+
+    expect(layout.colGap).toBe(12);
+    expect(layout.colW).toBe(84);
+  });
+
   it('renders center and radius in the header for RADIUS analyses', async () => {
     const { service } = makeService();
     const pdfDoc = await PDFDocument.create();

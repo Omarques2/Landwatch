@@ -795,7 +795,7 @@ export class AnalysisPdfService {
           .slice(0, row)
           .reduce((sum, height) => sum + height, 0);
       rowItems.forEach(({ item, lines }, col) => {
-        const itemX = x + col * layout.colW;
+        const itemX = x + col * (layout.colW + layout.colGap);
         lines.forEach((line, lineIndex) => {
           const itemY = rowY - lineIndex * 9;
           if (lineIndex === 0) {
@@ -823,7 +823,8 @@ export class AnalysisPdfService {
     width: number,
   ) {
     const columns = legend.length <= 3 ? legend.length || 1 : 3;
-    const colW = width / columns;
+    const colGap = 12;
+    const colW = (width - colGap * (columns - 1)) / columns;
     const rows: Array<
       Array<{ item: { label: string; color: string }; lines: string[] }>
     > = [];
@@ -845,6 +846,7 @@ export class AnalysisPdfService {
     );
     return {
       colW,
+      colGap,
       rows,
       rowHeights,
       height: rowHeights.reduce((sum, height) => sum + height, 0),
