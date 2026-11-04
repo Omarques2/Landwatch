@@ -9,7 +9,11 @@ import {
   Req,
   Res,
   UnauthorizedException,
+  UploadedFile,
+  UseInterceptors,
+  StreamableFile,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
 import type { AuthedRequest } from '../auth/authed-request.type';
 import { AccessService } from '../auth/access.service';
@@ -21,6 +25,15 @@ import { CreateCarMapSearchDto } from './dto/create-car-map-search.dto';
 import { LookupCarsQuery } from './dto/lookup-cars.query';
 import { NearbyCarsQuery } from './dto/nearby-cars.query';
 import { PointCarsQuery } from './dto/point-cars.query';
+import { AnalysisSubjectParserService } from '../analyses/analysis-subject-parser.service';
+
+const MAX_GEOMETRY_FILE_BYTES = 50 * 1024 * 1024;
+
+type UploadedGeometryFile = {
+  buffer: Buffer;
+  originalname: string;
+  mimetype: string;
+};
 
 @Controller('v1/cars')
 export class CarsController {
@@ -28,6 +41,7 @@ export class CarsController {
     private readonly cars: CarsService,
     private readonly actorContext: ActorContextService,
     private readonly access: AccessService,
+    private readonly subjectParser: AnalysisSubjectParserService,
   ) {}
 
   private subject(req: AuthedRequest) {
@@ -97,6 +111,55 @@ export class CarsController {
         : req.headers.host;
     const apiOrigin = host ? `${protocol}://${host}` : null;
     return this.cars.createMapSearchForActor(actor, dto, apiOrigin);
+  }
+
+  @Post('map-searches/geometry')
+  @UseInterceptors(
+    FileInterceptor('file', { limits: { fileSize: MAX_GEOMETRY_FILE_BYTES } }),
+  )
+  async createGeometryMapSearch(
+    @Req() req: AuthedRequest,
+    @UploadedFile() file: UploadedGeometryFile | undefined,
+  ) {
+    if (!file?.buffer) {
+      throw new BadRequestException({
+        code: 'GEOMETRY_FILE_REQUIRED',
+        message: 'Envie um arquivo KML, KMZ ou shapefile ZIP.',
+      });
+    }
+    const actor = await this.actor(req);
+    const parsed = await this.subjectParser.parse(
+      file.buffer,
+      file.originalname,
+      file.mimetype,
+    );
+    const forwardedProto =
+      typeof req.headers['x-forwarded-proto'] === 'string'
+        ? req.headers['x-forwarded-proto'].split(',')[0]?.trim()
+        : null;
+    const protocol = forwardedProto || (req.secure ? 'https' : 'http');
+    const host =
+      typeof req.headers['x-forwarded-host'] === 'string'
+        ? req.headers['x-forwarded-host'].split(',')[0]?.trim()
+        : req.headers.host;
+    const apiOrigin = host ? `${protocol}://${host}` : null;
+    return this.cars.createGeometryMapSearchForActor(actor, parsed, apiOrigin);
+  }
+
+  @Get('map-searches/:searchId/csv')
+  async downloadMapSearchCsv(
+    @Req() req: AuthedRequest,
+    @Res({ passthrough: true }) res: Response,
+    @Param('searchId') searchId: string,
+  ) {
+    const actor = await this.actor(req);
+    const csv = await this.cars.getMapSearchCsvForActor(actor, searchId);
+    res.setHeader('Content-Type', csv.contentType);
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${csv.filename}"`,
+    );
+    return new StreamableFile(csv.buffer);
   }
 
   @Get('tiles/:searchId/:z/:x/:y.mvt')

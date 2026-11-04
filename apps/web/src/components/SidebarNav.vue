@@ -70,6 +70,10 @@
     </div>
 
     <div class="flex-1 overflow-auto bg-card" :class="padList">
+      <div v-if="navigationUnavailable && !userLoading" data-testid="sidebar-access-error" role="alert" class="rounded-xl border border-border p-3 text-sm">
+        <p v-if="!collapsed">Não foi possível carregar o menu. Verifique a conexão com o servidor e tente novamente.</p>
+        <UiButton variant="outline" size="sm" class="mt-2 w-full" title="Tentar carregar o menu novamente" @click="$emit('retry')">{{ collapsed ? '↻' : 'Tentar novamente' }}</UiButton>
+      </div>
       <div class="space-y-1">
         <button
           v-for="item in mainItems"
@@ -170,6 +174,7 @@ const props = defineProps<{
   userName?: string | null;
   userEmail?: string | null;
   userLoading?: boolean;
+  navigationUnavailable?: boolean;
   onLogout: () => void | Promise<void>;
   onSelect: (key: string) => void | Promise<void>;
   onNewAnalysis: () => void | Promise<void>;
@@ -179,6 +184,7 @@ const props = defineProps<{
 defineEmits<{
   (e: "toggleCollapsed"): void;
   (e: "close"): void;
+  (e: "retry"): void;
 }>();
 
 const padHeader = computed(() => (props.mode === "mobile" ? "px-4 py-2" : "px-3 py-2"));

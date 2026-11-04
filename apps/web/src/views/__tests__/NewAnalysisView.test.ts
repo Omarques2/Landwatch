@@ -28,7 +28,8 @@ vi.mock("@/components/maps/CarSelectMap.vue", () => ({
   default: {
     name: "CarSelectMapStub",
     props: ["selectedCarKey", "hideUnselectedCars", "autoZoomOnExport"],
-    template: '<div data-testid="car-select-map" :data-hide-unselected-cars="String(hideUnselectedCars)" :data-auto-zoom-on-export="String(autoZoomOnExport)"></div>',
+    template:
+      '<div data-testid="car-select-map" :data-hide-unselected-cars="String(hideUnselectedCars)" :data-auto-zoom-on-export="String(autoZoomOnExport)"></div>',
   },
 }));
 
@@ -68,10 +69,7 @@ describe("NewAnalysisView", () => {
 
     // Arriving on the search route with coords must restore the map by
     // re-running the search (so the user never lands back on the entry panel).
-    expect(http.post).toHaveBeenCalledWith(
-      "/v1/cars/map-searches",
-      expect.objectContaining({ radiusMeters: 5000 }),
-    );
+    expect(http.post).toHaveBeenCalledWith("/v1/cars/map-searches", expect.objectContaining({ radiusMeters: 5000 }));
   });
 
   it("preenche coordenadas com GPS na busca de CAR", async () => {
@@ -120,10 +118,7 @@ describe("NewAnalysisView", () => {
     expect(lngInput.value).toBe("-50.765432");
     // "Usar minha localização" must auto-run the search right after the GPS fix
     // resolves (the reported real-device failure was this step not happening).
-    expect(http.post).toHaveBeenCalledWith(
-      "/v1/cars/map-searches",
-      expect.objectContaining({ radiusMeters: 5000 }),
-    );
+    expect(http.post).toHaveBeenCalledWith("/v1/cars/map-searches", expect.objectContaining({ radiusMeters: 5000 }));
   });
 
   it("cria uma busca vetorial com raio de 5 km por padrão", async () => {
@@ -153,7 +148,10 @@ describe("NewAnalysisView", () => {
 
     await wrapper.find('[data-testid="gps-lat"]').setValue("-10");
     await wrapper.find('[data-testid="gps-lng"]').setValue("-50");
-    await wrapper.findAll("button").find((button) => button.text().includes("Buscar CARs"))?.trigger("click");
+    await wrapper
+      .findAll("button")
+      .find((button) => button.text().includes("Buscar CARs"))
+      ?.trigger("click");
     await flushPromises();
 
     expect(http.post).toHaveBeenCalledWith(
@@ -164,6 +162,104 @@ describe("NewAnalysisView", () => {
         radiusMeters: 5000,
       }),
     );
+  });
+
+  it("busca CARs que intersectam um arquivo KML", async () => {
+    routePath = "/analyses/search";
+    (http.post as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      data: {
+        data: {
+          searchId: "search-file-1",
+          searchMode: "geometry",
+          expiresAt: "2026-08-27T12:30:00.000Z",
+          renderMode: "mvt",
+          stats: { totalFeatures: 4 },
+          subjectBounds: [-49.2, -22, -49.1, -21.9],
+          vectorSource: {
+            tiles: ["/v1/cars/tiles/search-file-1/{z}/{x}/{y}.mvt"],
+            bounds: [-49.2, -22, -49.1, -21.9],
+            minzoom: 0,
+            maxzoom: 22,
+            sourceLayer: "cars_search",
+            subjectSourceLayer: "search_subject",
+          },
+          searchCenter: { lat: -21.95, lng: -49.15 },
+        },
+      },
+    });
+    const wrapper = mount(NewAnalysisView);
+
+    await wrapper.get('[data-testid="car-file-search-mode"]').trigger("click");
+    const file = new File(["<kml />"], "fazendas.kml", {
+      type: "application/vnd.google-earth.kml+xml",
+    });
+    const input = wrapper.get('[data-testid="car-search-file"]');
+    Object.defineProperty(input.element, "files", { value: [file] });
+    await input.trigger("change");
+    await wrapper.get('[data-testid="car-file-search-submit"]').trigger("click");
+    await flushPromises();
+
+    const [url, body] = (http.post as unknown as ReturnType<typeof vi.fn>).mock.calls[0]!;
+    expect(url).toBe("/v1/cars/map-searches/geometry");
+    expect(body).toBeInstanceOf(FormData);
+    expect(body.get("file")).toBe(file);
+    expect(wrapper.text()).toContain("Baixar PNG");
+    expect(wrapper.text()).toContain("Gerar análise");
+  });
+
+  it("baixa CSV com todos os CARs da busca por raio", async () => {
+    routePath = "/analyses/search";
+    (http.post as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      data: {
+        data: {
+          searchId: "search-1",
+          expiresAt: "2026-08-27T12:30:00.000Z",
+          renderMode: "mvt",
+          stats: { totalFeatures: 2 },
+          vectorSource: {
+            tiles: ["/v1/cars/tiles/search-1/{z}/{x}/{y}.mvt"],
+            bounds: [-50.1, -10.1, -49.9, -9.9],
+            minzoom: 0,
+            maxzoom: 22,
+            sourceLayer: "cars_search",
+          },
+          searchCenter: { lat: -10, lng: -50 },
+          searchRadiusMeters: 5000,
+        },
+      },
+    });
+    (http.get as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      data: new Blob(["CAR;AREA_HA\r\nGO-1;10\r\n"], { type: "text/csv" }),
+      headers: { "content-disposition": 'attachment; filename="busca-cars.csv"' },
+    });
+    if (!("createObjectURL" in URL)) {
+      Object.defineProperty(URL, "createObjectURL", {
+        configurable: true,
+        value: vi.fn(),
+      });
+    }
+    if (!("revokeObjectURL" in URL)) {
+      Object.defineProperty(URL, "revokeObjectURL", {
+        configurable: true,
+        value: vi.fn(),
+      });
+    }
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:cars-csv");
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    const wrapper = mount(NewAnalysisView);
+    await wrapper.get('[data-testid="gps-lat"]').setValue("-10");
+    await wrapper.get('[data-testid="gps-lng"]').setValue("-50");
+    await wrapper
+      .findAll("button")
+      .find((button) => button.text().includes("Buscar CARs"))!
+      .trigger("click");
+    await flushPromises();
+
+    await wrapper.get('[data-testid="download-search-csv"]').trigger("click");
+    await flushPromises();
+
+    expect(http.get).toHaveBeenCalledWith("/v1/cars/map-searches/search-1/csv", { responseType: "blob" });
   });
 
   it("separa latitude e longitude ao colar coordenadas decimais no campo de latitude", async () => {
@@ -219,9 +315,7 @@ describe("NewAnalysisView", () => {
     mvBusy.value = true;
     const wrapper = mount(NewAnalysisView);
 
-    const submitButton = wrapper
-      .findAll("button")
-      .find((button) => button.text().includes("Gerar análise"));
+    const submitButton = wrapper.findAll("button").find((button) => button.text().includes("Gerar análise"));
 
     expect(submitButton?.attributes("disabled")).toBeDefined();
     expect(wrapper.text()).toContain("Base geoespacial em atualização");
@@ -244,9 +338,7 @@ describe("NewAnalysisView", () => {
     const wrapper = mount(NewAnalysisView);
     await flushPromises();
 
-    expect(wrapper.get('[data-testid="farm-owner-org"]').text()).toContain(
-      "Teste",
-    );
+    expect(wrapper.get('[data-testid="farm-owner-org"]').text()).toContain("Teste");
   });
 
   it("submits a KML file as a geometry analysis", async () => {
@@ -305,10 +397,7 @@ describe("NewAnalysisView", () => {
     await wrapper.find('[data-testid="analysis-submit"]').trigger("click");
     await flushPromises();
 
-    expect(http.post).toHaveBeenCalledWith(
-      "/v1/analyses",
-      expect.objectContaining({ carKey: normalizedCar }),
-    );
+    expect(http.post).toHaveBeenCalledWith("/v1/analyses", expect.objectContaining({ carKey: normalizedCar }));
   });
 
   it("auto-fills farm data on blur when carKey is complete", async () => {
@@ -318,18 +407,14 @@ describe("NewAnalysisView", () => {
           id: "farm-1",
           name: "Fazenda Teste",
           carKey: "SP-1234567-0000000000000000000000000000000000",
-          documents: [
-            { id: "doc-1", docType: "CPF", docNormalized: "52998224725" },
-          ],
+          documents: [{ id: "doc-1", docType: "CPF", docNormalized: "52998224725" }],
         },
       },
     });
 
     const wrapper = mount(NewAnalysisView);
 
-    await wrapper
-      .find("#analysis-car")
-      .setValue("SP-1234567-0000000000000000000000000000000000");
+    await wrapper.find("#analysis-car").setValue("SP-1234567-0000000000000000000000000000000000");
     await wrapper.find("#analysis-car").trigger("blur");
 
     await flushPromises();
@@ -352,9 +437,7 @@ describe("NewAnalysisView", () => {
 
     const wrapper = mount(NewAnalysisView);
 
-    await wrapper
-      .find("#analysis-car")
-      .setValue("SP-1234567-0000000000000000000000000000000000");
+    await wrapper.find("#analysis-car").setValue("SP-1234567-0000000000000000000000000000000000");
     await wrapper.find("#analysis-car").trigger("blur");
     await flushPromises();
 
@@ -379,9 +462,7 @@ describe("NewAnalysisView", () => {
 
     const wrapper = mount(NewAnalysisView);
 
-    await wrapper
-      .find("#analysis-car")
-      .setValue("SP-1234567-0000000000000000000000000000000000");
+    await wrapper.find("#analysis-car").setValue("SP-1234567-0000000000000000000000000000000000");
     await wrapper.find("#analysis-car").trigger("blur");
     await flushPromises();
 
@@ -406,9 +487,7 @@ describe("NewAnalysisView", () => {
             id: "farm-2",
             name: "Fazenda CPF",
             carKey: "SP-7654321-1111111111111111111111111111111111",
-            documents: [
-              { id: "doc-1", docType: "CPF", docNormalized: "52998224725" },
-            ],
+            documents: [{ id: "doc-1", docType: "CPF", docNormalized: "52998224725" }],
           },
         ],
         meta: { page: 1, pageSize: 20, total: 1 },
@@ -433,9 +512,7 @@ describe("NewAnalysisView", () => {
 
     const wrapper = mount(NewAnalysisView);
 
-    await wrapper
-      .find("#analysis-car")
-      .setValue("SP-1234567-0000000000000000000000000000000000");
+    await wrapper.find("#analysis-car").setValue("SP-1234567-0000000000000000000000000000000000");
     await wrapper.find("#analysis-doc").setValue("529.982.247-25");
     await wrapper.find("#analysis-doc").trigger("keydown.enter");
     await wrapper.find("#analysis-doc").setValue("04.252.011/0001-10");

@@ -8,6 +8,39 @@ import {
 describe('AnalysisSubjectParserService', () => {
   const parser = new AnalysisSubjectParserService();
 
+  it('reads GeoJSON geometry, feature and feature collection without changing other upload formats', () => {
+    const polygon = {
+      type: 'Polygon',
+      coordinates: [
+        [
+          [-49, -20],
+          [-48, -20],
+          [-48, -19],
+          [-49, -20],
+        ],
+      ],
+    };
+    for (const input of [
+      polygon,
+      { type: 'Feature', geometry: polygon },
+      {
+        type: 'FeatureCollection',
+        features: [{ type: 'Feature', geometry: polygon }],
+      },
+    ]) {
+      expect(parser.parseGeoJson(Buffer.from(JSON.stringify(input)))).toEqual({
+        type: 'MultiPolygon',
+        coordinates: [polygon.coordinates],
+      });
+    }
+    expect(() => parser.parseGeoJson(Buffer.from('{'))).toThrow(
+      BadRequestException,
+    );
+    expect(() =>
+      parser.parseGeoJson(Buffer.from('{"type":"Point","coordinates":[0,0]}')),
+    ).toThrow(BadRequestException);
+  });
+
   it('converts a KML polygon into a normalized MultiPolygon subject', async () => {
     const kml = Buffer.from(`
       <kml xmlns="http://www.opengis.net/kml/2.2">

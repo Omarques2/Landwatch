@@ -54,6 +54,9 @@ RUN python3 -m pip install --no-cache-dir --break-system-packages \
   -r /app/gta-extractor/requirements.txt
 COPY gta-extractor /app/gta-extractor
 
+# Earth Engine adapter (credentials are injected at runtime; never copy keys).
+COPY gee /app/gee
+
 USER node
 EXPOSE 3001
 CMD ["node", "dist/main"]

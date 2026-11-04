@@ -54,6 +54,11 @@ const router = createRouter({
           meta: { title: "Buscar CAR", feature: "CAR_SEARCH" },
         },
         {
+          path: "gee",
+          component: () => import("../views/GeeView.vue"),
+          meta: { title: "Monitoramento por satélite", feature: "ANALYSIS_CREATE" },
+        },
+        {
           path: "analyses/:id",
           component: () => import("../views/AnalysisDetailView.vue"),
           meta: { title: "Detalhe da análise", feature: "ANALYSES" },

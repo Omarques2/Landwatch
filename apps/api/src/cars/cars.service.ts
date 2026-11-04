@@ -9,6 +9,7 @@ import type { ActorContext } from '../auth/actor-context.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { LandwatchStatusService } from '../landwatch-status/landwatch-status.service';
 import { CreateCarMapSearchDto } from './dto/create-car-map-search.dto';
+import type { ParsedAnalysisSubject } from '../analyses/analysis-subject-parser.service';
 
 function assertIdentifier(value: string, name: string): string {
   if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(value)) {
@@ -21,11 +22,21 @@ function assertIdentifier(value: string, name: string): string {
 }
 
 type CarMapSearchParams = {
+  mode: 'radius';
   lat: number;
   lng: number;
   radiusMeters: number;
   analysisDate: string;
 };
+
+type GeometryCarMapSearchParams = {
+  mode: 'geometry';
+  analysisDate: string;
+  sourceFormat: 'KML' | 'SHP';
+  featureCount: number;
+};
+
+type SavedCarMapSearchParams = CarMapSearchParams | GeometryCarMapSearchParams;
 
 type CountRow = {
   total: bigint | number | string;
@@ -35,8 +46,22 @@ type CountRow = {
   max_lat?: number | string | null;
 };
 
+type GeometrySearchStatsRow = CountRow & {
+  feature_min_lng?: number | string | null;
+  feature_min_lat?: number | string | null;
+  feature_max_lng?: number | string | null;
+  feature_max_lat?: number | string | null;
+  center_lng?: number | string | null;
+  center_lat?: number | string | null;
+};
+
 type TileRow = {
   tile: Uint8Array | Buffer | null;
+};
+
+type CarCsvRow = {
+  feature_key: string;
+  area_ha: number | string | null;
 };
 
 type ActiveCarLocationRow = {
@@ -54,6 +79,20 @@ function asNumber(value: bigint | number | string | null | undefined) {
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
+}
+
+function mergeBounds(
+  first: [number, number, number, number] | null,
+  second: [number, number, number, number] | null,
+): [number, number, number, number] | null {
+  if (!first) return second;
+  if (!second) return first;
+  return [
+    Math.min(first[0], second[0]),
+    Math.min(first[1], second[1]),
+    Math.max(first[2], second[2]),
+    Math.max(first[3], second[3]),
+  ];
 }
 
 function asNullableNumber(value: bigint | number | string | null | undefined) {
@@ -217,6 +256,10 @@ export class CarsService {
     return `/v1/cars/tiles/${searchId}/{z}/{x}/{y}.mvt`;
   }
 
+  private escapeCsvCell(value: string) {
+    return /[;"\r\n]/.test(value) ? `"${value.replaceAll('"', '""')}"` : value;
+  }
+
   private buildMapSearchTileEtag(
     searchId: string,
     z: number,
@@ -268,6 +311,7 @@ export class CarsService {
       this.getMapSearchMaxRadiusMeters(),
     );
     return {
+      mode: 'radius',
       lat: input.lat,
       lng: input.lng,
       radiusMeters,
@@ -277,8 +321,19 @@ export class CarsService {
 
   private parseMapSearchParamsJson(
     input: Prisma.JsonValue,
-  ): CarMapSearchParams {
+  ): SavedCarMapSearchParams {
     const value = (input ?? {}) as Record<string, unknown>;
+    if (value.mode === 'geometry') {
+      return {
+        mode: 'geometry',
+        analysisDate:
+          typeof value.analysisDate === 'string'
+            ? value.analysisDate.slice(0, 10)
+            : this.normalizeAnalysisDate(),
+        sourceFormat: value.sourceFormat === 'SHP' ? 'SHP' : 'KML',
+        featureCount: Math.max(1, Number(value.featureCount) || 1),
+      };
+    }
     const lat = Number(value.lat);
     const lng = Number(value.lng);
     const radiusMeters = Number(value.radiusMeters);
@@ -297,10 +352,108 @@ export class CarsService {
       });
     }
     return {
+      mode: 'radius',
       lat,
       lng,
       radiusMeters,
       analysisDate,
+    };
+  }
+
+  private async getGeometryMapSearchStats(
+    geometry: ParsedAnalysisSubject['geometry'],
+    analysisDate: string,
+  ) {
+    const schema = this.getSchema();
+    const tables = this.getTables(schema);
+    const categoryCode = this.getCategoryCode();
+    const useActive = this.isCurrentSnapshot(analysisDate);
+    const subject = Prisma.sql`
+      SELECT
+        ST_Transform(
+          ST_SetSRID(ST_GeomFromGeoJSON(${JSON.stringify(geometry)}), 4326),
+          3857
+        ) AS geom_3857,
+        ST_SetSRID(ST_GeomFromGeoJSON(${JSON.stringify(geometry)}), 4326) AS geom_4326
+    `;
+    const featureRows = useActive
+      ? Prisma.sql`
+          SELECT g.geom_3857_raw AS geom_3857
+          FROM ${tables.geomTileActive} g
+          JOIN ${tables.feature} f
+            ON f.dataset_id = g.dataset_id
+           AND f.feature_id = g.feature_id
+          JOIN ${tables.dataset} d ON d.dataset_id = f.dataset_id
+          JOIN ${tables.category} c ON c.category_id = d.category_id
+          CROSS JOIN subject
+          WHERE c.code = ${categoryCode}
+            AND g.geom_3857_raw IS NOT NULL
+            AND g.geom_3857_raw && subject.geom_3857
+            AND ST_Intersects(g.geom_3857_raw, subject.geom_3857)
+        `
+      : Prisma.sql`
+          SELECT ${Prisma.raw(`"${schema}"."safe_transform_to_3857"`)}(gs.geom) AS geom_3857
+          FROM ${tables.geomHist} h
+          JOIN ${tables.feature} f
+            ON f.dataset_id = h.dataset_id
+           AND f.feature_id = h.feature_id
+          JOIN ${tables.dataset} d ON d.dataset_id = f.dataset_id
+          JOIN ${tables.category} c ON c.category_id = d.category_id
+          JOIN ${tables.geomStore} gs ON gs.geom_id = h.geom_id
+          CROSS JOIN subject
+          WHERE c.code = ${categoryCode}
+            AND h.valid_from <= ${analysisDate}::date
+            AND (h.valid_to IS NULL OR h.valid_to > ${analysisDate}::date)
+            AND ${Prisma.raw(`"${schema}"."safe_transform_to_3857"`)}(gs.geom) && subject.geom_3857
+            AND ST_Intersects(
+              ${Prisma.raw(`"${schema}"."safe_transform_to_3857"`)}(gs.geom),
+              subject.geom_3857
+            )
+        `;
+    const rows = await this.prisma.$queryRaw<
+      GeometrySearchStatsRow[]
+    >(Prisma.sql`
+      WITH subject AS (${subject}),
+      feature_rows AS (${featureRows}),
+      feature_extent AS (
+        SELECT ST_Extent(ST_Transform(geom_3857, 4326)) AS bounds
+        FROM feature_rows
+      )
+      SELECT
+        (SELECT COUNT(*) FROM feature_rows) AS total,
+        ST_XMin(ST_Envelope(subject.geom_4326)) AS min_lng,
+        ST_YMin(ST_Envelope(subject.geom_4326)) AS min_lat,
+        ST_XMax(ST_Envelope(subject.geom_4326)) AS max_lng,
+        ST_YMax(ST_Envelope(subject.geom_4326)) AS max_lat,
+        ST_XMin((SELECT bounds FROM feature_extent)) AS feature_min_lng,
+        ST_YMin((SELECT bounds FROM feature_extent)) AS feature_min_lat,
+        ST_XMax((SELECT bounds FROM feature_extent)) AS feature_max_lng,
+        ST_YMax((SELECT bounds FROM feature_extent)) AS feature_max_lat,
+        ST_X(ST_PointOnSurface(subject.geom_4326)) AS center_lng,
+        ST_Y(ST_PointOnSurface(subject.geom_4326)) AS center_lat
+      FROM subject
+    `);
+    const row = rows[0];
+    const subjectBounds = this.normalizeFeatureBounds(row);
+    const featureBounds = this.normalizeFeatureBounds(
+      row
+        ? {
+            total: row.total,
+            min_lng: row.feature_min_lng,
+            min_lat: row.feature_min_lat,
+            max_lng: row.feature_max_lng,
+            max_lat: row.feature_max_lat,
+          }
+        : undefined,
+    );
+    return {
+      totalFeatures: asNumber(row?.total),
+      subjectBounds,
+      featureBounds,
+      center: {
+        lng: asNullableNumber(row?.center_lng),
+        lat: asNullableNumber(row?.center_lat),
+      },
     };
   }
 
@@ -401,6 +554,95 @@ export class CarsService {
       dto,
       apiOrigin,
     );
+  }
+
+  async createGeometryMapSearchForActor(
+    actor: ActorContext,
+    parsed: ParsedAnalysisSubject,
+    apiOrigin?: string | null,
+  ) {
+    const schema = this.getSchema();
+    const categoryCode = this.getCategoryCode();
+    const analysisDate = this.normalizeAnalysisDate();
+    await this.ensureMvReady(true);
+    await this.ensureCategoryHasData(schema, categoryCode);
+    const stats = await this.getGeometryMapSearchStats(
+      parsed.geometry,
+      analysisDate,
+    );
+    const searchId = randomUUID();
+    const expiresAt = new Date(Date.now() + this.getMapSearchTtlMs());
+    const params: GeometryCarMapSearchParams = {
+      mode: 'geometry',
+      analysisDate,
+      sourceFormat: parsed.sourceFormat,
+      featureCount: parsed.featureCount,
+    };
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.carMapSearchSession.create({
+        data: {
+          id: searchId,
+          actorUserId: actor.userId,
+          actorOrgId: actor.orgId ?? undefined,
+          searchVersion: this.getMapSearchVersion(),
+          paramsJson: params as unknown as Prisma.InputJsonValue,
+          expiresAt,
+        },
+      });
+      await tx.$executeRaw<number>(Prisma.sql`
+        INSERT INTO app.car_map_search_geometry
+          (search_id, geom, source_format, feature_count)
+        SELECT
+          ${searchId}::uuid,
+          ST_Multi(
+            ST_CollectionExtract(
+              ST_MakeValid(
+                ST_Transform(
+                  ST_SetSRID(
+                    ST_GeomFromGeoJSON(${JSON.stringify(parsed.geometry)}),
+                    4326
+                  ),
+                  4674
+                )
+              ),
+              3
+            )
+          ),
+          ${parsed.sourceFormat},
+          ${parsed.featureCount}
+      `);
+    });
+
+    const normalizedOrigin = apiOrigin?.trim().replace(/\/+$/, '') ?? '';
+    const tilesPath = this.buildMapSearchTilePath(searchId);
+    const tilesUrl = normalizedOrigin
+      ? `${normalizedOrigin}${tilesPath}`
+      : tilesPath;
+    const bounds = mergeBounds(stats.subjectBounds, stats.featureBounds);
+    return {
+      searchId,
+      searchMode: 'geometry' as const,
+      expiresAt: expiresAt.toISOString(),
+      renderMode: 'mvt' as const,
+      stats: { totalFeatures: stats.totalFeatures },
+      featureBounds: stats.featureBounds,
+      subjectBounds: stats.subjectBounds,
+      vectorSource: {
+        tiles: [tilesUrl],
+        bounds,
+        minzoom: 0,
+        maxzoom: 22,
+        sourceLayer: this.sourceLayer,
+        subjectSourceLayer: 'search_subject',
+        promoteId: 'feature_key',
+      },
+      searchCenter: {
+        lat: stats.center.lat,
+        lng: stats.center.lng,
+      },
+      analysisDate,
+    };
   }
 
   private async createMapSearchForUser(
@@ -518,6 +760,137 @@ export class CarsService {
     );
   }
 
+  async getMapSearchCsvForActor(actor: ActorContext, searchId: string) {
+    const session = await this.prisma.carMapSearchSession.findFirst({
+      where: {
+        id: searchId,
+        ...(actor.isPlatformAdmin
+          ? {}
+          : { actorUserId: actor.userId, actorOrgId: actor.orgId ?? null }),
+        searchVersion: this.getMapSearchVersion(),
+        expiresAt: { gt: new Date() },
+      },
+      select: { paramsJson: true },
+    });
+    if (!session) {
+      throw new ForbiddenException({
+        code: 'SEARCH_ACCESS_DENIED',
+        message: 'CAR map search is invalid or expired',
+      });
+    }
+    const params = this.parseMapSearchParamsJson(session.paramsJson);
+    const useActive = this.isCurrentSnapshot(params.analysisDate);
+    await this.ensureMvReady(useActive);
+    const rows = await this.fetchMapSearchCsvRows(searchId, params, useActive);
+    const lines = ['CAR;AREA_HA'];
+    for (const row of rows) {
+      const car = this.escapeCsvCell(String(row.feature_key ?? ''));
+      const area =
+        row.area_ha == null ? '' : String(row.area_ha).replace('.', ',');
+      lines.push(`${car};${area}`);
+    }
+    const content = `\uFEFF${lines.join('\r\n')}\r\n`;
+    return {
+      buffer: Buffer.from(content, 'utf8'),
+      filename: `busca-cars-${searchId.slice(0, 8)}.csv`,
+      contentType: 'text/csv; charset=utf-8',
+    };
+  }
+
+  private async fetchMapSearchCsvRows(
+    searchId: string,
+    params: SavedCarMapSearchParams,
+    useActive: boolean,
+  ) {
+    const schema = this.getSchema();
+    const tables = this.getTables(schema);
+    const categoryCode = this.getCategoryCode();
+    if (useActive) {
+      const subject =
+        params.mode === 'geometry'
+          ? Prisma.sql`
+              SELECT ST_Transform(geom, 3857) AS geom_3857
+              FROM app.car_map_search_geometry
+              WHERE search_id = ${searchId}::uuid
+            `
+          : Prisma.sql`
+              SELECT ${Prisma.raw(`"${schema}"."safe_transform_to_3857"`)}(
+                ST_SetSRID(ST_MakePoint(${params.lng}, ${params.lat}), 4326)
+              ) AS geom_3857
+            `;
+      const spatialFilter =
+        params.mode === 'geometry'
+          ? Prisma.sql`
+              g.geom_3857_raw && subject.geom_3857
+              AND ST_Intersects(g.geom_3857_raw, subject.geom_3857)
+            `
+          : Prisma.sql`
+              g.geom_3857_raw && ST_Expand(subject.geom_3857, ${params.radiusMeters})
+              AND ST_DWithin(g.geom_3857_raw, subject.geom_3857, ${params.radiusMeters})
+            `;
+      return this.prisma.$queryRaw<CarCsvRow[]>(Prisma.sql`
+        WITH subject AS (${subject})
+        SELECT
+          f.feature_key,
+          ROUND((ST_Area(g.geom_3857_raw) / 10000.0)::numeric, 2) AS area_ha
+        FROM ${tables.geomTileActive} g
+        JOIN ${tables.feature} f
+          ON f.dataset_id = g.dataset_id
+         AND f.feature_id = g.feature_id
+        JOIN ${tables.dataset} d ON d.dataset_id = f.dataset_id
+        JOIN ${tables.category} c ON c.category_id = d.category_id
+        CROSS JOIN subject
+        WHERE c.code = ${categoryCode}
+          AND g.geom_3857_raw IS NOT NULL
+          AND ${spatialFilter}
+        ORDER BY f.feature_key
+      `);
+    }
+
+    const transformedGeom = Prisma.sql`${Prisma.raw(`"${schema}"."safe_transform_to_3857"`)}(gs.geom)`;
+    const subject =
+      params.mode === 'geometry'
+        ? Prisma.sql`
+            SELECT ST_Transform(geom, 3857) AS geom_3857
+            FROM app.car_map_search_geometry
+            WHERE search_id = ${searchId}::uuid
+          `
+        : Prisma.sql`
+            SELECT ${Prisma.raw(`"${schema}"."safe_transform_to_3857"`)}(
+              ST_SetSRID(ST_MakePoint(${params.lng}, ${params.lat}), 4326)
+            ) AS geom_3857
+          `;
+    const spatialFilter =
+      params.mode === 'geometry'
+        ? Prisma.sql`
+            ${transformedGeom} && subject.geom_3857
+            AND ST_Intersects(${transformedGeom}, subject.geom_3857)
+          `
+        : Prisma.sql`
+            ${transformedGeom} && ST_Expand(subject.geom_3857, ${params.radiusMeters})
+            AND ST_DWithin(${transformedGeom}, subject.geom_3857, ${params.radiusMeters})
+          `;
+    return this.prisma.$queryRaw<CarCsvRow[]>(Prisma.sql`
+      WITH subject AS (${subject})
+      SELECT
+        f.feature_key,
+        ROUND((ST_Area(${transformedGeom}) / 10000.0)::numeric, 2) AS area_ha
+      FROM ${tables.geomHist} h
+      JOIN ${tables.feature} f
+        ON f.dataset_id = h.dataset_id
+       AND f.feature_id = h.feature_id
+      JOIN ${tables.dataset} d ON d.dataset_id = f.dataset_id
+      JOIN ${tables.category} c ON c.category_id = d.category_id
+      JOIN ${tables.geomStore} gs ON gs.geom_id = h.geom_id
+      CROSS JOIN subject
+      WHERE c.code = ${categoryCode}
+        AND h.valid_from <= ${params.analysisDate}::date
+        AND (h.valid_to IS NULL OR h.valid_to > ${params.analysisDate}::date)
+        AND ${spatialFilter}
+      ORDER BY f.feature_key
+    `);
+  }
+
   private async getMapSearchTileForUser(
     actorUserId: string,
     actorOrgId: string | null,
@@ -581,23 +954,41 @@ export class CarsService {
       };
     }
 
-    const buffer = useActive
-      ? await this.buildCurrentMapSearchTileBuffer(
-          searchId,
-          params,
-          z,
-          x,
-          y,
-          geomProfile.column,
-        )
-      : await this.buildHistoricalMapSearchTileBuffer(
-          searchId,
-          params,
-          z,
-          x,
-          y,
-          geomProfile.simplifyMeters,
-        );
+    const buffer =
+      params.mode === 'geometry'
+        ? useActive
+          ? await this.buildCurrentGeometryMapSearchTileBuffer(
+              searchId,
+              z,
+              x,
+              y,
+              geomProfile.column,
+            )
+          : await this.buildHistoricalGeometryMapSearchTileBuffer(
+              searchId,
+              params.analysisDate,
+              z,
+              x,
+              y,
+              geomProfile.simplifyMeters,
+            )
+        : useActive
+          ? await this.buildCurrentMapSearchTileBuffer(
+              searchId,
+              params,
+              z,
+              x,
+              y,
+              geomProfile.column,
+            )
+          : await this.buildHistoricalMapSearchTileBuffer(
+              searchId,
+              params,
+              z,
+              x,
+              y,
+              geomProfile.simplifyMeters,
+            );
 
     return {
       notModified: false,
@@ -605,6 +996,161 @@ export class CarsService {
       cacheControl: 'private, max-age=60',
       buffer,
     };
+  }
+
+  private async buildCurrentGeometryMapSearchTileBuffer(
+    searchId: string,
+    z: number,
+    x: number,
+    y: number,
+    geomColumn: string,
+  ) {
+    const schema = this.getSchema();
+    const tables = this.getTables(schema);
+    const categoryCode = this.getCategoryCode();
+    const geomColumnSql = Prisma.raw(`g.${geomColumn}`);
+    const rows = await this.prisma.$queryRaw<TileRow[]>(Prisma.sql`
+      WITH subject AS (
+        SELECT ST_Transform(geom, 3857) AS geom_3857
+        FROM app.car_map_search_geometry
+        WHERE search_id = ${searchId}::uuid
+      ),
+      feature_rows AS (
+        SELECT
+          f.feature_key,
+          f.feature_id,
+          d.code AS dataset_code,
+          c.code AS category_code,
+          ROUND((ST_Area(g.geom_3857_raw) / 10000.0)::numeric, 2) AS area_ha,
+          ((hashtext(f.feature_key)::bigint % 20 + 20) % 20)::int AS color_index,
+          ${geomColumnSql} AS geom_3857
+        FROM ${tables.geomTileActive} g
+        JOIN ${tables.feature} f
+          ON f.dataset_id = g.dataset_id
+         AND f.feature_id = g.feature_id
+        JOIN ${tables.dataset} d ON d.dataset_id = f.dataset_id
+        JOIN ${tables.category} c ON c.category_id = d.category_id
+        CROSS JOIN subject
+        WHERE c.code = ${categoryCode}
+          AND g.geom_3857_raw IS NOT NULL
+          AND g.geom_3857_raw && subject.geom_3857
+          AND ST_Intersects(g.geom_3857_raw, subject.geom_3857)
+      ),
+      car_tile_rows AS (
+        SELECT
+          feature_key,
+          feature_id,
+          dataset_code,
+          category_code,
+          area_ha,
+          color_index,
+          ${searchId}::text AS search_id,
+          ST_AsMVTGeom(
+            geom_3857,
+            ST_TileEnvelope(${z}, ${x}, ${y}),
+            ${this.tileExtent},
+            ${this.tileBuffer},
+            true
+          ) AS geom
+        FROM feature_rows
+        WHERE geom_3857 && ST_TileEnvelope(${z}, ${x}, ${y})
+      ),
+      subject_tile_rows AS (
+        SELECT ST_AsMVTGeom(
+          geom_3857,
+          ST_TileEnvelope(${z}, ${x}, ${y}),
+          ${this.tileExtent},
+          ${this.tileBuffer},
+          true
+        ) AS geom
+        FROM subject
+        WHERE geom_3857 && ST_TileEnvelope(${z}, ${x}, ${y})
+      )
+      SELECT
+        COALESCE(
+          (SELECT ST_AsMVT(car_tile_rows.*, ${this.sourceLayer}, ${this.tileExtent}, 'geom') FROM car_tile_rows),
+          ''::bytea
+        ) || COALESCE(
+          (SELECT ST_AsMVT(subject_tile_rows.*, 'search_subject', ${this.tileExtent}, 'geom') FROM subject_tile_rows),
+          ''::bytea
+        ) AS tile
+    `);
+    return rows[0]?.tile ?? Buffer.alloc(0);
+  }
+
+  private async buildHistoricalGeometryMapSearchTileBuffer(
+    searchId: string,
+    analysisDate: string,
+    z: number,
+    x: number,
+    y: number,
+    simplifyMeters: number,
+  ) {
+    const schema = this.getSchema();
+    const tables = this.getTables(schema);
+    const categoryCode = this.getCategoryCode();
+    const transformedGeom = Prisma.sql`${Prisma.raw(`"${schema}"."safe_transform_to_3857"`)}(gs.geom)`;
+    const geomExpr =
+      simplifyMeters > 0
+        ? Prisma.sql`ST_SimplifyPreserveTopology(${transformedGeom}, ${simplifyMeters})`
+        : transformedGeom;
+    const rows = await this.prisma.$queryRaw<TileRow[]>(Prisma.sql`
+      WITH subject AS (
+        SELECT ST_Transform(geom, 3857) AS geom_3857
+        FROM app.car_map_search_geometry
+        WHERE search_id = ${searchId}::uuid
+      ),
+      feature_rows AS (
+        SELECT
+          f.feature_key,
+          f.feature_id,
+          d.code AS dataset_code,
+          c.code AS category_code,
+          ROUND((ST_Area(${transformedGeom}) / 10000.0)::numeric, 2) AS area_ha,
+          ((hashtext(f.feature_key)::bigint % 20 + 20) % 20)::int AS color_index,
+          ${geomExpr} AS geom_3857
+        FROM ${tables.geomHist} h
+        JOIN ${tables.feature} f
+          ON f.dataset_id = h.dataset_id
+         AND f.feature_id = h.feature_id
+        JOIN ${tables.dataset} d ON d.dataset_id = f.dataset_id
+        JOIN ${tables.category} c ON c.category_id = d.category_id
+        JOIN ${tables.geomStore} gs ON gs.geom_id = h.geom_id
+        CROSS JOIN subject
+        WHERE c.code = ${categoryCode}
+          AND h.valid_from <= ${analysisDate}::date
+          AND (h.valid_to IS NULL OR h.valid_to > ${analysisDate}::date)
+          AND ${transformedGeom} && subject.geom_3857
+          AND ST_Intersects(${transformedGeom}, subject.geom_3857)
+      ),
+      car_tile_rows AS (
+        SELECT
+          feature_key,
+          feature_id,
+          dataset_code,
+          category_code,
+          area_ha,
+          color_index,
+          ${searchId}::text AS search_id,
+          ST_AsMVTGeom(geom_3857, ST_TileEnvelope(${z}, ${x}, ${y}), ${this.tileExtent}, ${this.tileBuffer}, true) AS geom
+        FROM feature_rows
+        WHERE geom_3857 && ST_TileEnvelope(${z}, ${x}, ${y})
+      ),
+      subject_tile_rows AS (
+        SELECT ST_AsMVTGeom(geom_3857, ST_TileEnvelope(${z}, ${x}, ${y}), ${this.tileExtent}, ${this.tileBuffer}, true) AS geom
+        FROM subject
+        WHERE geom_3857 && ST_TileEnvelope(${z}, ${x}, ${y})
+      )
+      SELECT
+        COALESCE(
+          (SELECT ST_AsMVT(car_tile_rows.*, ${this.sourceLayer}, ${this.tileExtent}, 'geom') FROM car_tile_rows),
+          ''::bytea
+        ) || COALESCE(
+          (SELECT ST_AsMVT(subject_tile_rows.*, 'search_subject', ${this.tileExtent}, 'geom') FROM subject_tile_rows),
+          ''::bytea
+        ) AS tile
+    `);
+    return rows[0]?.tile ?? Buffer.alloc(0);
   }
 
   private async buildCurrentMapSearchTileBuffer(

@@ -1,5 +1,5 @@
 import { Logger } from '@nestjs/common';
-import { AnalysisKind } from '@prisma/client';
+import { AnalysisKind, Prisma } from '@prisma/client';
 import { AnalysisRunnerService } from './analysis-runner.service';
 
 function makePrismaMock() {
@@ -170,6 +170,7 @@ describe('AnalysisRunnerService', () => {
           attachmentsSnapshotCapturedAt: now,
           hasIntersections: true,
           intersectionCount: 1,
+          overlapSummary: Prisma.DbNull,
         }),
       }),
     );
@@ -1151,5 +1152,47 @@ describe('AnalysisRunnerService', () => {
     const sqlText = extractSqlText(query);
 
     expect(sqlText).toContain('"fn_intersections_asof_area_legacy"');
+  });
+
+  it('selects explicit columns from area functions so unused geometries are not transferred', () => {
+    const prisma = makePrismaMock();
+    const deps = makeDeps();
+    const runner = new AnalysisRunnerService(
+      prisma as any,
+      deps.landwatchStatus as any,
+      deps.attachments as any,
+      deps.postprocess as any,
+      () => now,
+    );
+
+    const queries = [
+      (runner as any).buildStandardCurrentAreaQuery('landwatch', 'CAR-1'),
+      (runner as any).buildStandardAsofAreaQuery(
+        'landwatch',
+        'CAR-1',
+        '2026-01-31',
+      ),
+      (runner as any).buildRadiusCurrentAreaQuery('landwatch', -10, -50, 1000),
+      (runner as any).buildRadiusAsofAreaQuery(
+        'landwatch',
+        -10,
+        -50,
+        1000,
+        '2026-01-31',
+      ),
+      (runner as any).buildGeometryCurrentAreaQuery('landwatch', 'analysis-1'),
+      (runner as any).buildGeometryAsofAreaQuery(
+        'landwatch',
+        'analysis-1',
+        '2026-01-31',
+      ),
+    ];
+
+    for (const query of queries) {
+      const sqlText = extractSqlText(query);
+      expect(sqlText).not.toContain('i.*');
+      expect(sqlText).toContain('i.overlap_pct_of_sicar');
+      expect(sqlText).toContain('ST_GeometryType(i.geom) AS geometry_type');
+    }
   });
 });

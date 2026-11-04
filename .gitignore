@@ -43,3 +43,8 @@ Design e conceitos para anexos/
 
 # Local tier planning docs
 Tier/
+
+# Local design server state and Python bytecode
+.superpowers/**/state/
+__pycache__/
+*.pyc

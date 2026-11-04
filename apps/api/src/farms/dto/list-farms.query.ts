@@ -1,6 +1,7 @@
 import { Transform, Type } from 'class-transformer';
 import {
   IsBoolean,
+  IsIn,
   IsInt,
   IsOptional,
   IsString,
@@ -37,4 +38,9 @@ export class ListFarmsQuery {
   @IsBoolean()
   @Transform(({ value }) => value === true || value === 'true')
   includeDocs?: boolean;
+
+  // Default order is newest first; pickers ask for alphabetical.
+  @IsOptional()
+  @IsIn(['name'])
+  sort?: 'name';
 }

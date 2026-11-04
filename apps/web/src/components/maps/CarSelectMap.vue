@@ -52,7 +52,7 @@
           class="w-full rounded-md px-2 py-2 text-left font-medium hover:bg-accent"
           @click="searchFromContext"
         >
-          {{ mode === 'radius' ? 'Analisar aqui' : 'Buscar CARs aqui' }}
+          {{ mode === "radius" ? "Analisar aqui" : "Buscar CARs aqui" }}
         </button>
       </div>
 
@@ -63,9 +63,7 @@
         class="absolute z-40 min-w-[240px] max-w-[320px] rounded-xl border border-border bg-card p-2 shadow-lg"
         :style="{ left: `${overlapSelector.x}px`, top: `${overlapSelector.y}px` }"
       >
-        <div class="px-2 pb-2 pt-1 text-xs font-semibold text-foreground">
-          CARs sobrepostos
-        </div>
+        <div class="px-2 pb-2 pt-1 text-xs font-semibold text-foreground">CARs sobrepostos</div>
         <div class="space-y-1">
           <button
             v-for="candidate in overlapSelector.candidates"
@@ -79,10 +77,7 @@
             <span data-testid="overlap-car-option-key" class="min-w-0 truncate font-medium text-foreground">
               {{ candidate.featureKey }}
             </span>
-            <span
-              v-if="candidate.areaHa !== null"
-              class="shrink-0 text-[11px] text-muted-foreground"
-            >
+            <span v-if="candidate.areaHa !== null" class="shrink-0 text-[11px] text-muted-foreground">
               {{ formatAreaHa(candidate.areaHa) }}
             </span>
           </button>
@@ -131,6 +126,7 @@ import {
 import { getActiveOrgId } from "@/state/org-context";
 import { buildCarTileHeaders, shouldAttachCarTileAuth } from "@/features/cars/tile-headers";
 import { buildRadiusCircleGeoJson } from "@/features/analyses/radius-circle";
+import { ANALYSIS_SICAR_OUTLINE_PAINT } from "@/features/analyses/analysis-vector-map";
 import { getSearchPinHtml } from "@/components/maps/car-search-pin";
 import MapCrosshair from "@/components/maps/MapCrosshair.vue";
 import { Sheet as UiSheet } from "@/components/ui";
@@ -153,6 +149,7 @@ type CarSearchVectorSource = {
   minzoom: number;
   maxzoom: number;
   sourceLayer: string;
+  subjectSourceLayer?: string | null;
   promoteId?: string | null;
 };
 
@@ -164,7 +161,7 @@ type CarSearchVectorMapResponse = {
   featureBounds?: [number, number, number, number] | null;
   vectorSource: CarSearchVectorSource;
   searchCenter: { lat: number; lng: number };
-  searchRadiusMeters: number;
+  searchRadiusMeters?: number;
   analysisDate?: string;
 };
 
@@ -191,33 +188,36 @@ const featurePalette = [
   "#bab0ac",
 ] as const;
 
-const props = withDefaults(defineProps<{
-  center: { lat: number; lng: number };
-  selectedCarKey: string;
-  activeSearch?: CarSearchVectorMapResponse | null;
-  fallbackFeatures?: FallbackFeature[];
-  disabled?: boolean;
-  hideUnselectedCars?: boolean;
-  loading?: boolean;
-  autoZoomOnExport?: boolean;
-  showSatellite?: boolean;
-  // Optional radius circle overlay (radius-analysis mode). When set, draws a
-  // circle outline of `radiusMeters` around `center` even without CAR results.
-  radiusCircleMeters?: number | null;
-  // UI mode. In "radius" mode the CAR counter badge is hidden and the
-  // context-menu action reads "Analisar aqui" instead of "Buscar CARs aqui".
-  mode?: "search" | "radius";
-}>(), {
-  activeSearch: null,
-  fallbackFeatures: () => [],
-  disabled: false,
-  hideUnselectedCars: false,
-  loading: false,
-  autoZoomOnExport: true,
-  showSatellite: true,
-  radiusCircleMeters: null,
-  mode: "search",
-});
+const props = withDefaults(
+  defineProps<{
+    center: { lat: number; lng: number };
+    selectedCarKey: string;
+    activeSearch?: CarSearchVectorMapResponse | null;
+    fallbackFeatures?: FallbackFeature[];
+    disabled?: boolean;
+    hideUnselectedCars?: boolean;
+    loading?: boolean;
+    autoZoomOnExport?: boolean;
+    showSatellite?: boolean;
+    // Optional radius circle overlay (radius-analysis mode). When set, draws a
+    // circle outline of `radiusMeters` around `center` even without CAR results.
+    radiusCircleMeters?: number | null;
+    // UI mode. In "radius" mode the CAR counter badge is hidden and the
+    // context-menu action reads "Analisar aqui" instead of "Buscar CARs aqui".
+    mode?: "search" | "radius";
+  }>(),
+  {
+    activeSearch: null,
+    fallbackFeatures: () => [],
+    disabled: false,
+    hideUnselectedCars: false,
+    loading: false,
+    autoZoomOnExport: true,
+    showSatellite: true,
+    radiusCircleMeters: null,
+    mode: "search",
+  },
+);
 
 const emit = defineEmits<{
   (e: "update:selectedCarKey", value: string): void;
@@ -237,18 +237,14 @@ const hasRadiusCircle = computed(
     Number.isFinite(props.center.lng),
 );
 const hasRenderableSearch = computed(
-  () =>
-    Boolean(props.activeSearch?.vectorSource) ||
-    (props.fallbackFeatures?.length ?? 0) > 0 ||
-    hasRadiusCircle.value,
+  () => Boolean(props.activeSearch?.vectorSource) || (props.fallbackFeatures?.length ?? 0) > 0 || hasRadiusCircle.value,
 );
 const featureCount = computed(() => props.activeSearch?.stats.totalFeatures ?? props.fallbackFeatures.length ?? 0);
 const featureCountLabel = computed(() => `${featureCount.value} CAR${featureCount.value === 1 ? "" : "s"}`);
 const fallbackAreaByFeatureKey = computed(() => {
-  const entries = props.fallbackFeatures.map((feature) => [
-    feature.feature_key,
-    computeGeometryAreaHa(feature.geom),
-  ] as const);
+  const entries = props.fallbackFeatures.map(
+    (feature) => [feature.feature_key, computeGeometryAreaHa(feature.geom)] as const,
+  );
   return new Map(entries);
 });
 
@@ -260,6 +256,7 @@ const FALLBACK_SOURCE_ID = "cars-search-fallback";
 const FILL_LAYER_ID = "cars-search-fill";
 const LINE_LAYER_ID = "cars-search-line";
 const SELECTED_LAYER_ID = "cars-search-selected";
+const SUBJECT_LINE_LAYER_ID = "cars-search-subject-line";
 const FALLBACK_FILL_LAYER_ID = "cars-search-fallback-fill";
 const FALLBACK_LINE_LAYER_ID = "cars-search-fallback-line";
 const FALLBACK_SELECTED_LAYER_ID = "cars-search-fallback-selected";
@@ -449,10 +446,7 @@ function closeOverlapSelector() {
   };
 }
 
-function openOverlapSelector(
-  candidates: OverlapCandidate[],
-  point: { x: number; y: number },
-) {
+function openOverlapSelector(candidates: OverlapCandidate[], point: { x: number; y: number }) {
   overlapSelector.value = {
     open: true,
     x: point.x + 12,
@@ -481,6 +475,9 @@ function fallbackBounds(): [number, number, number, number] | null {
 }
 
 function searchBounds(): [number, number, number, number] | null {
+  if (props.activeSearch?.vectorSource?.subjectSourceLayer) {
+    return props.activeSearch.vectorSource.bounds;
+  }
   return props.activeSearch?.featureBounds ?? props.activeSearch?.vectorSource?.bounds ?? fallbackBounds();
 }
 
@@ -517,9 +514,7 @@ function styleDefinition(showSatellite: boolean): maplibregl.StyleSpecification 
         type: "background",
         paint: { "background-color": showSatellite ? "#ffffff" : "#f8fafc" },
       },
-      ...(showSatellite
-        ? [{ id: "basemap", type: "raster", source: "basemap" } as maplibregl.LayerSpecification]
-        : []),
+      ...(showSatellite ? [{ id: "basemap", type: "raster", source: "basemap" } as maplibregl.LayerSpecification] : []),
     ],
   };
 }
@@ -630,19 +625,11 @@ function updateSearchMarker() {
 function syncRadiusCircle() {
   if (!map || !map.isStyleLoaded()) return;
   if (!hasRadiusCircle.value) {
-    removeSourceAndLayer(RADIUS_CIRCLE_SOURCE_ID, [
-      RADIUS_CIRCLE_FILL_LAYER_ID,
-      RADIUS_CIRCLE_LINE_LAYER_ID,
-    ]);
+    removeSourceAndLayer(RADIUS_CIRCLE_SOURCE_ID, [RADIUS_CIRCLE_FILL_LAYER_ID, RADIUS_CIRCLE_LINE_LAYER_ID]);
     return;
   }
-  const data = buildRadiusCircleGeoJson(
-    props.center,
-    props.radiusCircleMeters as number,
-  );
-  const existing = map.getSource(RADIUS_CIRCLE_SOURCE_ID) as
-    | maplibregl.GeoJSONSource
-    | undefined;
+  const data = buildRadiusCircleGeoJson(props.center, props.radiusCircleMeters as number);
+  const existing = map.getSource(RADIUS_CIRCLE_SOURCE_ID) as maplibregl.GeoJSONSource | undefined;
   if (existing) {
     existing.setData(data);
   } else {
@@ -688,9 +675,7 @@ function removeHoverPopup() {
 function hoverHtml(feature: maplibregl.MapGeoJSONFeature) {
   const propsValue = feature.properties ?? {};
   const featureKey = String(propsValue.feature_key ?? "").trim();
-  const areaHa = propsValue.area_ha != null && propsValue.area_ha !== ""
-    ? Number(propsValue.area_ha)
-    : null;
+  const areaHa = propsValue.area_ha != null && propsValue.area_ha !== "" ? Number(propsValue.area_ha) : null;
 
   const wrapper = document.createElement("div");
   wrapper.style.display = "grid";
@@ -797,7 +782,9 @@ function syncBaseLayerFilters() {
   }
 }
 
-function extractFeatureBoundsFromMapFeatures(features: Array<{ geometry?: Geometry; properties?: Record<string, unknown> }>) {
+function extractFeatureBoundsFromMapFeatures(
+  features: Array<{ geometry?: Geometry; properties?: Record<string, unknown> }>,
+) {
   const acc: [number, number, number, number] = [Infinity, Infinity, -Infinity, -Infinity];
   for (const feature of features) {
     if (!feature.geometry) continue;
@@ -816,14 +803,15 @@ function selectedFeatureBounds() {
     return extractFeatureBoundsFromMapFeatures([{ geometry: fallbackFeature.geom }]);
   }
   if (!map || !props.activeSearch?.vectorSource) return null;
-  const sourceFeatures = map.querySourceFeatures(
-    SOURCE_ID,
-    { sourceLayer: props.activeSearch.vectorSource.sourceLayer } as maplibregl.QuerySourceFeatureOptions,
-  ) as maplibregl.MapGeoJSONFeature[];
+  const sourceFeatures = map.querySourceFeatures(SOURCE_ID, {
+    sourceLayer: props.activeSearch.vectorSource.sourceLayer,
+  } as maplibregl.QuerySourceFeatureOptions) as maplibregl.MapGeoJSONFeature[];
   const matchingFeatures = sourceFeatures.filter((feature) => {
     return String(feature.properties?.feature_key ?? "") === props.selectedCarKey;
   });
-  return extractFeatureBoundsFromMapFeatures(matchingFeatures as Array<{ geometry?: Geometry; properties?: Record<string, unknown> }>);
+  return extractFeatureBoundsFromMapFeatures(
+    matchingFeatures as Array<{ geometry?: Geometry; properties?: Record<string, unknown> }>,
+  );
 }
 
 function searchFromContext() {
@@ -924,17 +912,29 @@ async function renderVectorSource(options?: { fitToBounds?: boolean }) {
 
   if (!map.getLayer(SELECTED_LAYER_ID)) {
     map.addLayer({
-        id: SELECTED_LAYER_ID,
-        type: "line",
-        source: SOURCE_ID,
-        "source-layer": source.sourceLayer,
-        filter: selectedFilterExpression(),
-        paint: {
+      id: SELECTED_LAYER_ID,
+      type: "line",
+      source: SOURCE_ID,
+      "source-layer": source.sourceLayer,
+      filter: selectedFilterExpression(),
+      paint: {
         "line-color": "#dc2626",
         "line-width": 2.6,
         "line-opacity": 1,
       },
     });
+  }
+
+  if (source.subjectSourceLayer && !map.getLayer(SUBJECT_LINE_LAYER_ID)) {
+    map.addLayer({
+      id: SUBJECT_LINE_LAYER_ID,
+      type: "line",
+      source: SOURCE_ID,
+      "source-layer": source.subjectSourceLayer,
+      paint: ANALYSIS_SICAR_OUTLINE_PAINT,
+    });
+  } else if (!source.subjectSourceLayer && map.getLayer(SUBJECT_LINE_LAYER_ID)) {
+    map.removeLayer(SUBJECT_LINE_LAYER_ID);
   }
 
   syncBaseLayerFilters();
@@ -951,7 +951,7 @@ async function renderVectorSource(options?: { fitToBounds?: boolean }) {
 
 function renderFallbackSource(options?: { fitToBounds?: boolean }) {
   if (!map) return;
-  removeSourceAndLayer(SOURCE_ID, [SELECTED_LAYER_ID, LINE_LAYER_ID, FILL_LAYER_ID]);
+  removeSourceAndLayer(SOURCE_ID, [SUBJECT_LINE_LAYER_ID, SELECTED_LAYER_ID, LINE_LAYER_ID, FILL_LAYER_ID]);
 
   const data = toFeatureCollection(props.fallbackFeatures);
   if (map.getSource(FALLBACK_SOURCE_ID)) {
@@ -1000,11 +1000,11 @@ function renderFallbackSource(options?: { fitToBounds?: boolean }) {
 
   if (!map.getLayer(FALLBACK_SELECTED_LAYER_ID)) {
     map.addLayer({
-        id: FALLBACK_SELECTED_LAYER_ID,
-        type: "line",
-        source: FALLBACK_SOURCE_ID,
-        filter: selectedFilterExpression(),
-        paint: {
+      id: FALLBACK_SELECTED_LAYER_ID,
+      type: "line",
+      source: FALLBACK_SOURCE_ID,
+      filter: selectedFilterExpression(),
+      paint: {
         "line-color": "#dc2626",
         "line-width": 2.6,
         "line-opacity": 1,
@@ -1022,7 +1022,7 @@ function renderFallbackSource(options?: { fitToBounds?: boolean }) {
 }
 
 function clearRenderableSources() {
-  removeSourceAndLayer(SOURCE_ID, [SELECTED_LAYER_ID, LINE_LAYER_ID, FILL_LAYER_ID]);
+  removeSourceAndLayer(SOURCE_ID, [SUBJECT_LINE_LAYER_ID, SELECTED_LAYER_ID, LINE_LAYER_ID, FILL_LAYER_ID]);
   removeSourceAndLayer(FALLBACK_SOURCE_ID, [
     FALLBACK_SELECTED_LAYER_ID,
     FALLBACK_LINE_LAYER_ID,
@@ -1151,7 +1151,7 @@ function applyExportCenterShift(targetMap: maplibregl.Map) {
   if (!shouldShiftExportMap(targetMap)) return;
   const currentCenter = targetMap.project(targetMap.getCenter());
   const shiftedCenter = targetMap.unproject([
-    currentCenter.x + targetMap.getCanvas().clientWidth * 0.10,
+    currentCenter.x + targetMap.getCanvas().clientWidth * 0.1,
     currentCenter.y,
   ]);
   targetMap.jumpTo({ center: shiftedCenter });
@@ -1320,6 +1320,15 @@ async function buildExportMapBlob(
         filter: selectedFilterExpression(),
         paint: { "line-color": "#dc2626", "line-width": 2.8 },
       });
+      if (props.activeSearch.vectorSource.subjectSourceLayer) {
+        exportMap.addLayer({
+          id: SUBJECT_LINE_LAYER_ID,
+          type: "line",
+          source: SOURCE_ID,
+          "source-layer": props.activeSearch.vectorSource.subjectSourceLayer,
+          paint: ANALYSIS_SICAR_OUTLINE_PAINT,
+        });
+      }
     } else if (props.fallbackFeatures.length) {
       exportMap.addSource(FALLBACK_SOURCE_ID, {
         type: "geojson",
@@ -1465,15 +1474,12 @@ onMounted(() => {
   window.addEventListener("pointerdown", handleWindowPointerDown, true);
 });
 
-watch(
-  hasRenderableSearch,
-  async (isRenderable) => {
-    if (!isRenderable) return;
-    await nextTick();
-    await initMap();
-    await syncMapSources();
-  },
-);
+watch(hasRenderableSearch, async (isRenderable) => {
+  if (!isRenderable) return;
+  await nextTick();
+  await initMap();
+  await syncMapSources();
+});
 
 watch(
   () => props.activeSearch,

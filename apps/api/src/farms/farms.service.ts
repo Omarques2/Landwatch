@@ -18,6 +18,7 @@ type ListParams = {
   // Operator-only org filter. Ignored for non-operator tenants so they can't
   // peek into other orgs by passing an arbitrary orgId.
   orgId?: string;
+  sort?: 'name';
 };
 
 @Injectable()
@@ -220,7 +221,8 @@ export class FarmsService {
       this.prisma.farm.count({ where }),
       this.prisma.farm.findMany({
         where,
-        orderBy: { createdAt: 'desc' },
+        orderBy:
+          params.sort === 'name' ? { name: 'asc' } : { createdAt: 'desc' },
         skip,
         take: pageSize,
         include: {
@@ -272,11 +274,12 @@ export class FarmsService {
     // Explicit branches instead of a fake-UUID sentinel: platform admins see
     // any farm; an org actor sees its own org plus public farms; an org-less
     // actor sees only public farms.
-    const where = actor.isPlatformAdmin || actor.isPlatformUser
-      ? { id }
-      : actor.orgId
-        ? { id, OR: [{ orgId: actor.orgId }, { orgId: null }] }
-        : { id, orgId: null };
+    const where =
+      actor.isPlatformAdmin || actor.isPlatformUser
+        ? { id }
+        : actor.orgId
+          ? { id, OR: [{ orgId: actor.orgId }, { orgId: null }] }
+          : { id, orgId: null };
     const farm = await this.prisma.farm.findFirst({
       where,
       include: { documents: true, _count: { select: { documents: true } } },

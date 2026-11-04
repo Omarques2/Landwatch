@@ -35,6 +35,21 @@ type IntersectionsQueryStrategy =
   | 'deter_current_area'
   | 'deter_asof_area';
 
+// Explicit columns keep the feature geometry (unused by the runner) on the
+// database side instead of transferring it for every intersection.
+const AREA_INTERSECTION_COLUMNS = Prisma.sql`
+  i.category_code,
+  i.dataset_code,
+  i.snapshot_date,
+  i.feature_id,
+  i.geom_id,
+  ST_GeometryType(i.geom) AS geometry_type,
+  i.sicar_area_m2,
+  i.feature_area_m2,
+  i.overlap_area_m2,
+  i.overlap_pct_of_sicar
+`;
+
 function assertIdentifier(value: string, name: string): string {
   if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(value)) {
     throw new Error(`${name} is invalid`);
@@ -288,6 +303,7 @@ export class AnalysisRunnerService implements OnModuleInit, OnModuleDestroy {
             attachmentsSnapshotCapturedAt: capturedAt,
             hasIntersections,
             intersectionCount,
+            overlapSummary: Prisma.DbNull,
           },
         });
       });
@@ -397,9 +413,7 @@ export class AnalysisRunnerService implements OnModuleInit, OnModuleDestroy {
       WITH intersections AS (
         SELECT * FROM ${fn}(${carKey}, ${analysisDate}::date)
       )
-      SELECT
-        i.*,
-        ST_GeometryType(i.geom) AS geometry_type
+      SELECT ${AREA_INTERSECTION_COLUMNS}
       FROM intersections i
     `;
   }
@@ -410,9 +424,7 @@ export class AnalysisRunnerService implements OnModuleInit, OnModuleDestroy {
       WITH intersections AS (
         SELECT * FROM ${fn}(${carKey})
       )
-      SELECT
-        i.*,
-        ST_GeometryType(i.geom) AS geometry_type
+      SELECT ${AREA_INTERSECTION_COLUMNS}
       FROM intersections i
     `;
   }
@@ -434,9 +446,7 @@ export class AnalysisRunnerService implements OnModuleInit, OnModuleDestroy {
       intersections AS (
         SELECT * FROM ${fn}((SELECT geom FROM subject))
       )
-      SELECT
-        i.*,
-        ST_GeometryType(i.geom) AS geometry_type
+      SELECT ${AREA_INTERSECTION_COLUMNS}
       FROM intersections i
     `;
   }
@@ -459,9 +469,7 @@ export class AnalysisRunnerService implements OnModuleInit, OnModuleDestroy {
       intersections AS (
         SELECT * FROM ${fn}((SELECT geom FROM subject), ${analysisDate}::date)
       )
-      SELECT
-        i.*,
-        ST_GeometryType(i.geom) AS geometry_type
+      SELECT ${AREA_INTERSECTION_COLUMNS}
       FROM intersections i
     `;
   }
@@ -500,9 +508,7 @@ export class AnalysisRunnerService implements OnModuleInit, OnModuleDestroy {
       intersections AS (
         SELECT * FROM ${fn}((SELECT geom FROM subject))
       )
-      SELECT
-        i.*,
-        ST_GeometryType(i.geom) AS geometry_type
+      SELECT ${AREA_INTERSECTION_COLUMNS}
       FROM intersections i
     `;
   }
@@ -522,9 +528,7 @@ export class AnalysisRunnerService implements OnModuleInit, OnModuleDestroy {
       intersections AS (
         SELECT * FROM ${fn}((SELECT geom FROM subject), ${analysisDate}::date)
       )
-      SELECT
-        i.*,
-        ST_GeometryType(i.geom) AS geometry_type
+      SELECT ${AREA_INTERSECTION_COLUMNS}
       FROM intersections i
     `;
   }

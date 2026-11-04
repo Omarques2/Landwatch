@@ -3,6 +3,8 @@ dist
 coverage
 .env
 .env.*
+sigfarm_google_secret_key.json
+gee/__pycache__
 npm-debug.log*
 README.md
 .eslint*

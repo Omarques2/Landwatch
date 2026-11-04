@@ -116,6 +116,23 @@ describe("AppShellView", () => {
     expect(wrapper.text()).toContain("Agendamento");
   });
 
+  it("shows an actionable message when access fails and reloads the menu after retry", async () => {
+    vi.mocked(getMeCached).mockResolvedValueOnce(null);
+    vi.mocked(getAccessCached).mockResolvedValueOnce(null);
+    const wrapper = mount(AppShellView, {
+      global: { stubs: { RouterView: true, UiSheet: { template: '<div><slot /></div>' } } },
+    });
+    await flushPromises();
+    const error = wrapper.find('[data-testid="sidebar-access-error"]');
+    expect(error.text()).toContain('Não foi possível carregar o menu');
+    await error.find('button').trigger('click');
+    await flushPromises();
+    expect(getMeCached).toHaveBeenCalledWith(true);
+    expect(getAccessCached).toHaveBeenCalledWith(true);
+    expect(wrapper.find('[data-testid="sidebar-access-error"]').exists()).toBe(false);
+    expect(wrapper.text()).toContain('Satélite');
+  });
+
   it("renders the Fornecedores item for platform admins", async () => {
     const wrapper = mount(AppShellView, {
       global: {

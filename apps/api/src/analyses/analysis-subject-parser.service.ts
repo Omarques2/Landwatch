@@ -97,6 +97,29 @@ function asFeatureCollection(value: unknown): GeoJsonFeatureCollection[] {
 
 @Injectable()
 export class AnalysisSubjectParserService {
+  parseGeoJson(buffer: Buffer): ParsedAnalysisSubject['geometry'] {
+    let value: { type?: string; geometry?: GeoJsonFeature['geometry'] };
+    try {
+      value = JSON.parse(buffer.toString('utf8')) as typeof value;
+    } catch {
+      throw geometryError('GEOMETRY_FILE_INVALID', 'O GeoJSON não é válido.');
+    }
+    if (!value || typeof value !== 'object') {
+      throw geometryError('GEOMETRY_FILE_INVALID', 'O GeoJSON não é válido.');
+    }
+    const collections =
+      value.type === 'FeatureCollection'
+        ? asFeatureCollection(value)
+        : [
+            {
+              features: [
+                value.type === 'Feature' ? value : { geometry: value },
+              ],
+            },
+          ];
+    return this.normalizeFeatures(collections, 'KML').geometry;
+  }
+
   async parse(
     buffer: Buffer,
     originalName: string,

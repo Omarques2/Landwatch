@@ -234,6 +234,26 @@ describe('FarmsService', () => {
       );
     });
 
+    it('orders farms by name when requested', async () => {
+      const prisma = makePrismaMock();
+      prisma.farm.count.mockResolvedValue(0);
+      prisma.farm.findMany.mockResolvedValue([]);
+      const service = new FarmsService(prisma);
+
+      await service.list(operatorActor, { page: 1, pageSize: 20 });
+      expect(prisma.farm.findMany).toHaveBeenLastCalledWith(
+        expect.objectContaining({ orderBy: { createdAt: 'desc' } }),
+      );
+      await service.list(operatorActor, {
+        page: 1,
+        pageSize: 20,
+        sort: 'name',
+      });
+      expect(prisma.farm.findMany).toHaveBeenLastCalledWith(
+        expect.objectContaining({ orderBy: { name: 'asc' } }),
+      );
+    });
+
     it('filters farms to a specific org when an operator passes orgId', async () => {
       const prisma = makePrismaMock();
       prisma.farm.count.mockResolvedValue(0);
@@ -304,7 +324,9 @@ describe('FarmsService', () => {
       const service = new FarmsService(prisma);
 
       await expect(
-        service.updateForActor(operatorActor, 'farm-tenant', { name: 'Novo nome' }),
+        service.updateForActor(operatorActor, 'farm-tenant', {
+          name: 'Novo nome',
+        }),
       ).rejects.toMatchObject({ response: { code: 'FARM_EDIT_FORBIDDEN' } });
 
       expect(prisma.farm.update).not.toHaveBeenCalled();

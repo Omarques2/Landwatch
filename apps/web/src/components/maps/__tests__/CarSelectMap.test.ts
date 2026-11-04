@@ -218,6 +218,59 @@ describe("CarSelectMap", () => {
     await wrapper.unmount();
   });
 
+  it("renders the uploaded search geometry with the CAR red outline", async () => {
+    const activeSearch = buildActiveSearch();
+    activeSearch.vectorSource = {
+      ...activeSearch.vectorSource,
+      subjectSourceLayer: "search_subject",
+    } as typeof activeSearch.vectorSource & { subjectSourceLayer: string };
+    const wrapper = mount(CarSelectMap, {
+      props: {
+        center: { lat: -10, lng: -50 },
+        selectedCarKey: "",
+        activeSearch,
+      },
+    });
+
+    await flushPromises();
+
+    const subjectLayer = createdMaps[0]!.layers.get("cars-search-subject-line");
+    expect(subjectLayer).toMatchObject({
+      "source-layer": "search_subject",
+      paint: {
+        "line-color": "#ff0202",
+        "line-width": 2,
+        "line-opacity": 1,
+        "line-dasharray": [1.3, 1.3],
+      },
+    });
+    await wrapper.unmount();
+  });
+
+  it("removes the uploaded geometry layer when returning to coordinate search", async () => {
+    const geometrySearch = buildActiveSearch();
+    geometrySearch.vectorSource = {
+      ...geometrySearch.vectorSource,
+      subjectSourceLayer: "search_subject",
+    } as typeof geometrySearch.vectorSource & { subjectSourceLayer: string };
+    const wrapper = mount(CarSelectMap, {
+      props: {
+        center: { lat: -10, lng: -50 },
+        selectedCarKey: "",
+        activeSearch: geometrySearch,
+      },
+    });
+    await flushPromises();
+
+    const mapInstance = createdMaps[0]!;
+    expect(mapInstance.layers.has("cars-search-subject-line")).toBe(true);
+
+    await wrapper.setProps({ activeSearch: buildActiveSearch() });
+    await flushPromises();
+
+    expect(mapInstance.layers.has("cars-search-subject-line")).toBe(false);
+  });
+
   it("clears the selection when a click does not hit any feature", async () => {
     const wrapper = mount(CarSelectMap, {
       props: {
@@ -298,9 +351,7 @@ describe("CarSelectMap", () => {
     const selector = wrapper.get('[data-testid="overlap-car-selector"]');
     expect(selector.text()).toContain("CARs sobrepostos");
 
-    const optionLabels = wrapper
-      .findAll('[data-testid="overlap-car-option-key"]')
-      .map((node) => node.text());
+    const optionLabels = wrapper.findAll('[data-testid="overlap-car-option-key"]').map((node) => node.text());
     expect(optionLabels).toEqual(["CAR-PEQUENO", "CAR-MEDIO", "CAR-GRANDE"]);
   });
 
@@ -378,26 +429,30 @@ describe("CarSelectMap", () => {
             feature_key: "CAR-GRANDE",
             geom: {
               type: "Polygon",
-              coordinates: [[
-                [-50, -10],
-                [-50, -10.03],
-                [-49.96, -10.03],
-                [-49.96, -10],
-                [-50, -10],
-              ]],
+              coordinates: [
+                [
+                  [-50, -10],
+                  [-50, -10.03],
+                  [-49.96, -10.03],
+                  [-49.96, -10],
+                  [-50, -10],
+                ],
+              ],
             },
           },
           {
             feature_key: "CAR-PEQUENO",
             geom: {
               type: "Polygon",
-              coordinates: [[
-                [-50, -10],
-                [-50, -10.01],
-                [-49.99, -10.01],
-                [-49.99, -10],
-                [-50, -10],
-              ]],
+              coordinates: [
+                [
+                  [-50, -10],
+                  [-50, -10.01],
+                  [-49.99, -10.01],
+                  [-49.99, -10],
+                  [-50, -10],
+                ],
+              ],
             },
           },
         ],
@@ -418,9 +473,7 @@ describe("CarSelectMap", () => {
     });
     await flushPromises();
 
-    const optionLabels = wrapper
-      .findAll('[data-testid="overlap-car-option-key"]')
-      .map((node) => node.text());
+    const optionLabels = wrapper.findAll('[data-testid="overlap-car-option-key"]').map((node) => node.text());
     expect(optionLabels).toEqual(["CAR-PEQUENO", "CAR-GRANDE"]);
   });
 
@@ -442,13 +495,15 @@ describe("CarSelectMap", () => {
         properties: { feature_key: "CAR-ALVO", area_ha: 10 },
         geometry: {
           type: "Polygon",
-          coordinates: [[
-            [-48.55, -20.60],
-            [-48.55, -20.58],
-            [-48.50, -20.58],
-            [-48.50, -20.60],
-            [-48.55, -20.60],
-          ]],
+          coordinates: [
+            [
+              [-48.55, -20.6],
+              [-48.55, -20.58],
+              [-48.5, -20.58],
+              [-48.5, -20.6],
+              [-48.55, -20.6],
+            ],
+          ],
         },
       },
     ]);
@@ -459,14 +514,8 @@ describe("CarSelectMap", () => {
     });
     await flushPromises();
 
-    expect(mapInstance.setFilter).toHaveBeenCalledWith(
-      "cars-search-fill",
-      ["==", ["get", "feature_key"], "CAR-ALVO"],
-    );
-    expect(mapInstance.setFilter).toHaveBeenCalledWith(
-      "cars-search-line",
-      ["==", ["get", "feature_key"], "CAR-ALVO"],
-    );
+    expect(mapInstance.setFilter).toHaveBeenCalledWith("cars-search-fill", ["==", ["get", "feature_key"], "CAR-ALVO"]);
+    expect(mapInstance.setFilter).toHaveBeenCalledWith("cars-search-line", ["==", ["get", "feature_key"], "CAR-ALVO"]);
     expect(mapInstance.fitBounds).toHaveBeenLastCalledWith(
       [
         [-48.55, -20.6],
@@ -492,14 +541,8 @@ describe("CarSelectMap", () => {
     await wrapper.setProps({ hideUnselectedCars: false });
     await flushPromises();
 
-    expect(mapInstance.setFilter).toHaveBeenCalledWith(
-      "cars-search-fill",
-      ["has", "feature_key"],
-    );
-    expect(mapInstance.setFilter).toHaveBeenCalledWith(
-      "cars-search-line",
-      ["has", "feature_key"],
-    );
+    expect(mapInstance.setFilter).toHaveBeenCalledWith("cars-search-fill", ["has", "feature_key"]);
+    expect(mapInstance.setFilter).toHaveBeenCalledWith("cars-search-line", ["has", "feature_key"]);
   });
 
   it("shows the disabled banner when MV is refreshing", () => {

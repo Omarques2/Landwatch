@@ -40,6 +40,7 @@ export class FarmsController {
       pageSize,
       includeDocs: query.includeDocs,
       orgId: query.orgId,
+      sort: query.sort,
     });
   }
 

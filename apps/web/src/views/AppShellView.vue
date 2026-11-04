@@ -1,8 +1,5 @@
 <template>
-  <div
-    class="app-shell h-dvh w-full overflow-hidden bg-background text-foreground"
-    :style="{ '--topbar-h': '72px' }"
-  >
+  <div class="app-shell h-dvh w-full overflow-hidden bg-background text-foreground" :style="{ '--topbar-h': '72px' }">
     <div class="flex h-dvh overflow-hidden">
       <aside
         class="app-sidebar hidden shrink-0 border-r border-border bg-card lg:flex lg:flex-col transition-[width] duration-200"
@@ -16,11 +13,13 @@
           :user-name="me?.displayName ?? null"
           :user-email="me?.email ?? null"
           :user-loading="meLoading"
+          :navigation-unavailable="!access"
           :on-logout="onLogout"
           :on-select="navigate"
           :on-new-analysis="goNewAnalysis"
           :disable-new-analysis="!mvStatusResolved || mvBusy || !canCreateAnalysis"
           @toggle-collapsed="sidebarOpen = !sidebarOpen"
+          @retry="loadMe(true)"
         />
       </aside>
 
@@ -39,16 +38,20 @@
           :user-name="me?.displayName ?? null"
           :user-email="me?.email ?? null"
           :user-loading="meLoading"
+          :navigation-unavailable="!access"
           :on-logout="onLogout"
           :on-select="navigate"
           :on-new-analysis="goNewAnalysis"
           :disable-new-analysis="!mvStatusResolved || mvBusy || !canCreateAnalysis"
           @close="drawerOpen = false"
+          @retry="loadMe(true)"
         />
       </UiSheet>
 
       <main class="app-main flex min-w-0 flex-1 flex-col overflow-hidden">
-        <div class="app-topbar border-b border-border bg-card px-4 pl-safe pr-safe pt-safe min-h-[calc(var(--topbar-h)+env(safe-area-inset-top,0px))] h-auto flex items-center">
+        <div
+          class="app-topbar border-b border-border bg-card px-4 pl-safe pr-safe pt-safe min-h-[calc(var(--topbar-h)+env(safe-area-inset-top,0px))] h-auto flex items-center"
+        >
           <div class="flex w-full items-center gap-3">
             <UiButton
               class="shrink-0 lg:hidden"
@@ -86,11 +89,7 @@
               title="Organização ativa"
               @update:model-value="switchOrg"
             >
-              <option
-                v-for="membership in orgMemberships"
-                :key="membership.orgId"
-                :value="membership.orgId"
-              >
+              <option v-for="membership in orgMemberships" :key="membership.orgId" :value="membership.orgId">
                 {{ membership.orgName }}
               </option>
             </UiSelect>
@@ -152,13 +151,21 @@ import {
   FileText,
   ClipboardPlus,
   LocateFixed,
+  Satellite,
   CalendarClock,
   Beef,
   Paperclip,
   Shield,
 } from "lucide-vue-next";
 import { logout } from "@/auth/auth";
-import { clearMeCache, getAccessCached, getMeCached, type AccessMeResponse, type AppFeature, type MeResponse } from "@/auth/me";
+import {
+  clearMeCache,
+  getAccessCached,
+  getMeCached,
+  type AccessMeResponse,
+  type AppFeature,
+  type MeResponse,
+} from "@/auth/me";
 import {
   getDevBypassProfileOverride,
   getDevBypassProfiles,
@@ -188,9 +195,7 @@ const meLoading = ref(true);
 const selectedOrgId = ref("");
 const localBypassEnabled = isLocalAuthBypassEnabled();
 const devProfiles = ref<DevBypassProfile[]>(getDevBypassProfiles());
-const devProfileSub = ref(
-  getDevBypassProfileOverride()?.sub ?? devProfiles.value[0]?.sub ?? "",
-);
+const devProfileSub = ref(getDevBypassProfileOverride()?.sub ?? devProfiles.value[0]?.sub ?? "");
 
 type ShellNavItem = {
   key: string;
@@ -211,6 +216,7 @@ const baseNavItems: ShellNavItem[] = [
   { key: "fornecedores", label: "Fornecedores", icon: Beef, platformUser: true },
   { key: "new-analysis", label: "Nova análise", icon: ClipboardPlus, feature: "ANALYSIS_CREATE" },
   { key: "car-search", label: "Buscar CAR", icon: LocateFixed, feature: "CAR_SEARCH" },
+  { key: "gee", label: "Satélite", icon: Satellite, feature: "ANALYSIS_CREATE" },
 ];
 
 function hasFeature(feature?: AppFeature) {
@@ -222,9 +228,7 @@ function hasFeature(feature?: AppFeature) {
 const isPlatformAdmin = computed(() => Boolean(access.value?.isPlatformAdmin));
 const isPlatformUser = computed(() => Boolean(access.value?.isPlatformUser));
 const canCreateAnalysis = computed(() => hasFeature("ANALYSIS_CREATE"));
-const hideTopbarCta = computed(
-  () => activeKey.value === "new-analysis" || activeKey.value === "car-search",
-);
+const hideTopbarCta = computed(() => activeKey.value === "new-analysis" || activeKey.value === "car-search");
 
 const navItems = computed(() => {
   const filtered: ShellNavItem[] = baseNavItems.filter((item) => {
@@ -248,6 +252,7 @@ const activeKey = computed(() => {
   if (route.path.startsWith("/dashboard")) return "dashboard";
   if (route.path.startsWith("/analyses/new")) return "new-analysis";
   if (route.path.startsWith("/analyses/search")) return "car-search";
+  if (route.path.startsWith("/gee")) return "gee";
   if (route.path.startsWith("/analyses")) return "analyses";
   if (route.path.startsWith("/schedules")) return "schedules";
   if (route.path.startsWith("/attachments")) return "attachments";
@@ -259,17 +264,12 @@ const activeKey = computed(() => {
 });
 
 const orgMemberships = computed(() => {
-  const memberships = Array.isArray(me.value?.memberships)
-    ? me.value.memberships
-    : [];
+  const memberships = Array.isArray(me.value?.memberships) ? me.value.memberships : [];
   return memberships
     .map((membership: any) => {
       const orgId = typeof membership?.orgId === "string" ? membership.orgId.trim() : "";
       if (!orgId) return null;
-      const orgName =
-        membership?.org?.name?.trim?.() ||
-        membership?.org?.slug?.trim?.() ||
-        orgId;
+      const orgName = membership?.org?.name?.trim?.() || membership?.org?.slug?.trim?.() || orgId;
       return { orgId, orgName };
     })
     .filter((item): item is { orgId: string; orgName: string } => Boolean(item));
@@ -277,10 +277,7 @@ const orgMemberships = computed(() => {
 
 const activeOrgName = computed(() => {
   if (!selectedOrgId.value) return orgMemberships.value[0]?.orgName ?? "";
-  return (
-    orgMemberships.value.find((membership) => membership.orgId === selectedOrgId.value)
-      ?.orgName ?? ""
-  );
+  return orgMemberships.value.find((membership) => membership.orgId === selectedOrgId.value)?.orgName ?? "";
 });
 
 const pageTitle = computed(() => (route.meta.title as string) ?? "LandWatch");
@@ -295,18 +292,19 @@ const pageSubtitle = computed(() => {
   if (activeKey.value === "tier") return "Controle de tier e abates";
   if (activeKey.value === "new-analysis") return "Selecione o CAR e rode a análise";
   if (activeKey.value === "car-search") return "Busque CARs por coordenada";
+  if (activeKey.value === "gee") return "Imagem Sentinel-2 e mudanças na vegetação";
   return "LandWatch";
 });
 
-async function loadMe() {
+async function loadMe(force = false) {
   meLoading.value = true;
   try {
     // Use the cache the navigation guard just populated (force=false) instead
     // of forcing a second /me + /access/me round-trip on shell mount.
-    me.value = await getMeCached(false);
+    me.value = await getMeCached(force);
     hydrateActiveOrgFromMemberships(me.value?.memberships as any);
     selectedOrgId.value = getActiveOrgId() ?? orgMemberships.value[0]?.orgId ?? "";
-    access.value = await getAccessCached(false);
+    access.value = await getAccessCached(force);
   } catch {
     me.value = null;
     access.value = null;
@@ -337,6 +335,7 @@ async function navigate(key: string) {
   if (key === "tier") await router.push("/tier");
   if (key === "new-analysis") await router.push("/analyses/new");
   if (key === "car-search") await router.push("/analyses/search");
+  if (key === "gee") await router.push("/gee");
   drawerOpen.value = false;
 }
 

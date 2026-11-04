@@ -1,7 +1,5 @@
 <template>
-  <div
-    class="new-analysis-root mx-auto flex max-w-6xl flex-col gap-6 px-4 py-4 sm:px-6 sm:py-6"
-  >
+  <div class="new-analysis-root mx-auto flex max-w-6xl flex-col gap-6 px-4 py-4 sm:px-6 sm:py-6">
     <section v-if="viewMode === 'analysis'" class="rounded-2xl border border-border bg-card p-4 shadow-sm sm:p-6">
       <div class="flex flex-wrap items-center justify-between gap-2">
         <div class="text-lg font-semibold">Nova análise</div>
@@ -95,11 +93,7 @@
         </template>
         <template v-else-if="!radiusMode">
           <UiLabel for="analysis-name">Nome da fazenda</UiLabel>
-          <UiInput
-            id="analysis-name"
-            v-model="analysisForm.farmName"
-            placeholder="Nome da fazenda"
-          />
+          <UiInput id="analysis-name" v-model="analysisForm.farmName" placeholder="Nome da fazenda" />
           <div class="text-xs text-muted-foreground">
             Se não informar o nome, a análise será feita apenas com o CAR (sem cadastro).
           </div>
@@ -252,11 +246,7 @@
               :key="doc.id"
               size="sm"
               variant="outline"
-              :class="
-                isDocSelected(doc.docNormalized)
-                  ? 'border-emerald-200 text-emerald-700'
-                  : ''
-              "
+              :class="isDocSelected(doc.docNormalized) ? 'border-emerald-200 text-emerald-700' : ''"
               @click="toggleFarmDoc(doc)"
             >
               {{ doc.docType }} · {{ formatDoc(doc.docNormalized) }}
@@ -329,10 +319,7 @@
       </div>
     </section>
 
-    <section
-      v-else
-      class="search-card rounded-2xl border border-border bg-card p-4 shadow-sm sm:p-6"
-    >
+    <section v-else class="search-card rounded-2xl border border-border bg-card p-4 shadow-sm sm:p-6">
       <div
         v-if="mvBusy"
         class="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700 search-controls"
@@ -340,8 +327,88 @@
         Base geoespacial em atualização. A busca por CARs está temporariamente indisponível.
       </div>
 
+      <div class="mb-4 flex flex-wrap gap-2 search-controls">
+        <UiButton
+          size="sm"
+          :variant="carSearchMode === 'radius' ? 'default' : 'outline'"
+          data-testid="car-radius-search-mode"
+          @click="setCarSearchMode('radius')"
+        >
+          <MapPin class="mr-2 h-4 w-4" /> Busca por coordenada
+        </UiButton>
+        <UiButton
+          size="sm"
+          :variant="carSearchMode === 'geometry' ? 'default' : 'outline'"
+          data-testid="car-file-search-mode"
+          @click="setCarSearchMode('geometry')"
+        >
+          <Upload class="mr-2 h-4 w-4" /> Busca por arquivo
+        </UiButton>
+      </div>
+
+      <div v-if="carSearchMode === 'geometry'" class="mb-3 grid gap-3 search-controls">
+        <label
+          for="car-search-file"
+          class="flex cursor-pointer flex-col gap-2 rounded-xl border border-dashed border-border bg-background p-4 transition hover:border-emerald-400"
+        >
+          <span class="flex items-center gap-2 text-sm font-medium">
+            <Upload class="h-4 w-4" /> Selecionar KML, KMZ ou shapefile ZIP
+          </span>
+          <span class="text-xs text-muted-foreground">
+            O arquivo será usado apenas para localizar os CARs intersectados.
+          </span>
+          <span class="truncate text-xs font-medium">
+            {{ carSearchGeometryFile?.name ?? "Nenhum arquivo selecionado" }}
+          </span>
+          <input
+            id="car-search-file"
+            data-testid="car-search-file"
+            class="sr-only"
+            type="file"
+            accept=".kml,.kmz,.zip,application/vnd.google-earth.kml+xml,application/vnd.google-earth.kmz,application/zip"
+            @change="onCarSearchGeometryFileChange"
+          />
+        </label>
+        <div v-if="carSearchGeometryMessage" class="text-xs text-red-500">
+          {{ carSearchGeometryMessage }}
+        </div>
+        <div class="flex flex-wrap gap-2">
+          <UiButton
+            size="sm"
+            data-testid="car-file-search-submit"
+            :disabled="mvBusy || searchBusy || !carSearchGeometryFile"
+            @click="searchCarsByFile"
+          >
+            <Loader2 v-if="searchBusy" class="mr-2 h-4 w-4 animate-spin" />
+            Buscar CARs
+          </UiButton>
+          <UiButton size="sm" :disabled="!analysisForm.carKey || mvBusy || searchBusy" @click="goToAnalysisTab">
+            Gerar análise
+          </UiButton>
+          <UiButton
+            size="sm"
+            variant="outline"
+            :disabled="!canExportSearch || searchBusy || mapLoading || pngBusy"
+            @click="downloadSearchPng"
+          >
+            <Loader2 v-if="pngBusy" class="mr-2 h-3.5 w-3.5 animate-spin" />
+            {{ pngBusy ? "Gerando PNG" : "Baixar PNG" }}
+          </UiButton>
+          <UiButton
+            size="sm"
+            variant="outline"
+            data-testid="download-search-csv"
+            :disabled="!activeSearch || searchBusy || csvBusy"
+            @click="downloadSearchCsv"
+          >
+            <Loader2 v-if="csvBusy" class="mr-2 h-3.5 w-3.5 animate-spin" />
+            {{ csvBusy ? "Gerando CSV" : "Baixar CSV" }}
+          </UiButton>
+        </div>
+      </div>
+
       <!-- DESKTOP controls (unchanged behavior) -->
-      <div class="hidden md:block">
+      <div v-else class="hidden md:block">
         <div class="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(220px,280px)] search-controls">
           <div>
             <UiLabel>Latitude</UiLabel>
@@ -414,6 +481,16 @@
             <Loader2 v-if="pngBusy" class="mr-2 h-3.5 w-3.5 animate-spin" />
             {{ pngBusy ? "Gerando PNG" : "Baixar PNG" }}
           </UiButton>
+          <UiButton
+            size="sm"
+            variant="outline"
+            data-testid="download-search-csv"
+            :disabled="!activeSearch || searchBusy || csvBusy"
+            @click="downloadSearchCsv"
+          >
+            <Loader2 v-if="csvBusy" class="mr-2 h-3.5 w-3.5 animate-spin" />
+            {{ csvBusy ? "Gerando CSV" : "Baixar CSV" }}
+          </UiButton>
           <label
             class="ml-auto inline-flex items-center gap-2 rounded-full border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground"
             data-testid="hide-unselected-toggle"
@@ -435,7 +512,7 @@
       </div>
 
       <!-- MOBILE: post-search header (only after the first results exist) -->
-      <div v-if="hasSearchResults" class="md:hidden">
+      <div v-if="hasSearchResults && carSearchMode === 'radius'" class="md:hidden">
         <div class="mb-2 flex items-center justify-between gap-2">
           <div class="flex items-center gap-2">
             <UiButton size="sm" variant="outline" class="gap-2" @click="adjustSheetOpen = true">
@@ -460,13 +537,7 @@
       </div>
 
       <!-- MAP (shared; expands to fullscreen on mobile) -->
-      <div
-        :class="
-          mapExpanded
-            ? 'fixed inset-0 z-[60] bg-background p-2 pb-safe-3'
-            : 'search-map-frame mt-1 md:mt-3'
-        "
-      >
+      <div :class="mapExpanded ? 'fixed inset-0 z-[60] bg-background p-2 pb-safe-3' : 'search-map-frame mt-1 md:mt-3'">
         <!-- INITIAL location entry (mobile, before the first search) -->
         <div
           v-if="showLocationEntry"
@@ -548,7 +619,7 @@
         :class="mapExpanded ? 'hidden' : ''"
       >
         <UiButton
-          v-if="!analysisForm.carKey"
+          v-if="!analysisForm.carKey && carSearchMode === 'radius'"
           class="flex-1 gap-2"
           data-testid="search-at-center"
           :disabled="mvBusy || searchBusy"
@@ -559,7 +630,7 @@
           Buscar neste ponto
         </UiButton>
         <UiButton
-          v-else
+          v-else-if="analysisForm.carKey"
           class="flex-1"
           :disabled="mvBusy || searchBusy"
           @click="goToAnalysisTab"
@@ -634,19 +705,15 @@
     </section>
 
     <UiDialog :open="confirmMissingOpen" @close="confirmMissingOpen = false">
-        <UiDialogHeader>
-          <UiDialogTitle>Continuar sem dados?</UiDialogTitle>
-          <UiDialogDescription>
+      <UiDialogHeader>
+        <UiDialogTitle>Continuar sem dados?</UiDialogTitle>
+        <UiDialogDescription>
           Você não preencheu Nome da fazenda nem documentos. Deseja continuar mesmo assim?
-          </UiDialogDescription>
-        </UiDialogHeader>
+        </UiDialogDescription>
+      </UiDialogHeader>
       <UiDialogFooter class="flex items-center justify-end gap-2 p-4">
-        <UiButton variant="outline" :disabled="isSubmitting" @click="confirmMissingOpen = false">
-          Voltar
-        </UiButton>
-        <UiButton :disabled="isSubmitting" @click="confirmMissingAndSubmit">
-          Continuar
-        </UiButton>
+        <UiButton variant="outline" :disabled="isSubmitting" @click="confirmMissingOpen = false"> Voltar </UiButton>
+        <UiButton :disabled="isSubmitting" @click="confirmMissingAndSubmit"> Continuar </UiButton>
       </UiDialogFooter>
     </UiDialog>
   </div>
@@ -656,7 +723,17 @@
 import { computed, nextTick, onMounted, reactive, ref, watch } from "vue";
 import type { Geometry } from "geojson";
 import { useRoute, useRouter } from "vue-router";
-import { FileText, LocateFixed, Loader2, MapPin, Maximize2, Minimize2, Search, SlidersHorizontal, Upload } from "lucide-vue-next";
+import {
+  FileText,
+  LocateFixed,
+  Loader2,
+  MapPin,
+  Maximize2,
+  Minimize2,
+  Search,
+  SlidersHorizontal,
+  Upload,
+} from "lucide-vue-next";
 import {
   Button as UiButton,
   Dialog as UiDialog,
@@ -673,16 +750,13 @@ import { http } from "@/api/http";
 import { unwrapData, unwrapPaged, type ApiEnvelope } from "@/api/envelope";
 import GtaUploadPanel from "@/components/gta/GtaUploadPanel.vue";
 import GtaReviewPanel from "@/components/gta/GtaReviewPanel.vue";
-import {
-  extractGta,
-  generateGtaAnalysis,
-  type GtaExtractResponse,
-} from "@/api/gta";
+import { extractGta, generateGtaAnalysis, type GtaExtractResponse } from "@/api/gta";
 import CarSelectMap from "@/components/maps/CarSelectMap.vue";
 import { isValidCpfCnpj, sanitizeDoc } from "@/lib/doc-utils";
 import { mvBusy } from "@/state/landwatch-status";
 import { parseSearchQuery, serializeSearchQuery } from "@/lib/search-query";
 import { validateGeometryFile } from "@/features/analyses/geometry-file";
+import { filenameFromContentDisposition, saveBlobAsFile } from "@/lib/downloads";
 
 type CarSearchVectorSource = {
   tiles: string[];
@@ -690,6 +764,7 @@ type CarSearchVectorSource = {
   minzoom: number;
   maxzoom: number;
   sourceLayer: string;
+  subjectSourceLayer?: string | null;
   promoteId?: string | null;
 };
 
@@ -698,10 +773,12 @@ type CarSearchVectorMapResponse = {
   expiresAt: string;
   renderMode: "mvt";
   stats: { totalFeatures: number };
+  searchMode?: "radius" | "geometry";
   featureBounds?: [number, number, number, number] | null;
+  subjectBounds?: [number, number, number, number] | null;
   vectorSource: CarSearchVectorSource;
   searchCenter: { lat: number; lng: number };
-  searchRadiusMeters: number;
+  searchRadiusMeters?: number;
   analysisDate?: string;
 };
 
@@ -735,6 +812,9 @@ const geometryMode = ref(false);
 const geometryName = ref("");
 const geometryFile = ref<File | null>(null);
 const geometryMessage = ref("");
+const carSearchMode = ref<"radius" | "geometry">("radius");
+const carSearchGeometryFile = ref<File | null>(null);
+const carSearchGeometryMessage = ref("");
 
 // --- Análise por GTA mode ---
 const gtaMode = ref(false);
@@ -776,6 +856,20 @@ function onGeometryFileChange(event: Event) {
   geometryFile.value = file;
   geometryMessage.value = validateGeometryFile(file) ?? "";
 }
+function setCarSearchMode(mode: "radius" | "geometry") {
+  if (carSearchMode.value === mode) return;
+  carSearchMode.value = mode;
+  analysisForm.carKey = "";
+  activeSearch.value = null;
+  fallbackCars.value = [];
+  searchMessage.value = "";
+}
+function onCarSearchGeometryFileChange(event: Event) {
+  const input = event.target as HTMLInputElement;
+  const file = input.files?.[0] ?? null;
+  carSearchGeometryFile.value = file;
+  carSearchGeometryMessage.value = validateGeometryFile(file) ?? "";
+}
 function onGtaInvalid(msg: string) {
   gtaError.value = msg;
 }
@@ -785,8 +879,7 @@ async function onGtaFile(file: File) {
   try {
     gtaResult.value = await extractGta(file);
   } catch (e: any) {
-    gtaError.value =
-      e?.response?.data?.error?.message ?? "Falha ao extrair a GTA.";
+    gtaError.value = e?.response?.data?.error?.message ?? "Falha ao extrair a GTA.";
   } finally {
     gtaLoading.value = false;
   }
@@ -806,8 +899,7 @@ async function onGtaGenerate(payload: {
     });
     await router.push(`/analyses/${analysisId}`);
   } catch (e: any) {
-    gtaError.value =
-      e?.response?.data?.error?.message ?? "Falha ao gerar a análise.";
+    gtaError.value = e?.response?.data?.error?.message ?? "Falha ao gerar a análise.";
   } finally {
     gtaSubmitting.value = false;
   }
@@ -821,6 +913,7 @@ const gpsLoading = ref(false);
 const searchBusy = ref(false);
 const mapLoading = ref(false);
 const pngBusy = ref(false);
+const csvBusy = ref(false);
 const searchRadiusKm = ref(5);
 // Radius-mode pill: meters below 1 km (e.g. "500 m"), km otherwise ("2 km").
 const radiusPillLabel = computed(() => {
@@ -851,14 +944,13 @@ const adjustSheetOpen = ref(false);
 const mapExpanded = ref(false);
 const combinedCoord = ref("");
 
-const hasSearchResults = computed(
-  () => Boolean(activeSearch.value?.vectorSource) || fallbackCars.value.length > 0,
-);
+const hasSearchResults = computed(() => Boolean(activeSearch.value?.vectorSource) || fallbackCars.value.length > 0);
 // Mobile opens location-first (entry panel) rather than an empty map: before the
 // first search the map isn't initialized, so a crosshair / "Buscar neste ponto"
 // CTA would be dead. The map (and that CTA) appear only once results exist.
 const showLocationEntry = computed(
-  () => isCoarsePointer.value && viewMode.value === "search" && !hasSearchResults.value,
+  () =>
+    carSearchMode.value === "radius" && isCoarsePointer.value && viewMode.value === "search" && !hasSearchResults.value,
 );
 
 function onCombinedCoordInput(value: string) {
@@ -899,9 +991,7 @@ async function searchCarsFromSheet() {
 const canSearch = computed(() => {
   return parseCoordinate(center.lat, "lat") !== null && parseCoordinate(center.lng, "lng") !== null;
 });
-const canExportSearch = computed(
-  () => Boolean(activeSearch.value?.vectorSource) || fallbackCars.value.length > 0,
-);
+const canExportSearch = computed(() => Boolean(activeSearch.value?.vectorSource) || fallbackCars.value.length > 0);
 const analysisForm = reactive({
   farmId: "",
   farmName: "",
@@ -1013,9 +1103,7 @@ async function autoFillFarm(query: { type: "car" | "doc"; value: string }) {
   }
 }
 
-async function triggerAutoFill(
-  forced?: { type: "car" | "doc"; value: string },
-) {
+async function triggerAutoFill(forced?: { type: "car" | "doc"; value: string }) {
   if (analysisForm.farmId) return;
   const state = getAutoFillState();
   if (state.filledCount === 0) {
@@ -1071,9 +1159,7 @@ async function performSubmit() {
   isSubmitting.value = true;
   message.value = "Criando análise...";
   const normalizedDate = normalizeAnalysisDate(analysisForm.analysisDate);
-  const documents = analysisForm.documents.length
-    ? [...analysisForm.documents]
-    : undefined;
+  const documents = analysisForm.documents.length ? [...analysisForm.documents] : undefined;
   const farmName = analysisForm.farmName?.trim() || undefined;
   const payload = {
     carKey: analysisForm.carKey.trim(),
@@ -1083,18 +1169,12 @@ async function performSubmit() {
     farmName,
   };
   try {
-    const res = await http.post<ApiEnvelope<{ analysisId: string }>>(
-      "/v1/analyses",
-      payload,
-    );
+    const res = await http.post<ApiEnvelope<{ analysisId: string }>>("/v1/analyses", payload);
     const created = unwrapData(res.data);
     message.value = "Análise criada. Aguardando processamento.";
     await router.push(`/analyses/${created.analysisId}`);
   } catch (err: any) {
-    const apiMessage =
-      err?.response?.data?.error?.message ??
-      err?.response?.data?.message ??
-      "Falha ao criar análise.";
+    const apiMessage = err?.response?.data?.error?.message ?? err?.response?.data?.message ?? "Falha ao criar análise.";
     message.value = apiMessage;
   } finally {
     isSubmitting.value = false;
@@ -1139,20 +1219,14 @@ async function submitRadiusAnalysis() {
     analysisDate: normalizeAnalysisDate(analysisForm.analysisDate),
   };
   try {
-    const res = await http.post<ApiEnvelope<{ analysisId: string }>>(
-      "/v1/analyses/radius",
-      payload,
-    );
+    const res = await http.post<ApiEnvelope<{ analysisId: string }>>("/v1/analyses/radius", payload);
     const created = unwrapData(res.data);
     message.value = "Análise criada. Aguardando processamento.";
     if (created?.analysisId) {
       await router.push(`/analyses/${created.analysisId}`);
     }
   } catch (err: any) {
-    message.value =
-      err?.response?.data?.error?.message ??
-      err?.response?.data?.message ??
-      "Falha ao criar análise.";
+    message.value = err?.response?.data?.error?.message ?? err?.response?.data?.message ?? "Falha ao criar análise.";
   } finally {
     isSubmitting.value = false;
   }
@@ -1195,10 +1269,7 @@ async function submitGeometryAnalysis() {
     formData.append("documents", JSON.stringify(analysisForm.documents));
   }
   try {
-    const res = await http.post<ApiEnvelope<{ analysisId: string }>>(
-      "/v1/analyses/geometry",
-      formData,
-    );
+    const res = await http.post<ApiEnvelope<{ analysisId: string }>>("/v1/analyses/geometry", formData);
     const created = unwrapData(res.data);
     message.value = "Análise criada. Aguardando processamento.";
     if (created?.analysisId) {
@@ -1206,9 +1277,7 @@ async function submitGeometryAnalysis() {
     }
   } catch (err: any) {
     message.value =
-      err?.response?.data?.error?.message ??
-      err?.response?.data?.message ??
-      "Falha ao criar análise por arquivo.";
+      err?.response?.data?.error?.message ?? err?.response?.data?.message ?? "Falha ao criar análise por arquivo.";
   } finally {
     isSubmitting.value = false;
   }
@@ -1261,10 +1330,7 @@ async function runCarSearch(payload: { lat: number; lng: number; radiusMeters: n
   parsedCenter.value = { lat: payload.lat, lng: payload.lng };
 
   try {
-    const res = await http.post<ApiEnvelope<CarSearchVectorMapResponse>>(
-      "/v1/cars/map-searches",
-      payload,
-    );
+    const res = await http.post<ApiEnvelope<CarSearchVectorMapResponse>>("/v1/cars/map-searches", payload);
     activeSearch.value = unwrapData(res.data);
     fallbackCars.value = [];
   } catch (err: any) {
@@ -1272,15 +1338,10 @@ async function runCarSearch(payload: { lat: number; lng: number; radiusMeters: n
       const fallbackRows = await fetchLegacyCarsFallback(payload.lat, payload.lng);
       fallbackCars.value = fallbackRows;
       activeSearch.value = null;
-      const apiMessage =
-        err?.response?.data?.error?.message ??
-        err?.response?.data?.message ??
-        null;
+      const apiMessage = err?.response?.data?.error?.message ?? err?.response?.data?.message ?? null;
       searchMessage.value =
         apiMessage ??
-        (searchRadiusKm.value === 5
-          ? "Modo compatível ativado."
-          : "Modo compatível ativado com raio fixo de 5 km.");
+        (searchRadiusKm.value === 5 ? "Modo compatível ativado." : "Modo compatível ativado com raio fixo de 5 km.");
     } catch (fallbackErr: any) {
       fallbackCars.value = [];
       activeSearch.value = null;
@@ -1297,16 +1358,45 @@ async function runCarSearch(payload: { lat: number; lng: number; radiusMeters: n
   }
 }
 
+async function searchCarsByFile() {
+  if (mvBusy.value || searchBusy.value) return;
+  const fileError = validateGeometryFile(carSearchGeometryFile.value);
+  if (fileError) {
+    carSearchGeometryMessage.value = fileError;
+    return;
+  }
+  searchBusy.value = true;
+  searchMessage.value = "";
+  analysisForm.carKey = "";
+  activeSearch.value = null;
+  fallbackCars.value = [];
+  const formData = new FormData();
+  formData.append("file", carSearchGeometryFile.value!);
+  try {
+    const res = await http.post<ApiEnvelope<CarSearchVectorMapResponse>>("/v1/cars/map-searches/geometry", formData);
+    const search = unwrapData(res.data);
+    activeSearch.value = search;
+    if (Number.isFinite(search.searchCenter?.lat) && Number.isFinite(search.searchCenter?.lng)) {
+      center.lat = search.searchCenter.lat.toFixed(6);
+      center.lng = search.searchCenter.lng.toFixed(6);
+      parsedCenter.value = { ...search.searchCenter };
+    }
+  } catch (err: any) {
+    searchMessage.value =
+      err?.response?.data?.error?.message ?? err?.response?.data?.message ?? "Falha ao buscar CARs pelo arquivo.";
+  } finally {
+    searchBusy.value = false;
+  }
+}
+
 async function searchCars() {
   if (mvBusy.value) {
-    searchMessage.value =
-      "Base geoespacial em atualização. Aguarde para buscar CARs.";
+    searchMessage.value = "Base geoespacial em atualização. Aguarde para buscar CARs.";
     return;
   }
   const payload = currentSearchPayload();
   if (!payload) {
-    searchMessage.value =
-      "Coordenadas inválidas. Use DD, DMM ou DMS (ex: 23° 26' 44.3\" S).";
+    searchMessage.value = "Coordenadas inválidas. Use DD, DMM ou DMS (ex: 23° 26' 44.3\" S).";
     return;
   }
   await runCarSearch(payload);
@@ -1314,8 +1404,7 @@ async function searchCars() {
 
 async function searchCarsFromMap(payload: { lat: number; lng: number }) {
   if (mvBusy.value) {
-    searchMessage.value =
-      "Base geoespacial em atualização. Aguarde para buscar CARs.";
+    searchMessage.value = "Base geoespacial em atualização. Aguarde para buscar CARs.";
     return;
   }
   await runCarSearch({
@@ -1327,13 +1416,11 @@ async function searchCarsFromMap(payload: { lat: number; lng: number }) {
 
 function useMyLocation() {
   if (mvBusy.value) {
-    searchMessage.value =
-      "Base geoespacial em atualização. Aguarde para buscar CARs.";
+    searchMessage.value = "Base geoespacial em atualização. Aguarde para buscar CARs.";
     return;
   }
   if (!("geolocation" in navigator)) {
-    searchMessage.value =
-      "Geolocalização indisponível neste dispositivo ou navegador.";
+    searchMessage.value = "Geolocalização indisponível neste dispositivo ou navegador.";
     return;
   }
   gpsLoading.value = true;
@@ -1413,9 +1500,7 @@ function parseCombinedCoordinates(value: string) {
   const raw = value.trim();
   if (!raw) return null;
 
-  const decimalMatch = raw.match(
-    /^\s*([+-]?\d+(?:[.,]\d+)?)\s*[,;\s]\s*([+-]?\d+(?:[.,]\d+)?)\s*$/,
-  );
+  const decimalMatch = raw.match(/^\s*([+-]?\d+(?:[.,]\d+)?)\s*[,;\s]\s*([+-]?\d+(?:[.,]\d+)?)\s*$/);
   if (decimalMatch) {
     const lat = parseCoordinate(decimalMatch[1], "lat");
     const lng = parseCoordinate(decimalMatch[2], "lng");
@@ -1563,11 +1648,7 @@ function isValidDate(value: string) {
   if (mm < 1 || mm > 12) return false;
   if (dd < 1 || dd > 31) return false;
   const date = new Date(yyyy, mm - 1, dd);
-  return (
-    date.getFullYear() === yyyy &&
-    date.getMonth() === mm - 1 &&
-    date.getDate() === dd
-  );
+  return date.getFullYear() === yyyy && date.getMonth() === mm - 1 && date.getDate() === dd;
 }
 
 const dateError = computed(() => {
@@ -1651,6 +1732,25 @@ async function downloadSearchPng() {
     searchMessage.value = err?.message ?? "Falha ao exportar PNG.";
   } finally {
     pngBusy.value = false;
+  }
+}
+
+async function downloadSearchCsv() {
+  const searchId = activeSearch.value?.searchId;
+  if (!searchId || searchBusy.value || csvBusy.value) return;
+  csvBusy.value = true;
+  try {
+    const res = await http.get<Blob>(`/v1/cars/map-searches/${searchId}/csv`, {
+      responseType: "blob",
+    });
+    const filename =
+      filenameFromContentDisposition(res.headers?.["content-disposition"]) ?? `${buildSearchExportBaseName()}.csv`;
+    saveBlobAsFile(res.data, filename);
+  } catch (err: any) {
+    searchMessage.value =
+      err?.response?.data?.error?.message ?? err?.response?.data?.message ?? "Falha ao exportar CSV.";
+  } finally {
+    csvBusy.value = false;
   }
 }
 
