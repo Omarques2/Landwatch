@@ -8,6 +8,7 @@ import { AnalysisDetailService } from './analysis-detail.service';
 import { AnalysisCacheService } from './analysis-cache.service';
 import { AnalysisVectorMapService } from './analysis-vector-map.service';
 import { AnalysisPostprocessService } from './analysis-postprocess.service';
+import { AnalysisOverlapService } from './analysis-overlap.service';
 import { DocInfoService } from './doc-info.service';
 import { AnalysisPdfService } from './pdf/analysis-pdf.service';
 import { AnalysisPdfMapService } from './pdf/analysis-pdf-map.service';
@@ -30,11 +31,12 @@ import { AttachmentsModule } from '../attachments/attachments.module';
     AnalysisCacheService,
     AnalysisVectorMapService,
     AnalysisPostprocessService,
+    AnalysisOverlapService,
     DocInfoService,
     AnalysisPdfService,
     AnalysisPdfMapService,
     AnalysisSubjectParserService,
   ],
-  exports: [AnalysesService],
+  exports: [AnalysesService, AnalysisSubjectParserService],
 })
 export class AnalysesModule {}

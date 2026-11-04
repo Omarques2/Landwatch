@@ -106,7 +106,9 @@ function makeService(overrides?: {
   };
   const cache = {
     get: jest.fn().mockResolvedValue(overrides?.cachePayload ?? null),
+    invalidate: jest.fn().mockResolvedValue(undefined),
   };
+  const overlap = { computeAndStore: jest.fn().mockResolvedValue(true) };
   const attachments = {
     listAnalysisAttachments: jest
       .fn()
@@ -123,8 +125,9 @@ function makeService(overrides?: {
     cache as any,
     attachments as any,
     map as any,
+    overlap as any,
   );
-  return { service, analyses, cache, attachments, map };
+  return { service, analyses, cache, attachments, map, overlap };
 }
 
 describe('AnalysisPdfService', () => {
@@ -165,6 +168,64 @@ describe('AnalysisPdfService', () => {
     expect(map.renderMap).toHaveBeenCalledWith(
       expect.objectContaining({ widthPx: 1440, heightPx: 960 }),
     );
+  });
+
+  it('backfills a legacy summary before a direct PDF download', async () => {
+    const { service, analyses, overlap, cache } = makeService({
+      detail: { ...completedDetail, overlapStatus: 'pending' },
+      cachePayload: { cacheVersion: 20, detail: completedDetail },
+    });
+    analyses.getById
+      .mockResolvedValueOnce({ ...completedDetail, overlapStatus: 'pending' })
+      .mockResolvedValueOnce({
+        ...completedDetail,
+        overlapStatus: 'ready',
+        legendOverlap: { PRODES_AMAZONIA: 12 },
+      });
+    const legendSpy = jest.spyOn(service as any, 'buildLegend');
+
+    await service.generateForUser('analysis-1', {
+      userSubject: 'user-sub',
+      orgHeader: 'org-1',
+      apiBaseUrl: 'https://api.example.test',
+    });
+
+    expect(overlap.computeAndStore).toHaveBeenCalledWith('analysis-1');
+    expect(cache.invalidate).toHaveBeenCalledWith('analysis-1');
+    expect(analyses.getById).toHaveBeenCalledTimes(2);
+    expect(legendSpy).toHaveBeenCalledWith(expect.any(Array), false, false, {
+      PRODES_AMAZONIA: 12,
+    });
+  });
+
+  it('does not silently generate a PDF when legend metrics remain pending', async () => {
+    const { service, overlap, map } = makeService({
+      detail: { ...completedDetail, overlapStatus: 'pending' },
+    });
+    overlap.computeAndStore.mockResolvedValue(false);
+
+    await expect(
+      service.generateForUser('analysis-1', {
+        userSubject: 'user-sub',
+        orgHeader: 'org-1',
+        apiBaseUrl: 'https://api.example.test',
+      }),
+    ).rejects.toMatchObject({
+      response: { code: 'ANALYSIS_OVERLAP_NOT_READY' },
+    });
+    expect(map.renderMap).not.toHaveBeenCalled();
+  });
+
+  it('does not recompute ready overlap metrics for PDF downloads', async () => {
+    const { service, overlap } = makeService({
+      detail: { ...completedDetail, overlapStatus: 'ready', legendOverlap: {} },
+    });
+    await service.generateForUser('analysis-1', {
+      userSubject: 'user-sub',
+      orgHeader: 'org-1',
+      apiBaseUrl: 'https://api.example.test',
+    });
+    expect(overlap.computeAndStore).not.toHaveBeenCalled();
   });
 
   it('uses cached detail and geojson before falling back to expensive builders', async () => {
@@ -251,6 +312,7 @@ describe('AnalysisPdfService', () => {
       cache as any,
       attachments as any,
       map as any,
+      { computeAndStore: jest.fn() } as any,
     );
 
     const result = await service.generate('analysis-1', {
@@ -449,13 +511,17 @@ describe('AnalysisPdfService', () => {
         subjectType: 'GEOMETRY',
         subjectGeometry: {
           type: 'MultiPolygon',
-          coordinates: [[[
-            [-49.2, -22.0],
-            [-49.1, -22.0],
-            [-49.1, -21.9],
-            [-49.2, -21.9],
-            [-49.2, -22.0],
-          ]]],
+          coordinates: [
+            [
+              [
+                [-49.2, -22.0],
+                [-49.1, -22.0],
+                [-49.1, -21.9],
+                [-49.2, -21.9],
+                [-49.2, -22.0],
+              ],
+            ],
+          ],
         },
         sicarStatus: null,
       },
@@ -470,12 +536,64 @@ describe('AnalysisPdfService', () => {
       datasetCode: string;
       geometry: { type: string };
     }>;
-    const subject = features.find((feature) => feature.datasetCode === 'GEOMETRY');
+    const subject = features.find(
+      (feature) => feature.datasetCode === 'GEOMETRY',
+    );
     expect(subject?.geometry.type).toBe('MultiPolygon');
-    const legend = (service as any).buildLegend(features, false, true) as Array<{
+    const legend = (service as any).buildLegend(
+      features,
+      false,
+      true,
+    ) as Array<{
       label: string;
     }>;
     expect(legend[0].label).toBe('Arquivo');
+  });
+
+  it('renders all municipalities and the geometry center in the PDF metadata', async () => {
+    const { service } = makeService();
+    const pdfDoc = await PDFDocument.create();
+    const state = {
+      pdfDoc,
+      page: pdfDoc.addPage([595.28, 841.89]),
+      fonts: {
+        regular: await pdfDoc.embedFont(StandardFonts.Helvetica),
+        bold: await pdfDoc.embedFont(StandardFonts.HelveticaBold),
+      },
+      logo: null,
+      y: 820,
+    };
+    const drawLabelValueSpy = jest.spyOn(service as any, 'drawLabelValue');
+
+    (service as any).drawMetaGrid(
+      state,
+      {
+        ...completedDetail,
+        subjectType: 'GEOMETRY',
+        municipalities: [
+          { municipio: 'Agudos', uf: 'SP' },
+          { municipio: 'Bauru', uf: 'SP' },
+        ],
+        geometryCenter: { lat: -21.95, lng: -49.15 },
+      },
+      40,
+      700,
+    );
+
+    expect(drawLabelValueSpy).toHaveBeenCalledWith(
+      expect.anything(),
+      'Municípios:',
+      'Agudos - SP, Bauru - SP',
+      expect.any(Number),
+      expect.any(Number),
+    );
+    expect(drawLabelValueSpy).toHaveBeenCalledWith(
+      expect.anything(),
+      'Centro:',
+      '-21.950000, -49.150000',
+      expect.any(Number),
+      expect.any(Number),
+    );
   });
 
   it('adds a clickable dataset status icon when a justified dataset has effective attachments', async () => {
@@ -539,6 +657,84 @@ describe('AnalysisPdfService', () => {
     );
 
     expect(lines.length).toBe(2);
+  });
+
+  it('keeps intersection chip labels without overlap percentages', () => {
+    const { service } = makeService();
+
+    expect(
+      (service as any).formatDatasetLabelPrint({
+        datasetCode: 'QUILOMBOLAS',
+        hit: true,
+        overlapPct: 3.2,
+      }),
+    ).toBe('Quilombolas');
+  });
+
+  it('attaches legend overlap percentages to dataset and UCS legend entries', () => {
+    const { service } = makeService();
+    const geometry = { type: 'Polygon', coordinates: [] };
+
+    const legend = (service as any).buildLegend(
+      [
+        {
+          datasetCode: 'CAR_SP',
+          categoryCode: 'SICAR',
+          isSicar: true,
+          geometry,
+        },
+        {
+          datasetCode: 'PRODES_2020',
+          categoryCode: 'PRODES',
+          isSicar: false,
+          geometry,
+        },
+        {
+          datasetCode: 'UNIDADES_CONSERVACAO',
+          categoryCode: 'UCS',
+          displayName: 'Parque X',
+          isSicar: false,
+          geometry,
+        },
+      ],
+      false,
+      false,
+      { PRODES_2020: 12, 'UCS_parque x': 100 },
+    );
+
+    expect(legend).toEqual([
+      { label: 'CAR', color: '#ef4444' },
+      expect.objectContaining({ label: 'Prodes 2020', overlapPct: 12 }),
+      expect.objectContaining({ label: 'Parque X', overlapPct: 100 }),
+    ]);
+  });
+
+  it('draws the overlap percentage badge next to the legend label', async () => {
+    const { service } = makeService();
+    const pdfDoc = await PDFDocument.create();
+    const state = {
+      pdfDoc,
+      page: pdfDoc.addPage([595.28, 841.89]),
+      fonts: {
+        regular: await pdfDoc.embedFont(StandardFonts.Helvetica),
+        bold: await pdfDoc.embedFont(StandardFonts.HelveticaBold),
+      },
+      logo: null,
+      y: 820,
+    };
+    const drawTextSpy = jest.spyOn(service as any, 'drawText');
+
+    (service as any).drawLegend(
+      state,
+      [{ label: 'Prodes 2020', color: '#2563eb', overlapPct: 12 }],
+      40,
+      700,
+      180,
+    );
+
+    const rendered = drawTextSpy.mock.calls.map((call) => call[1]);
+    expect(rendered).toEqual(['Prodes 2020', '12,00%']);
+    drawTextSpy.mockRestore();
   });
 
   it('wraps tight five-column labels without truncating the dataset name', async () => {

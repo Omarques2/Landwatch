@@ -1,394 +1,413 @@
 <template>
-  <div class="analysis-report-root relative mx-auto flex max-w-6xl flex-col gap-6 px-4 py-4 sm:px-6 sm:py-6 overflow-hidden">
+  <div
+    class="analysis-report-root relative mx-auto flex max-w-6xl flex-col gap-6 px-4 py-4 sm:px-6 sm:py-6 overflow-hidden"
+  >
     <div class="relative z-10">
-    <header class="screen-only flex flex-wrap items-center justify-between gap-4">
-      <div>
-        <div class="text-2xl font-semibold">{{ pageTitle }}</div>
-        <div v-if="isLoading" class="mt-2 space-y-2">
-          <div class="h-4 w-72 animate-pulse rounded-full bg-muted"></div>
-          <div class="h-3 w-52 animate-pulse rounded-full bg-muted"></div>
-        </div>
-        <div v-else-if="loadError" class="mt-2 text-sm text-destructive">
-          {{ loadError }}
-        </div>
-        <div v-else class="text-sm text-muted-foreground">
-          <span>Estabelecimento {{ displayFarmName }}</span>
-          <template v-if="analysis?.sicarStatus">
-            <span class="mx-1 text-muted-foreground/70">-</span>
-            <span
-              class="inline-flex items-center gap-2 rounded-full px-2 py-0.5 text-[11px] font-semibold whitespace-nowrap"
-              :class="
-                sicarStatusOk
-                  ? 'bg-emerald-500/15 text-emerald-700'
-                  : 'bg-destructive/15 text-destructive'
-              "
-            >
-              {{ sicarBadgeText }}
-              <span class="text-[10px]">{{ sicarStatusOk ? "✓" : "!" }}</span>
-            </span>
-          </template>
-        </div>
-        <div
-          v-if="!isLoading && docInfos.length"
-          class="mt-1 flex flex-col gap-2 text-xs text-muted-foreground"
-        >
-          <div
-            v-for="info in docInfos"
-            :key="docKey(info)"
-            class="flex items-center gap-2"
-          >
-            <span class="whitespace-nowrap">{{ docPrefix(info) }}</span>
-            <span
-              class="inline-flex items-center gap-2 rounded-full border px-2 py-0.5 text-[11px] font-semibold whitespace-nowrap"
-              :class="
-                docBadgeOk(info)
-                  ? 'border-emerald-300 text-emerald-700 bg-emerald-500/5'
-                  : 'border-destructive/50 text-destructive bg-destructive/5'
-              "
-            >
-              {{ docBadgeText(info) }}
-              <span class="text-[10px]">{{ docBadgeOk(info) ? "✓" : "!" }}</span>
-            </span>
-            <div v-if="docFlagBadges(info).length" class="flex items-center gap-1">
+      <header class="screen-only flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <div class="text-2xl font-semibold">{{ pageTitle }}</div>
+          <div v-if="isLoading" class="mt-2 space-y-2">
+            <div class="h-4 w-72 animate-pulse rounded-full bg-muted"></div>
+            <div class="h-3 w-52 animate-pulse rounded-full bg-muted"></div>
+          </div>
+          <div v-else-if="loadError" class="mt-2 text-sm text-destructive">
+            {{ loadError }}
+          </div>
+          <div v-else class="text-sm text-muted-foreground">
+            <span>Estabelecimento {{ displayFarmName }}</span>
+            <template v-if="analysis?.sicarStatus">
+              <span class="mx-1 text-muted-foreground/70">-</span>
               <span
-                v-for="flag in docFlagBadges(info)"
-                :key="flag"
-                class="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold whitespace-nowrap border-destructive/50 bg-destructive/5 text-destructive"
+                class="inline-flex items-center gap-2 rounded-full px-2 py-0.5 text-[11px] font-semibold whitespace-nowrap"
+                :class="sicarStatusOk ? 'bg-emerald-500/15 text-emerald-700' : 'bg-destructive/15 text-destructive'"
               >
-                {{ flag }}
-                <span class="text-[10px]">!</span>
+                {{ sicarBadgeText }}
+                <span class="text-[10px]">{{ sicarStatusOk ? "✓" : "!" }}</span>
               </span>
-            </div>
+            </template>
           </div>
-        </div>
-        <div
-          v-if="!isLoading && isPreventiveDeter"
-          class="mt-3 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900"
-        >
-          Análise preventiva DETER. Esta visão é voltada para prevenção e não substitui a análise socioambiental completa.
-        </div>
-      </div>
-      <div class="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto">
-        <span
-          v-if="analysis?.orgName"
-          data-testid="analysis-owner-org-badge"
-          class="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700"
-          :title="`Organização proprietária: ${analysis.orgName}`"
-        >
-          {{ analysis.orgName }}
-        </span>
-        <UiButton variant="outline" size="sm" @click="loadAnalysis">Atualizar</UiButton>
-        <UiButton
-          v-if="hasAnalysisAttachments"
-          variant="outline"
-          size="sm"
-          @click="openAttachmentsModal"
-        >
-          Anexos
-        </UiButton>
-        <UiButton
-          variant="outline"
-          size="sm"
-          :disabled="!canDownloadGeoJson"
-          @click="downloadGeoJson"
-        >
-          Baixar GeoJSON
-        </UiButton>
-        <UiButton
-          size="sm"
-          :disabled="!canDownloadPdf || pdfDownloading"
-          :class="!canDownloadPdf || pdfDownloading ? 'opacity-50' : ''"
-          @click="downloadPdf"
-        >
-          {{ pdfDownloading ? "Gerando PDF..." : "Baixar PDF" }}
-        </UiButton>
-        <UiButton
-          v-if="hasAnalysisAttachments"
-          variant="outline"
-          size="sm"
-          @click="downloadAnalysisAttachmentsZip"
-        >
-          Baixar ZIP anexos
-        </UiButton>
-      </div>
-    </header>
-
-    <section class="report-card rounded-2xl border border-border bg-card p-4 sm:p-6 shadow-sm">
-      <div class="text-lg font-semibold">{{ mapSectionTitle }}</div>
-      <div
-        v-if="displayStatus && displayStatus !== 'completed'"
-        class="mt-2 text-sm text-muted-foreground"
-      >
-        Status: {{ statusLabel(displayStatus) }}
-      </div>
-      <div v-if="showMetaSkeleton" class="mt-4 grid gap-3 text-sm sm:grid-cols-2">
-        <div class="h-4 w-36 animate-pulse rounded-full bg-muted"></div>
-        <div class="h-4 w-44 animate-pulse rounded-full bg-muted"></div>
-        <div class="h-4 w-32 animate-pulse rounded-full bg-muted"></div>
-        <div class="h-4 w-28 animate-pulse rounded-full bg-muted"></div>
-      </div>
-      <div v-else class="mt-4 grid gap-3 text-sm sm:grid-cols-2">
-        <div><span class="font-semibold">Data:</span> {{ formatDate(analysis?.analysisDate) }}</div>
-        <div>
-          <span class="font-semibold">Município:</span>
-          {{ formatMunicipio(analysis?.municipio, analysis?.uf) }}
-        </div>
-        <div>
-          <span class="font-semibold">Bioma(s):</span>
-          {{ formatBiomas(analysis?.biomas) }}
-        </div>
-        <div>
-          <span class="font-semibold">Interseções:</span> {{ analysis?.intersectionCount ?? 0 }}
-          <template v-if="justifiedIntersectionsSummary">
-            <span class="mx-1 text-muted-foreground">•</span>
-            <span class="text-muted-foreground">
-              <span class="font-semibold">Justificadas:</span> {{ justifiedIntersectionsSummary }}
-            </span>
-          </template>
-        </div>
-        <div v-if="isRadiusAnalysis">
-          <span class="font-semibold">Centro:</span>
-          {{
-            formatCoordinates(
-              analysis?.radius?.lat != null && analysis?.radius?.lng != null
-                ? { lat: analysis.radius.lat, lng: analysis.radius.lng }
-                : null,
-            )
-          }}
-        </div>
-        <div v-if="isRadiusAnalysis">
-          <span class="font-semibold">Raio:</span>
-          {{ formatRadiusKm(analysis?.radius?.m) }}
-        </div>
-        <div v-else-if="isGeometryAnalysis">
-          <span class="font-semibold">Base:</span>
-          Geometria enviada por arquivo
-        </div>
-        <div v-else>
-          <span class="font-semibold">Coordenadas do CAR:</span>
-          {{ formatCoordinates(analysis?.sicarCoordinates ?? null) }}
-        </div>
-        <div>
-          <span class="font-semibold">Área (ha):</span>
-          {{ formatAreaHa(sicarAreaHa) }}
-        </div>
-      </div>
-      <div
-        v-if="showSicarWarning"
-        class="mt-4 rounded-xl border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive"
-      >
-        A feição do imóvel no SICAR não está ativa (status: {{ formatStatus(analysis?.sicarStatus) }}).
-      </div>
-      <div class="report-map-row mt-4">
-        <div
-          :class="
-            mapExpanded
-              ? 'fixed inset-0 z-[60] bg-background p-2 pb-safe-3'
-              : 'analysis-map-frame report-map-col relative h-[420px] sm:h-[560px]'
-          "
-        >
-          <div
-            v-if="mapLoading"
-            class="grid h-full place-items-center rounded-xl border border-dashed border-border bg-muted/20"
-          >
-            <div class="flex flex-col items-center gap-3">
-              <div class="h-8 w-64 animate-pulse rounded-full bg-muted"></div>
-              <div class="h-4 w-40 animate-pulse rounded-full bg-muted"></div>
-              <div class="text-xs text-muted-foreground">Carregando mapa...</div>
-            </div>
-          </div>
-          <AnalysisVectorMap
-            v-else-if="vectorMap?.vectorSource"
-            ref="mapRef"
-            :vector-source="vectorMap?.vectorSource ?? null"
-            :legend-items="vectorMap?.legendItems ?? []"
-            :active-legend-code="activeLegendCode"
-            :car-key="analysis?.carKey ?? null"
-            :radius="isRadiusAnalysis && analysis?.radius ? analysis.radius : null"
-            :subject-geometry="isGeometryAnalysis ? analysis?.subjectGeometry : null"
-            auth-mode="private"
-            :enable-context-menu="true"
-            @feature-contextmenu="onMapFeatureContextMenu"
-            @feature-attachments="onMapFeatureAttachments"
-          />
-          <div
-            v-else-if="analysis?.status === 'completed'"
-            class="grid h-full place-items-center text-sm text-muted-foreground"
-          >
-            Nenhuma geometria disponível.
-          </div>
-          <div
-            v-if="showAnalysisOverlay"
-            class="absolute inset-0 grid place-items-center rounded-xl border border-dashed border-border bg-background/90 backdrop-blur-sm"
-          >
-            <div class="flex flex-col items-center gap-4 text-center">
-              <div class="inline-flex items-center gap-3 text-2xl font-semibold">
-                <span class="inline-flex h-6 w-6 animate-spin rounded-full border-2 border-muted-foreground/40 border-t-muted-foreground"></span>
-                {{ statusLabel(displayStatus) }}
-              </div>
-              <div class="max-w-xs text-sm text-muted-foreground">
-                Estamos processando sua análise. Assim que terminar, o mapa e os resultados serão exibidos.
-              </div>
-            </div>
-          </div>
-          <UiButton
-            v-if="isCoarsePointer && vectorMap?.vectorSource && !mapLoading"
-            size="icon"
-            variant="outline"
-            class="absolute right-3 top-3 z-30 bg-background/92"
-            :aria-label="mapExpanded ? 'Recolher mapa' : 'Expandir mapa'"
-            @click="toggleMapExpanded"
-          >
-            <Minimize2 v-if="mapExpanded" class="h-4 w-4" />
-            <Maximize2 v-else class="h-4 w-4" />
-          </UiButton>
-        </div>
-      </div>
-      <div v-if="vectorMap?.vectorSource" class="screen-only mt-4">
-        <div class="text-sm font-semibold">Legenda</div>
-        <div class="analysis-screen-legend mt-2 flex flex-wrap gap-2 text-xs">
-          <button
-            v-for="item in legendEntries"
-            :key="item.code"
-            type="button"
-            class="inline-flex max-w-full items-center gap-2 rounded-md border px-2 py-1 text-left transition-colors"
-            :class="
-              activeLegendCode === item.code
-                ? 'border-border bg-accent text-foreground'
-                : activeLegendCode
-                  ? 'border-border/60 bg-background text-muted-foreground'
-                  : 'border-border bg-background text-foreground hover:bg-muted'
-            "
-            @click="toggleLegendFilter(item.code)"
-            >
-            <span
-              class="h-3 w-3 rounded-sm border"
-              :style="{
-                backgroundColor: activeLegendCode && activeLegendCode !== item.code ? '#cbd5e1' : item.color,
-                borderColor: activeLegendCode && activeLegendCode !== item.code ? '#cbd5e1' : item.color,
-              }"
-            ></span>
-            <span class="min-w-0 whitespace-normal break-words leading-snug">{{ item.label }}</span>
-          </button>
-        </div>
-      </div>
-    </section>
-
-    <section class="report-card rounded-2xl border border-border bg-card p-4 sm:p-6 shadow-sm">
-      <div class="flex flex-wrap items-start justify-between gap-3">
-        <div class="text-lg font-semibold">{{ intersectionsSectionTitle }}</div>
-        <AnalysisDatasetStatusLegend :groups="analysis?.datasetGroups ?? null" class="ml-auto" />
-      </div>
-      <div v-if="showIntersectionsSkeleton" class="mt-4 grid gap-4">
-        <div class="h-4 w-40 animate-pulse rounded-full bg-muted"></div>
-        <div class="intersections-grid grid gap-1.5 sm:grid-cols-3 xl:grid-cols-4">
-          <div class="h-10 animate-pulse rounded-lg border border-border bg-muted/30"></div>
-          <div class="h-10 animate-pulse rounded-lg border border-border bg-muted/30"></div>
-          <div class="h-10 animate-pulse rounded-lg border border-border bg-muted/30"></div>
-        </div>
-      </div>
-      <div v-else-if="(analysis?.datasetGroups?.length ?? 0) === 0" class="mt-3 text-sm text-muted-foreground">
-        Sem interseções relevantes.
-      </div>
-      <div v-else class="mt-4 grid gap-6">
-        <div v-for="group in analysis?.datasetGroups ?? []" :key="group.title">
-          <div class="text-sm font-semibold text-muted-foreground">{{ group.title }}</div>
-          <div class="intersections-grid mt-3 grid gap-1.5 sm:grid-cols-3 xl:grid-cols-4">
-            <div
-              v-for="item in group.items"
-              :key="item.datasetCode"
-              class="analysis-intersection-item flex items-start gap-2 rounded-lg border border-border px-2.5 py-1.5 text-[11px]"
-            >
-              <AnalysisDatasetStatusIcon
-                :kind="datasetStatusKind(item)"
-                :clickable="isDatasetJustificationClickable(item)"
-                :title="datasetStatusTitle(item)"
-                :aria-label="isDatasetJustificationClickable(item) ? 'Abrir justificativas do dataset' : null"
-                @click="isDatasetJustificationClickable(item) ? openAttachmentsModal() : undefined"
-              />
-              <div class="min-w-0 flex-1">
-                <span class="font-semibold">{{ formatDatasetLabelForMode(item) }}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
-    <footer
-      v-if="isPreventiveDeter"
-      class="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-xs text-amber-900"
-    >
-      Esta análise preventiva usa alertas DETER para prevenção de possíveis desmatamentos no CAR. Use a análise completa para avaliação socioambiental oficial.
-    </footer>
-
-    <component
-      :is="isCoarsePointer ? dynComponents.UiSheet : dynComponents.UiDialog"
-      v-bind="isCoarsePointer ? { open: attachmentsOpen, side: 'bottom', label: 'Anexos da análise' } : { open: attachmentsOpen, maxWidthClass: 'max-w-3xl' }"
-      @close="attachmentsOpen = false"
-    >
-      <div class="flex max-h-[82vh] min-h-[320px] flex-col">
-        <div class="flex items-center justify-between gap-3 border-b border-border px-4 py-4 sm:px-6 sm:py-5">
-          <div class="text-lg font-semibold text-foreground">Anexos da análise</div>
-          <UiButton variant="ghost" size="sm" @click="attachmentsOpen = false">Fechar</UiButton>
-        </div>
-        <div class="min-h-0 flex-1 overflow-auto px-4 py-4 sm:px-6 sm:py-5">
-          <div v-if="attachmentsLoading" class="text-sm text-muted-foreground">Carregando anexos...</div>
-          <div v-else-if="analysisAttachments.length === 0" class="rounded-2xl border border-dashed border-border px-4 py-8 text-sm text-muted-foreground">
-            Nenhum anexo efetivo para esta análise.
-          </div>
-          <div v-else class="grid gap-3">
-            <article
-              v-for="attachment in analysisAttachments"
-              :key="`${attachment.id}:${attachment.target.id}`"
-              class="rounded-2xl border border-border bg-card p-4 text-sm"
-            >
-              <div class="flex flex-wrap items-start justify-between gap-3">
-                <div class="min-w-0">
-                  <div class="line-clamp-2 break-words font-semibold text-foreground">{{ attachment.originalFilename }}</div>
-                  <div class="mt-1 break-words text-xs text-muted-foreground">
-                    {{ attachment.categoryName }} • {{ attachment.target.datasetCode }} • featureId={{ attachment.target.featureId ?? '-' }}
-                  </div>
-                </div>
+          <div v-if="!isLoading && docInfos.length" class="mt-1 flex flex-col gap-2 text-xs text-muted-foreground">
+            <div v-for="info in docInfos" :key="docKey(info)" class="flex items-center gap-2">
+              <span class="whitespace-nowrap">{{ docPrefix(info) }}</span>
+              <span
+                class="inline-flex items-center gap-2 rounded-full border px-2 py-0.5 text-[11px] font-semibold whitespace-nowrap"
+                :class="
+                  docBadgeOk(info)
+                    ? 'border-emerald-300 text-emerald-700 bg-emerald-500/5'
+                    : 'border-destructive/50 text-destructive bg-destructive/5'
+                "
+              >
+                {{ docBadgeText(info) }}
+                <span class="text-[10px]">{{ docBadgeOk(info) ? "✓" : "!" }}</span>
+              </span>
+              <div v-if="docFlagBadges(info).length" class="flex items-center gap-1">
                 <span
-                  class="inline-flex shrink-0 items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold"
-                  :class="attachment.isJustification ? 'border-amber-200 bg-amber-50 text-amber-700' : 'border-sky-200 bg-sky-50 text-sky-700'"
+                  v-for="flag in docFlagBadges(info)"
+                  :key="flag"
+                  class="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold whitespace-nowrap border-destructive/50 bg-destructive/5 text-destructive"
                 >
-                  {{ attachment.isJustification ? 'Justificativa' : 'Informativo' }}
+                  {{ flag }}
+                  <span class="text-[10px]">!</span>
                 </span>
               </div>
-              <div class="mt-3">
-                <UiButton variant="outline" size="sm" @click="downloadAnalysisAttachment(attachment.id, attachment.originalFilename)">
-                  Baixar
-                </UiButton>
-              </div>
-            </article>
+            </div>
+          </div>
+          <div
+            v-if="!isLoading && isPreventiveDeter"
+            class="mt-3 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900"
+          >
+            Análise preventiva DETER. Esta visão é voltada para prevenção e não substitui a análise socioambiental
+            completa.
           </div>
         </div>
-        <div class="flex flex-wrap items-center justify-end gap-2 border-t border-border px-4 py-4 pb-safe-3 sm:px-6">
-          <UiButton variant="outline" :disabled="analysisAttachments.length === 0" @click="downloadAnalysisAttachmentsZip">
-            Baixar ZIP
+        <div class="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto">
+          <span
+            v-if="analysis?.orgName"
+            data-testid="analysis-owner-org-badge"
+            class="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700"
+            :title="`Organização proprietária: ${analysis.orgName}`"
+          >
+            {{ analysis.orgName }}
+          </span>
+          <UiButton variant="outline" size="sm" @click="loadAnalysis">Atualizar</UiButton>
+          <UiButton v-if="hasAnalysisAttachments" variant="outline" size="sm" @click="openAttachmentsModal">
+            Anexos
           </UiButton>
-          <UiButton variant="outline" @click="goToAttachmentsFromAnalysisModal">
-            Gerenciar no módulo de Anexos
+          <UiButton variant="outline" size="sm" :disabled="!canDownloadGeoJson" @click="downloadGeoJson">
+            Baixar GeoJSON
+          </UiButton>
+          <UiButton
+            size="sm"
+            :disabled="!canDownloadPdf || pdfDownloading"
+            :class="!canDownloadPdf || pdfDownloading ? 'opacity-50' : ''"
+            @click="downloadPdf"
+          >
+            {{ pdfDownloading ? "Gerando PDF..." : "Baixar PDF" }}
+          </UiButton>
+          <UiButton v-if="hasAnalysisAttachments" variant="outline" size="sm" @click="downloadAnalysisAttachmentsZip">
+            Baixar ZIP anexos
           </UiButton>
         </div>
-      </div>
-    </component>
-    <div
-      v-if="featureContextMenu.open"
-      ref="featureContextMenuEl"
-      class="fixed z-[60] min-w-[180px] rounded-xl border border-border bg-background/95 p-1 shadow-lg backdrop-blur"
-      :style="featureContextMenuStyle"
-      @contextmenu.prevent
-    >
-      <button
-        type="button"
-        class="flex w-full items-center rounded-lg px-3 py-2 text-sm text-foreground hover:bg-muted"
-        @click="goToAttachmentsFromContextMenu"
+      </header>
+
+      <section class="report-card rounded-2xl border border-border bg-card p-4 sm:p-6 shadow-sm">
+        <div class="text-lg font-semibold">{{ mapSectionTitle }}</div>
+        <div v-if="displayStatus && displayStatus !== 'completed'" class="mt-2 text-sm text-muted-foreground">
+          Status: {{ statusLabel(displayStatus) }}
+        </div>
+        <div v-if="showMetaSkeleton" class="mt-4 grid gap-3 text-sm sm:grid-cols-2">
+          <div class="h-4 w-36 animate-pulse rounded-full bg-muted"></div>
+          <div class="h-4 w-44 animate-pulse rounded-full bg-muted"></div>
+          <div class="h-4 w-32 animate-pulse rounded-full bg-muted"></div>
+          <div class="h-4 w-28 animate-pulse rounded-full bg-muted"></div>
+        </div>
+        <div v-else class="mt-4 grid gap-3 text-sm sm:grid-cols-2">
+          <div><span class="font-semibold">Data:</span> {{ formatDate(analysis?.analysisDate) }}</div>
+          <div>
+            <span class="font-semibold">{{ isGeometryAnalysis ? "Municípios:" : "Município:" }}</span>
+            {{
+              isGeometryAnalysis
+                ? formatMunicipalities(analysis?.municipalities)
+                : formatMunicipio(analysis?.municipio, analysis?.uf)
+            }}
+          </div>
+          <div>
+            <span class="font-semibold">Bioma(s):</span>
+            {{ formatBiomas(analysis?.biomas) }}
+          </div>
+          <div>
+            <span class="font-semibold">Interseções:</span> {{ analysis?.intersectionCount ?? 0 }}
+            <template v-if="justifiedIntersectionsSummary">
+              <span class="mx-1 text-muted-foreground">•</span>
+              <span class="text-muted-foreground">
+                <span class="font-semibold">Justificadas:</span> {{ justifiedIntersectionsSummary }}
+              </span>
+            </template>
+          </div>
+          <div v-if="isRadiusAnalysis">
+            <span class="font-semibold">Centro:</span>
+            {{
+              formatCoordinates(
+                analysis?.radius?.lat != null && analysis?.radius?.lng != null
+                  ? { lat: analysis.radius.lat, lng: analysis.radius.lng }
+                  : null,
+              )
+            }}
+          </div>
+          <div v-if="isRadiusAnalysis">
+            <span class="font-semibold">Raio:</span>
+            {{ formatRadiusKm(analysis?.radius?.m) }}
+          </div>
+          <div v-else-if="isGeometryAnalysis">
+            <span class="font-semibold">Base:</span>
+            Geometria enviada por arquivo
+          </div>
+          <div v-else>
+            <span class="font-semibold">Coordenadas do CAR:</span>
+            {{ formatCoordinates(analysis?.sicarCoordinates ?? null) }}
+          </div>
+          <div v-if="isGeometryAnalysis">
+            <span class="font-semibold">Centro:</span>
+            {{ formatCoordinates(analysis?.geometryCenter ?? null) }}
+          </div>
+          <div>
+            <span class="font-semibold">Área (ha):</span>
+            {{ formatAreaHa(sicarAreaHa) }}
+          </div>
+        </div>
+        <div
+          v-if="showSicarWarning"
+          class="mt-4 rounded-xl border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive"
+        >
+          A feição do imóvel no SICAR não está ativa (status: {{ formatStatus(analysis?.sicarStatus) }}).
+        </div>
+        <div class="report-map-row mt-4">
+          <div
+            :class="
+              mapExpanded
+                ? 'fixed inset-0 z-[60] bg-background p-2 pb-safe-3'
+                : 'analysis-map-frame report-map-col relative h-[420px] sm:h-[560px]'
+            "
+          >
+            <div
+              v-if="mapLoading"
+              class="grid h-full place-items-center rounded-xl border border-dashed border-border bg-muted/20"
+            >
+              <div class="flex flex-col items-center gap-3">
+                <div class="h-8 w-64 animate-pulse rounded-full bg-muted"></div>
+                <div class="h-4 w-40 animate-pulse rounded-full bg-muted"></div>
+                <div class="text-xs text-muted-foreground">Carregando mapa...</div>
+              </div>
+            </div>
+            <AnalysisVectorMap
+              v-else-if="vectorMap?.vectorSource"
+              ref="mapRef"
+              :vector-source="vectorMap?.vectorSource ?? null"
+              :legend-items="vectorMap?.legendItems ?? []"
+              :active-legend-code="activeLegendCode"
+              :car-key="analysis?.carKey ?? null"
+              :radius="isRadiusAnalysis && analysis?.radius ? analysis.radius : null"
+              :subject-geometry="isGeometryAnalysis ? analysis?.subjectGeometry : null"
+              auth-mode="private"
+              :enable-context-menu="true"
+              @feature-contextmenu="onMapFeatureContextMenu"
+              @feature-attachments="onMapFeatureAttachments"
+            />
+            <div
+              v-else-if="analysis?.status === 'completed'"
+              class="grid h-full place-items-center text-sm text-muted-foreground"
+            >
+              Nenhuma geometria disponível.
+            </div>
+            <div
+              v-if="showAnalysisOverlay"
+              class="absolute inset-0 grid place-items-center rounded-xl border border-dashed border-border bg-background/90 backdrop-blur-sm"
+            >
+              <div class="flex flex-col items-center gap-4 text-center">
+                <div class="inline-flex items-center gap-3 text-2xl font-semibold">
+                  <span
+                    class="inline-flex h-6 w-6 animate-spin rounded-full border-2 border-muted-foreground/40 border-t-muted-foreground"
+                  ></span>
+                  {{ statusLabel(displayStatus) }}
+                </div>
+                <div class="max-w-xs text-sm text-muted-foreground">
+                  Estamos processando sua análise. Assim que terminar, o mapa e os resultados serão exibidos.
+                </div>
+              </div>
+            </div>
+            <UiButton
+              v-if="isCoarsePointer && vectorMap?.vectorSource && !mapLoading"
+              size="icon"
+              variant="outline"
+              class="absolute right-3 top-3 z-30 bg-background/92"
+              :aria-label="mapExpanded ? 'Recolher mapa' : 'Expandir mapa'"
+              @click="toggleMapExpanded"
+            >
+              <Minimize2 v-if="mapExpanded" class="h-4 w-4" />
+              <Maximize2 v-else class="h-4 w-4" />
+            </UiButton>
+          </div>
+        </div>
+        <div v-if="vectorMap?.vectorSource" class="screen-only mt-4">
+          <div class="text-sm font-semibold">Legenda</div>
+          <div class="analysis-screen-legend mt-2 flex flex-wrap gap-2 text-xs">
+            <button
+              v-for="item in legendEntries"
+              :key="item.code"
+              type="button"
+              class="inline-flex max-w-full items-center gap-2 rounded-md border px-2 py-1 text-left transition-colors"
+              :class="
+                activeLegendCode === item.code
+                  ? 'border-border bg-accent text-foreground'
+                  : activeLegendCode
+                    ? 'border-border/60 bg-background text-muted-foreground'
+                    : 'border-border bg-background text-foreground hover:bg-muted'
+              "
+              @click="toggleLegendFilter(item.code)"
+            >
+              <span
+                class="h-3 w-3 rounded-sm border"
+                :style="{
+                  backgroundColor: activeLegendCode && activeLegendCode !== item.code ? '#cbd5e1' : item.color,
+                  borderColor: activeLegendCode && activeLegendCode !== item.code ? '#cbd5e1' : item.color,
+                }"
+              ></span>
+              <span class="min-w-0 whitespace-normal break-words leading-snug">{{ item.label }}</span>
+              <span
+                v-if="getLegendOverlapLabel(analysis?.legendOverlap, item.code)"
+                data-test="legend-overlap"
+                class="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground"
+                >{{ getLegendOverlapLabel(analysis?.legendOverlap, item.code) }}</span
+              >
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <section class="report-card rounded-2xl border border-border bg-card p-4 sm:p-6 shadow-sm">
+        <div class="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <div class="text-lg font-semibold">{{ intersectionsSectionTitle }}</div>
+            <div v-if="analysis?.overlapStatus === 'pending'" class="text-xs text-muted-foreground">
+              Calculando % de sobreposição…
+            </div>
+          </div>
+          <AnalysisDatasetStatusLegend :groups="analysis?.datasetGroups ?? null" class="ml-auto" />
+        </div>
+        <div v-if="showIntersectionsSkeleton" class="mt-4 grid gap-4">
+          <div class="h-4 w-40 animate-pulse rounded-full bg-muted"></div>
+          <div class="intersections-grid grid gap-1.5 sm:grid-cols-3 xl:grid-cols-4">
+            <div class="h-10 animate-pulse rounded-lg border border-border bg-muted/30"></div>
+            <div class="h-10 animate-pulse rounded-lg border border-border bg-muted/30"></div>
+            <div class="h-10 animate-pulse rounded-lg border border-border bg-muted/30"></div>
+          </div>
+        </div>
+        <div v-else-if="(analysis?.datasetGroups?.length ?? 0) === 0" class="mt-3 text-sm text-muted-foreground">
+          Sem interseções relevantes.
+        </div>
+        <div v-else class="mt-4 grid gap-6">
+          <div v-for="group in analysis?.datasetGroups ?? []" :key="group.title">
+            <div class="text-sm font-semibold text-muted-foreground">{{ group.title }}</div>
+            <div class="intersections-grid mt-3 grid gap-1.5 sm:grid-cols-3 xl:grid-cols-4">
+              <div
+                v-for="item in group.items"
+                :key="item.datasetCode"
+                class="analysis-intersection-item flex items-start gap-2 rounded-lg border border-border px-2.5 py-1.5 text-[11px]"
+              >
+                <AnalysisDatasetStatusIcon
+                  :kind="datasetStatusKind(item)"
+                  :clickable="isDatasetJustificationClickable(item)"
+                  :title="datasetStatusTitle(item)"
+                  :aria-label="isDatasetJustificationClickable(item) ? 'Abrir justificativas do dataset' : null"
+                  @click="isDatasetJustificationClickable(item) ? openAttachmentsModal() : undefined"
+                />
+                <div class="min-w-0 flex-1">
+                  <span class="font-semibold">{{ formatDatasetLabelForMode(item) }}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+      <footer
+        v-if="isPreventiveDeter"
+        class="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-xs text-amber-900"
       >
-        Ir para Anexos
-      </button>
-    </div>
+        Esta análise preventiva usa alertas DETER para prevenção de possíveis desmatamentos no CAR. Use a análise
+        completa para avaliação socioambiental oficial.
+      </footer>
+
+      <component
+        :is="isCoarsePointer ? dynComponents.UiSheet : dynComponents.UiDialog"
+        v-bind="
+          isCoarsePointer
+            ? { open: attachmentsOpen, side: 'bottom', label: 'Anexos da análise' }
+            : { open: attachmentsOpen, maxWidthClass: 'max-w-3xl' }
+        "
+        @close="attachmentsOpen = false"
+      >
+        <div class="flex max-h-[82vh] min-h-[320px] flex-col">
+          <div class="flex items-center justify-between gap-3 border-b border-border px-4 py-4 sm:px-6 sm:py-5">
+            <div class="text-lg font-semibold text-foreground">Anexos da análise</div>
+            <UiButton variant="ghost" size="sm" @click="attachmentsOpen = false">Fechar</UiButton>
+          </div>
+          <div class="min-h-0 flex-1 overflow-auto px-4 py-4 sm:px-6 sm:py-5">
+            <div v-if="attachmentsLoading" class="text-sm text-muted-foreground">Carregando anexos...</div>
+            <div
+              v-else-if="analysisAttachments.length === 0"
+              class="rounded-2xl border border-dashed border-border px-4 py-8 text-sm text-muted-foreground"
+            >
+              Nenhum anexo efetivo para esta análise.
+            </div>
+            <div v-else class="grid gap-3">
+              <article
+                v-for="attachment in analysisAttachments"
+                :key="`${attachment.id}:${attachment.target.id}`"
+                class="rounded-2xl border border-border bg-card p-4 text-sm"
+              >
+                <div class="flex flex-wrap items-start justify-between gap-3">
+                  <div class="min-w-0">
+                    <div class="line-clamp-2 break-words font-semibold text-foreground">
+                      {{ attachment.originalFilename }}
+                    </div>
+                    <div class="mt-1 break-words text-xs text-muted-foreground">
+                      {{ attachment.categoryName }} • {{ attachment.target.datasetCode }} • featureId={{
+                        attachment.target.featureId ?? "-"
+                      }}
+                    </div>
+                  </div>
+                  <span
+                    class="inline-flex shrink-0 items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold"
+                    :class="
+                      attachment.isJustification
+                        ? 'border-amber-200 bg-amber-50 text-amber-700'
+                        : 'border-sky-200 bg-sky-50 text-sky-700'
+                    "
+                  >
+                    {{ attachment.isJustification ? "Justificativa" : "Informativo" }}
+                  </span>
+                </div>
+                <div class="mt-3">
+                  <UiButton
+                    variant="outline"
+                    size="sm"
+                    @click="downloadAnalysisAttachment(attachment.id, attachment.originalFilename)"
+                  >
+                    Baixar
+                  </UiButton>
+                </div>
+              </article>
+            </div>
+          </div>
+          <div class="flex flex-wrap items-center justify-end gap-2 border-t border-border px-4 py-4 pb-safe-3 sm:px-6">
+            <UiButton
+              variant="outline"
+              :disabled="analysisAttachments.length === 0"
+              @click="downloadAnalysisAttachmentsZip"
+            >
+              Baixar ZIP
+            </UiButton>
+            <UiButton variant="outline" @click="goToAttachmentsFromAnalysisModal">
+              Gerenciar no módulo de Anexos
+            </UiButton>
+          </div>
+        </div>
+      </component>
+      <div
+        v-if="featureContextMenu.open"
+        ref="featureContextMenuEl"
+        class="fixed z-[60] min-w-[180px] rounded-xl border border-border bg-background/95 p-1 shadow-lg backdrop-blur"
+        :style="featureContextMenuStyle"
+        @contextmenu.prevent
+      >
+        <button
+          type="button"
+          class="flex w-full items-center rounded-lg px-3 py-2 text-sm text-foreground hover:bg-muted"
+          @click="goToAttachmentsFromContextMenu"
+        >
+          Ir para Anexos
+        </button>
+      </div>
     </div>
   </div>
 </template>
@@ -403,6 +422,11 @@ import { formatDatasetLabel } from "@/features/analyses/analysis-colors";
 import AnalysisDatasetStatusIcon from "@/components/analyses/AnalysisDatasetStatusIcon.vue";
 import AnalysisDatasetStatusLegend from "@/components/analyses/AnalysisDatasetStatusLegend.vue";
 import { getAnalysisMapCache, setAnalysisMapCache } from "@/features/analyses/analysis-map-cache";
+import {
+  getLegendOverlapLabel,
+  type AnalysisOverlapStatus,
+} from "@/features/analyses/analysis-overlap";
+import { useOverlapRefresh } from "@/composables/useOverlapRefresh";
 import {
   getAnalysisDatasetCoverageSummary,
   getAnalysisDatasetStatusKind,
@@ -454,6 +478,8 @@ type AnalysisDetail = {
   orgName?: string | null;
   municipio?: string | null;
   uf?: string | null;
+  municipalities?: Array<{ municipio: string; uf: string | null }>;
+  geometryCenter?: { lat: number; lng: number } | null;
   sicarCoordinates?: { lat: number; lng: number } | null;
   biomas?: string[];
   sicarStatus?: string | null;
@@ -467,8 +493,12 @@ type AnalysisDetail = {
       justificationStatus?: AnalysisJustificationStatus;
       totalHits?: number;
       justifiedHits?: number;
+      overlapPct?: number;
+      overlapAreaM2?: number;
     }>;
   }>;
+  overlapStatus?: AnalysisOverlapStatus | null;
+  legendOverlap?: Record<string, number>;
   docInfos?: DocInfo[];
   analysisDate: string;
   status: string;
@@ -636,13 +666,9 @@ const displayStatus = computed(() => {
   return null;
 });
 
-const isPreventiveDeter = computed(
-  () => analysis.value?.analysisKind === "DETER",
-);
+const isPreventiveDeter = computed(() => analysis.value?.analysisKind === "DETER");
 
-const pageTitle = computed(() =>
-  isPreventiveDeter.value ? "Análise preventiva DETER" : "Detalhe da análise",
-);
+const pageTitle = computed(() => (isPreventiveDeter.value ? "Análise preventiva DETER" : "Detalhe da análise"));
 
 const mapSectionTitle = computed(() =>
   isPreventiveDeter.value ? "Mapa da análise preventiva DETER" : "Mapa da análise",
@@ -703,11 +729,7 @@ const canDownloadPdf = computed(() => {
 });
 
 const legendEntries = computed(() =>
-  buildAnalysisLegendEntries(
-    vectorMap.value,
-    isRadiusAnalysis.value,
-    isGeometryAnalysis.value,
-  ),
+  buildAnalysisLegendEntries(vectorMap.value, isRadiusAnalysis.value, isGeometryAnalysis.value),
 );
 const featureContextMenuStyle = computed(() => {
   const width = 196;
@@ -734,6 +756,11 @@ function formatMunicipio(municipio?: string | null, uf?: string | null) {
   if (!municipio && !uf) return "-";
   if (municipio && uf) return `${municipio} - ${uf}`;
   return municipio ?? uf ?? "-";
+}
+
+function formatMunicipalities(municipalities?: Array<{ municipio: string; uf: string | null }> | null) {
+  if (!municipalities?.length) return "-";
+  return municipalities.map((item) => formatMunicipio(item.municipio, item.uf)).join(", ");
 }
 
 function formatBiomas(biomas?: string[] | null) {
@@ -917,6 +944,23 @@ async function loadVectorMap(id: string, forceReload = false) {
   return payload;
 }
 
+const overlapRefresh = useOverlapRefresh({
+  fetchDetail: async () => {
+    const id = String(route.params.id ?? "");
+    const res = await http.get<ApiEnvelope<AnalysisDetail>>(`/v1/analyses/${id}`);
+    return unwrapData(res.data);
+  },
+  onUpdate: (detail) => {
+    if (!analysis.value || analysis.value.id !== detail.id) return;
+    analysis.value = {
+      ...analysis.value,
+      datasetGroups: detail.datasetGroups,
+      overlapStatus: detail.overlapStatus,
+      legendOverlap: detail.legendOverlap,
+    };
+  },
+});
+
 async function loadCompletedAnalysis(id: string, forceReload = false) {
   mapLoading.value = true;
   attachmentsResolved.value = false;
@@ -930,6 +974,7 @@ async function loadCompletedAnalysis(id: string, forceReload = false) {
     analysis.value = unwrapData(detailRes.data);
     activeLegendCode.value = null;
     closeFeatureContextMenu();
+    overlapRefresh.schedule(analysis.value);
   } finally {
     mapLoading.value = false;
   }
@@ -963,9 +1008,7 @@ async function loadAnalysis(forceCompletedReload = false) {
     analysisAttachments.value = [];
     attachmentsResolved.value = true;
     const apiMessage =
-      err?.response?.data?.error?.message ??
-      err?.response?.data?.message ??
-      "Não foi possível carregar a análise.";
+      err?.response?.data?.error?.message ?? err?.response?.data?.message ?? "Não foi possível carregar a análise.";
     loadError.value = apiMessage;
   } finally {
     isLoading.value = false;
@@ -989,9 +1032,7 @@ async function downloadGeoJson() {
   }
   if (!analysis.value) return;
   if (analysis.value.status !== "completed") return;
-  const res = await http.get<ApiEnvelope<GeoJsonCollection>>(
-    `/v1/analyses/${analysis.value.id}/geojson`,
-  );
+  const res = await http.get<ApiEnvelope<GeoJsonCollection>>(`/v1/analyses/${analysis.value.id}/geojson`);
   const payload = unwrapData(res.data);
   if (!payload || !Array.isArray(payload.features)) {
     return;
@@ -1006,9 +1047,7 @@ async function loadAnalysisAttachments(id = analysis.value?.id) {
   if (!id) return;
   attachmentsLoading.value = true;
   try {
-    const res = await http.get<ApiEnvelope<AnalysisAttachment[]>>(
-      `/v1/attachments/analysis/${id}`,
-    );
+    const res = await http.get<ApiEnvelope<AnalysisAttachment[]>>(`/v1/attachments/analysis/${id}`);
     analysisAttachments.value = unwrapData(res.data);
   } catch {
     analysisAttachments.value = [];
@@ -1030,21 +1069,22 @@ async function downloadAnalysisAttachment(attachmentId: string, filename: string
   if (!id) return;
   // Analysis-scoped route: tenants can download attachments of analyses they
   // can read without platform-admin access (the global :id/download is admin).
-  const res = await http.get(
-    `/v1/attachments/analysis/${id}/${attachmentId}/download`,
-    {
-      responseType: "blob",
-    },
-  );
+  const res = await http.get(`/v1/attachments/analysis/${id}/${attachmentId}/download`, {
+    responseType: "blob",
+  });
   saveBlobAsFile(res.data as Blob, filename);
 }
 
 async function downloadAnalysisAttachmentsZip() {
   const id = analysis.value?.id;
   if (!id || !hasAnalysisAttachments.value) return;
-  const res = await http.post(`/v1/attachments/analysis/${id}/zip`, {}, {
-    responseType: "blob",
-  });
+  const res = await http.post(
+    `/v1/attachments/analysis/${id}/zip`,
+    {},
+    {
+      responseType: "blob",
+    },
+  );
   saveBlobAsFile(res.data as Blob, `analysis-${id}-attachments.zip`);
 }
 
@@ -1072,9 +1112,7 @@ async function downloadPdf() {
       responseType: "blob",
     });
     const headers = (res as { headers?: Record<string, unknown> }).headers ?? {};
-    const filename =
-      filenameFromContentDisposition(headers["content-disposition"]) ||
-      `${buildExportFileBase()}.pdf`;
+    const filename = filenameFromContentDisposition(headers["content-disposition"]) || `${buildExportFileBase()}.pdf`;
     saveBlobAsFile(res.data as Blob, filename);
   } catch {
     loadError.value = "PDF indisponível.";
@@ -1245,5 +1283,4 @@ onBeforeUnmount(() => {
   window.removeEventListener("keydown", handleGlobalKeydown);
   document.removeEventListener("visibilitychange", handleVisibilityChange);
 });
-
 </script>

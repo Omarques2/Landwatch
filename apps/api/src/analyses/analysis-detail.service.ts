@@ -10,6 +10,18 @@ import { PrismaService } from '../prisma/prisma.service';
 import { NOW_PROVIDER } from './analysis-runner.service';
 import { DocInfoService } from './doc-info.service';
 import { sanitizeDoc } from '../common/validators/cpf-cnpj';
+import {
+  buildIndigenaItemKey,
+  buildUcsItemKey,
+  isIndigenaDataset,
+  isLdiDataset,
+  isUcsDataset,
+  LDI_ITEM_KEY,
+} from './analysis-dataset-keys';
+import {
+  ANALYSIS_OVERLAP_SUMMARY_VERSION,
+  type AnalysisOverlapSummary,
+} from './analysis-overlap.service';
 
 type DatasetRow = {
   dataset_code: string;
@@ -43,6 +55,8 @@ type DatasetItem = {
   justificationStatus?: 'none' | 'partial' | 'full';
   totalHits?: number;
   justifiedHits?: number;
+  overlapAreaM2?: number;
+  overlapPct?: number;
 };
 
 type DatasetGroup = {
@@ -207,7 +221,13 @@ export class AnalysisDetailService {
       return this.buildIncompleteDetailResponse(analysis);
     }
 
-    const { farm, org, results, ...rest } = analysis;
+    const {
+      farm,
+      org,
+      results,
+      overlapSummary: rawOverlapSummary,
+      ...rest
+    } = analysis;
     const resolvedFarmName =
       this.normalizeDisplayFarmName(analysis.farmNameSnapshot) ??
       this.normalizeDisplayFarmName(farm?.name) ??
@@ -238,10 +258,15 @@ export class AnalysisDetailService {
       justificationCoverage,
       docMatches,
       subjectGeometry,
+      geometryMetadata,
     ] = await Promise.all([
       isRadius || isGeometry
         ? Promise.resolve(null)
-        : this.fetchSicarCoordinates(schema, analysis.carKey ?? '', analysisDate),
+        : this.fetchSicarCoordinates(
+            schema,
+            analysis.carKey ?? '',
+            analysisDate,
+          ),
       isRadius || isGeometry
         ? Promise.resolve([])
         : this.fetchBiomas(schema, analysis.carKey ?? '', analysisDate),
@@ -261,7 +286,11 @@ export class AnalysisDetailService {
       isGeometry
         ? this.fetchSubjectGeometry(analysis.id)
         : Promise.resolve(null),
+      isGeometry
+        ? this.fetchGeometryMetadata(schema, analysis.id, analysisDate)
+        : Promise.resolve({ center: null, municipalities: [] }),
     ]);
+    const primaryMunicipality = geometryMetadata.municipalities[0] ?? null;
 
     if (analysisKind === AnalysisKind.DETER) {
       return {
@@ -272,8 +301,10 @@ export class AnalysisDetailService {
         subjectType: analysis.subjectType,
         radius: this.buildRadius(analysis),
         subjectGeometry,
-        municipio: sicarMeta.municipio,
-        uf: sicarMeta.uf,
+        geometryCenter: geometryMetadata.center,
+        municipalities: geometryMetadata.municipalities,
+        municipio: primaryMunicipality?.municipio ?? sicarMeta.municipio,
+        uf: primaryMunicipality?.uf ?? sicarMeta.uf,
         sicarStatus: sicarMeta.status,
         sicarCoordinates,
         biomas,
@@ -365,6 +396,7 @@ export class AnalysisDetailService {
       datasetGroups,
       justificationCoverage,
     );
+    const overlapSummary = this.readOverlapSummary(rawOverlapSummary);
     const docInfos = analysisDocs.length
       ? await this.buildDocInfos(analysisDocs, docFlagsByDoc)
       : [];
@@ -377,12 +409,19 @@ export class AnalysisDetailService {
       subjectType: analysis.subjectType,
       radius: this.buildRadius(analysis),
       subjectGeometry,
-      municipio: sicarMeta.municipio,
-      uf: sicarMeta.uf,
+      geometryCenter: geometryMetadata.center,
+      municipalities: geometryMetadata.municipalities,
+      municipio: primaryMunicipality?.municipio ?? sicarMeta.municipio,
+      uf: primaryMunicipality?.uf ?? sicarMeta.uf,
       sicarStatus: sicarMeta.status,
       sicarCoordinates,
       biomas,
-      datasetGroups: datasetGroupsWithJustification,
+      datasetGroups: this.applyOverlapSummary(
+        datasetGroupsWithJustification,
+        overlapSummary,
+      ),
+      overlapStatus: overlapSummary ? ('ready' as const) : ('pending' as const),
+      legendOverlap: this.buildLegendOverlap(overlapSummary),
       docInfos,
       results: filteredResults.map((row) => ({
         ...row,
@@ -473,8 +512,7 @@ export class AnalysisDetailService {
     const value = rows[0]?.geom;
     if (!value) return null;
     try {
-      const parsed =
-        typeof value === 'string' ? JSON.parse(value) : value;
+      const parsed = typeof value === 'string' ? JSON.parse(value) : value;
       if (
         !parsed ||
         typeof parsed !== 'object' ||
@@ -496,6 +534,100 @@ export class AnalysisDetailService {
       );
       return null;
     }
+  }
+
+  private async fetchGeometryMetadata(
+    schema: string,
+    analysisId: string,
+    analysisDate: string,
+  ): Promise<{
+    center: { lat: number; lng: number } | null;
+    municipalities: Array<{ municipio: string; uf: string | null }>;
+  }> {
+    const centerPromise = this.prisma.$queryRaw<
+      Array<{ lat: number | string | null; lng: number | string | null }>
+    >(Prisma.sql`
+      SELECT
+        ST_Y(ST_PointOnSurface(ST_Transform(geom, 4326))) AS lat,
+        ST_X(ST_PointOnSurface(ST_Transform(geom, 4326))) AS lng
+      FROM "app"."analysis_subject_geometry"
+      WHERE analysis_id = ${analysisId}::uuid
+      LIMIT 1
+    `);
+    const packsPromise = this.isCurrentAnalysisDate(analysisDate)
+      ? this.prisma.$queryRaw<
+          Array<{ pack_json: Prisma.JsonValue }>
+        >(Prisma.sql`
+          SELECT DISTINCT m.pack_json
+          FROM "app"."analysis_result" r
+          JOIN ${Prisma.raw(`"${schema}"."lw_dataset"`)} d
+            ON d.code = r.dataset_code
+          JOIN ${Prisma.raw(`"${schema}"."mv_sicar_meta_active"`)} m
+            ON m.dataset_id = d.dataset_id
+           AND m.feature_id = r.feature_id
+          WHERE r.analysis_id = ${analysisId}::uuid
+            AND UPPER(r.category_code) = 'SICAR'
+            AND m.pack_json IS NOT NULL
+        `)
+      : this.prisma.$queryRaw<
+          Array<{ pack_json: Prisma.JsonValue }>
+        >(Prisma.sql`
+          SELECT DISTINCT p.pack_json
+          FROM "app"."analysis_result" r
+          JOIN ${Prisma.raw(`"${schema}"."lw_dataset"`)} d
+            ON d.code = r.dataset_code
+          JOIN ${Prisma.raw(`"${schema}"."lw_feature_attr_pack_hist"`)} h
+            ON h.dataset_id = d.dataset_id
+           AND h.feature_id = r.feature_id
+          JOIN ${Prisma.raw(`"${schema}"."lw_attr_pack"`)} p
+            ON p.pack_id = h.pack_id
+          WHERE r.analysis_id = ${analysisId}::uuid
+            AND UPPER(r.category_code) = 'SICAR'
+            AND h.valid_from <= ${analysisDate}::date
+            AND (h.valid_to IS NULL OR h.valid_to > ${analysisDate}::date)
+        `);
+    const [centerRows, packRows] = await Promise.all([
+      centerPromise,
+      packsPromise,
+    ]);
+    const centerRow = centerRows[0];
+    const lat = centerRow?.lat == null ? null : Number(centerRow.lat);
+    const lng = centerRow?.lng == null ? null : Number(centerRow.lng);
+    const center =
+      lat != null && lng != null && Number.isFinite(lat) && Number.isFinite(lng)
+        ? { lat, lng }
+        : null;
+    const unique = new Map<string, { municipio: string; uf: string | null }>();
+    for (const row of packRows) {
+      const pack = row.pack_json;
+      if (!pack || typeof pack !== 'object') continue;
+      const municipio =
+        this.getPackValue(pack, ['municipio']) ??
+        this.extractAttrValue(pack, [/municip/]);
+      if (!municipio) continue;
+      const uf =
+        this.getPackValue(pack, ['cod_estado', 'uf']) ??
+        this.extractAttrValue(pack, [
+          /^uf$/,
+          /estado/,
+          /sigla/,
+          /unidadefeder/,
+        ]);
+      const key = `${municipio.trim().toLocaleUpperCase('pt-BR')}|${(uf ?? '').trim().toUpperCase()}`;
+      if (!unique.has(key)) {
+        unique.set(key, {
+          municipio: municipio.trim(),
+          uf: uf?.trim() || null,
+        });
+      }
+    }
+    const municipalities = Array.from(unique.values()).sort((left, right) =>
+      `${left.municipio}|${left.uf ?? ''}`.localeCompare(
+        `${right.municipio}|${right.uf ?? ''}`,
+        'pt-BR',
+      ),
+    );
+    return { center, municipalities };
   }
 
   private normalizeDisplayFarmName(value?: string | null): string | null {
@@ -1200,6 +1332,47 @@ export class AnalysisDetailService {
     ];
   }
 
+  private readOverlapSummary(
+    value: Prisma.JsonValue | null | undefined,
+  ): AnalysisOverlapSummary | null {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return null;
+    }
+    const record = value as Record<string, unknown>;
+    if (record.version !== ANALYSIS_OVERLAP_SUMMARY_VERSION) return null;
+    const isMap = (entry: unknown) =>
+      !!entry && typeof entry === 'object' && !Array.isArray(entry);
+    if (!isMap(record.items) || !isMap(record.legend)) return null;
+    return value as unknown as AnalysisOverlapSummary;
+  }
+
+  private buildLegendOverlap(summary: AnalysisOverlapSummary | null) {
+    const legendOverlap: Record<string, number> = {};
+    for (const [code, value] of Object.entries(summary?.legend ?? {})) {
+      legendOverlap[code] = value.overlapPct;
+    }
+    return legendOverlap;
+  }
+
+  private applyOverlapSummary(
+    groups: DatasetGroup[],
+    summary: AnalysisOverlapSummary | null,
+  ): DatasetGroup[] {
+    if (!summary) return groups;
+    return groups.map((group) => ({
+      ...group,
+      items: group.items.map((item) => {
+        const overlap = item.hit ? summary.items[item.datasetCode] : undefined;
+        if (!overlap) return item;
+        return {
+          ...item,
+          overlapAreaM2: overlap.overlapAreaM2,
+          overlapPct: overlap.overlapPct,
+        };
+      }),
+    }));
+  }
+
   private applyJustificationCoverage(
     groups: DatasetGroup[],
     coverage: Map<string, JustificationCoverage>,
@@ -1839,7 +2012,7 @@ export class AnalysisDetailService {
         hit,
       };
 
-      if (category.startsWith('LDI') || code.includes('LDI')) {
+      if (isLdiDataset(category, code)) {
         hasLdiDataset = true;
         ldiHit = ldiHit || hit;
         continue;
@@ -1905,7 +2078,7 @@ export class AnalysisDetailService {
     const listaIbama = socialByCode.get('LISTA_EMBARGOS_IBAMA');
     if (listaIbama) socialOrdered.push(listaIbama);
     if (hasLdiDataset) {
-      socialOrdered.push({ datasetCode: 'LDI_SEMAS', hit: ldiHit });
+      socialOrdered.push({ datasetCode: LDI_ITEM_KEY, hit: ldiHit });
     }
     for (const item of social) {
       if (!socialOrdered.includes(item)) socialOrdered.push(item);
@@ -1963,26 +2136,14 @@ export class AnalysisDetailService {
     categoryCode?: string | null,
     datasetCode?: string | null,
   ) {
-    const category = (categoryCode ?? '').toUpperCase();
-    const code = (datasetCode ?? '').toUpperCase();
-    if (category === 'TI') return true;
-    if (code.startsWith('TI_') || code.startsWith('TI-')) return true;
-    if (category.includes('TERRA') && category.includes('INDIG')) return true;
-    if (code.includes('TERRA') && code.includes('INDIG')) return true;
-    if (category.includes('INDIGEN')) return true;
-    if (code.includes('INDIGEN')) return true;
-    return false;
+    return isIndigenaDataset(categoryCode, datasetCode);
   }
 
   private isUcsDataset(
     categoryCode?: string | null,
     datasetCode?: string | null,
   ) {
-    const category = (categoryCode ?? '').toUpperCase();
-    const code = (datasetCode ?? '').toUpperCase();
-    if (category.includes('UCS') || category.includes('CONSERVAC')) return true;
-    if (code.includes('UCS') || code.includes('CONSERVAC')) return true;
-    return false;
+    return isUcsDataset(categoryCode, datasetCode);
   }
 
   private buildIndigenaItems(
@@ -2034,20 +2195,11 @@ export class AnalysisDetailService {
   }
 
   private buildIndigenaItemKey(phase: string) {
-    return `INDIGENAS_${this.toDatasetToken(phase) || 'FASE'}`;
+    return buildIndigenaItemKey(phase);
   }
 
   private buildUcsItemKey(category: string) {
-    return `UCS_${this.toDatasetToken(category) || 'CATEGORIA'}`;
-  }
-
-  private toDatasetToken(value: string) {
-    return value
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .replace(/[^A-Za-z0-9]+/g, '_')
-      .replace(/^_+|_+$/g, '')
-      .toUpperCase();
+    return buildUcsItemKey(category);
   }
 
   private async fetchIndigenaPhases(

@@ -14,8 +14,7 @@ vi.mock("@/components/maps/AnalysisVectorMap.vue", () => ({
         default: null,
       },
     },
-    template:
-      "<div data-test='analysis-vector-map'>active={{ activeLegendCode || 'none' }}</div>",
+    template: "<div data-test='analysis-vector-map'>active={{ activeLegendCode || 'none' }}</div>",
   }),
 }));
 
@@ -55,10 +54,7 @@ function completedStatus(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function vectorMapPayload(
-  legendItems: Array<Record<string, unknown>> = [],
-  withSource = true,
-) {
+function vectorMapPayload(legendItems: Array<Record<string, unknown>> = [], withSource = true) {
   return {
     renderMode: "mvt",
     vectorSource: withSource
@@ -125,9 +121,7 @@ describe("AnalysisDetailView", () => {
     await flushPromises();
 
     expect(wrapper.text()).toContain("Análise preventiva DETER");
-    expect(wrapper.text()).toContain(
-      "Esta análise preventiva usa alertas DETER para prevenção",
-    );
+    expect(wrapper.text()).toContain("Esta análise preventiva usa alertas DETER para prevenção");
   });
 
   it("renders farm name in title case and preserves SICAR badge uppercase", async () => {
@@ -209,9 +203,7 @@ describe("AnalysisDetailView", () => {
     const wrapper = mount(AnalysisDetailView);
     await flushPromises();
 
-    expect(wrapper.get('[data-testid="analysis-owner-org-badge"]').text()).toBe(
-      "Teste",
-    );
+    expect(wrapper.get('[data-testid="analysis-owner-org-badge"]').text()).toBe("Teste");
     expect(wrapper.text()).not.toContain("Organização proprietária: Teste");
   });
 
@@ -431,25 +423,17 @@ describe("AnalysisDetailView", () => {
         value: vi.fn(),
       });
     }
-    const createObjectUrlSpy = vi
-      .spyOn(URL, "createObjectURL")
-      .mockImplementation((blob: Blob | MediaSource) => {
-        exportedBlob = blob as Blob;
-        return "blob:mock";
-      });
-    const revokeObjectUrlSpy = vi
-      .spyOn(URL, "revokeObjectURL")
-      .mockImplementation(() => {});
-    const clickSpy = vi
-      .spyOn(HTMLAnchorElement.prototype, "click")
-      .mockImplementation(() => {});
+    const createObjectUrlSpy = vi.spyOn(URL, "createObjectURL").mockImplementation((blob: Blob | MediaSource) => {
+      exportedBlob = blob as Blob;
+      return "blob:mock";
+    });
+    const revokeObjectUrlSpy = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
 
     const wrapper = mount(AnalysisDetailView);
     await flushPromises();
 
-    const downloadButton = wrapper
-      .findAll("button")
-      .find((item) => item.text().includes("Baixar GeoJSON"));
+    const downloadButton = wrapper.findAll("button").find((item) => item.text().includes("Baixar GeoJSON"));
     expect(downloadButton).toBeTruthy();
 
     await downloadButton!.trigger("click");
@@ -477,13 +461,17 @@ describe("AnalysisDetailView", () => {
     const getMock = http.get as unknown as ReturnType<typeof vi.fn>;
     const subjectGeometry = {
       type: "MultiPolygon",
-      coordinates: [[[
-        [-49.2, -22],
-        [-49.1, -22],
-        [-49.1, -21.9],
-        [-49.2, -21.9],
-        [-49.2, -22],
-      ]]],
+      coordinates: [
+        [
+          [
+            [-49.2, -22],
+            [-49.1, -22],
+            [-49.1, -21.9],
+            [-49.2, -21.9],
+            [-49.2, -22],
+          ],
+        ],
+      ],
     };
     getMock.mockImplementation((url: string) => {
       if (url === "/v1/analyses/analysis-deter-1/status") {
@@ -503,6 +491,11 @@ describe("AnalysisDetailView", () => {
               analysisKind: "STANDARD",
               subjectType: "GEOMETRY",
               subjectGeometry,
+              geometryCenter: { lat: -21.95, lng: -49.15 },
+              municipalities: [
+                { municipio: "Agudos", uf: "SP" },
+                { municipio: "Bauru", uf: "SP" },
+              ],
               biomas: [],
               intersectionCount: 0,
               datasetGroups: [],
@@ -545,19 +538,15 @@ describe("AnalysisDetailView", () => {
         value: vi.fn(),
       });
     }
-    const createObjectUrlSpy = vi
-      .spyOn(URL, "createObjectURL")
-      .mockReturnValue("blob:geometry-analysis");
+    const createObjectUrlSpy = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:geometry-analysis");
     vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
-    const clickSpy = vi
-      .spyOn(HTMLAnchorElement.prototype, "click")
-      .mockImplementation(() => {});
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
 
     const wrapper = mount(AnalysisDetailView);
     await flushPromises();
-    const downloadButton = wrapper
-      .findAll("button")
-      .find((item) => item.text().includes("Baixar GeoJSON"));
+    expect(wrapper.text()).toContain("Agudos - SP, Bauru - SP");
+    expect(wrapper.text()).toContain("-21.950000, -49.150000");
+    const downloadButton = wrapper.findAll("button").find((item) => item.text().includes("Baixar GeoJSON"));
 
     await downloadButton!.trigger("click");
     await flushPromises();
@@ -606,8 +595,7 @@ describe("AnalysisDetailView", () => {
         return Promise.resolve({
           data: new Blob(["pdf"], { type: "application/pdf" }),
           headers: {
-            "content-disposition":
-              'attachment; filename="Sigfarm-LandWatch-Fazenda.pdf"',
+            "content-disposition": 'attachment; filename="Sigfarm-LandWatch-Fazenda.pdf"',
           },
         });
       }
@@ -629,23 +617,15 @@ describe("AnalysisDetailView", () => {
         value: vi.fn(),
       });
     }
-    const appendSpy = vi
-      .spyOn(document.body, "appendChild")
-      .mockImplementation((node: Node) => {
-        if (node instanceof HTMLAnchorElement) {
-          appendedDownloads.push(node.download);
-        }
-        return node;
-      });
-    const createObjectUrlSpy = vi
-      .spyOn(URL, "createObjectURL")
-      .mockImplementation(() => "blob:pdf");
-    const revokeObjectUrlSpy = vi
-      .spyOn(URL, "revokeObjectURL")
-      .mockImplementation(() => {});
-    const clickSpy = vi
-      .spyOn(HTMLAnchorElement.prototype, "click")
-      .mockImplementation(() => {});
+    const appendSpy = vi.spyOn(document.body, "appendChild").mockImplementation((node: Node) => {
+      if (node instanceof HTMLAnchorElement) {
+        appendedDownloads.push(node.download);
+      }
+      return node;
+    });
+    const createObjectUrlSpy = vi.spyOn(URL, "createObjectURL").mockImplementation(() => "blob:pdf");
+    const revokeObjectUrlSpy = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
 
     const wrapper = mount(AnalysisDetailView);
     await flushPromises();
@@ -725,33 +705,23 @@ describe("AnalysisDetailView", () => {
         value: vi.fn(),
       });
     }
-    const appendSpy = vi
-      .spyOn(document.body, "appendChild")
-      .mockImplementation((node: Node) => {
-        if (node instanceof HTMLAnchorElement) {
-          appendedDownloads.push(node.download);
-        }
-        return node;
-      });
-    const createObjectUrlSpy = vi
-      .spyOn(URL, "createObjectURL")
-      .mockImplementation((blob: Blob | MediaSource) => {
-        exportedBlob = blob as Blob;
-        return "blob:pdf";
-      });
-    const revokeObjectUrlSpy = vi
-      .spyOn(URL, "revokeObjectURL")
-      .mockImplementation(() => {});
-    const clickSpy = vi
-      .spyOn(HTMLAnchorElement.prototype, "click")
-      .mockImplementation(() => {});
+    const appendSpy = vi.spyOn(document.body, "appendChild").mockImplementation((node: Node) => {
+      if (node instanceof HTMLAnchorElement) {
+        appendedDownloads.push(node.download);
+      }
+      return node;
+    });
+    const createObjectUrlSpy = vi.spyOn(URL, "createObjectURL").mockImplementation((blob: Blob | MediaSource) => {
+      exportedBlob = blob as Blob;
+      return "blob:pdf";
+    });
+    const revokeObjectUrlSpy = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
 
     const wrapper = mount(AnalysisDetailView);
     await flushPromises();
 
-    const pdfButton = wrapper
-      .findAll("button")
-      .find((item) => item.text() === "Baixar PDF");
+    const pdfButton = wrapper.findAll("button").find((item) => item.text() === "Baixar PDF");
     await pdfButton!.trigger("click");
     await flushPromises();
 
@@ -759,9 +729,7 @@ describe("AnalysisDetailView", () => {
       responseType: "blob",
     });
     expect(exportedBlob).not.toBeNull();
-    expect(appendedDownloads).toContain(
-      "Sigfarm-LandWatch-Fazenda-DETER-2026-02-12-analysis-deter-1.pdf",
-    );
+    expect(appendedDownloads).toContain("Sigfarm-LandWatch-Fazenda-DETER-2026-02-12-analysis-deter-1.pdf");
     expect(clickSpy).toHaveBeenCalled();
     expect(revokeObjectUrlSpy).toHaveBeenCalledWith("blob:pdf");
 
@@ -834,8 +802,7 @@ describe("AnalysisDetailView", () => {
                 default: null,
               },
             },
-            template:
-              "<div data-test='analysis-map'>active={{ activeLegendCode || 'none' }}</div>",
+            template: "<div data-test='analysis-map'>active={{ activeLegendCode || 'none' }}</div>",
           }),
         },
       },
@@ -989,9 +956,7 @@ describe("AnalysisDetailView", () => {
     await wrapper.get("[data-test='emit-context']").trigger("click");
     expect(wrapper.text()).toContain("Ir para Anexos");
 
-    const menuButton = wrapper
-      .findAll("button")
-      .find((item) => item.text().includes("Ir para Anexos"));
+    const menuButton = wrapper.findAll("button").find((item) => item.text().includes("Ir para Anexos"));
     expect(menuButton).toBeTruthy();
     await menuButton!.trigger("click");
 
@@ -1062,9 +1027,7 @@ describe("AnalysisDetailView", () => {
     await flushPromises();
 
     await wrapper.get("[data-test='emit-context']").trigger("click");
-    const menuButton = wrapper
-      .findAll("button")
-      .find((item) => item.text().includes("Ir para Anexos"));
+    const menuButton = wrapper.findAll("button").find((item) => item.text().includes("Ir para Anexos"));
     await menuButton!.trigger("click");
 
     expect(pushMock).toHaveBeenCalledWith({
@@ -1230,6 +1193,90 @@ describe("AnalysisDetailView", () => {
     expect(wrapper.text()).toContain("Com interseção");
     expect(wrapper.text()).toContain("Com justificativa");
     expect(wrapper.text()).toContain("Parcialmente justificada");
+  });
+
+  it("shows overlap percentages and refreshes them while they are pending", async () => {
+    vi.useFakeTimers();
+    try {
+      const detail = (overlapStatus: "pending" | "ready") => ({
+        id: "analysis-deter-1",
+        carKey: "MT-123",
+        farmName: "Fazenda DETER",
+        analysisDate: "2026-02-12",
+        status: "completed",
+        analysisKind: "STANDARD",
+        biomas: ["Cerrado"],
+        intersectionCount: 1,
+        overlapStatus,
+        ...(overlapStatus === "ready" ? { legendOverlap: { QUILOMBOLAS: 12 } } : {}),
+        datasetGroups: [
+          {
+            title: "Grupo",
+            items: [
+              {
+                datasetCode: "QUILOMBOLAS",
+                hit: true,
+                ...(overlapStatus === "ready" ? { overlapPct: 12 } : {}),
+              },
+              { datasetCode: "B", hit: false },
+            ],
+          },
+        ],
+        results: [],
+      });
+      let detailCalls = 0;
+      const getMock = http.get as unknown as ReturnType<typeof vi.fn>;
+      getMock.mockImplementation((url: string) => {
+        if (url === "/v1/analyses/analysis-deter-1/status") {
+          return Promise.resolve({ data: { data: completedStatus() } });
+        }
+        if (url === "/v1/analyses/analysis-deter-1") {
+          detailCalls += 1;
+          return Promise.resolve({
+            data: { data: detail(detailCalls === 1 ? "pending" : "ready") },
+          });
+        }
+        if (url === "/v1/analyses/analysis-deter-1/vector-map") {
+          return Promise.resolve({
+            data: {
+              data: vectorMapPayload([
+                { code: "QUILOMBOLAS", kind: "dataset", label: null, datasetCode: "QUILOMBOLAS", featureIds: [] },
+              ]),
+            },
+          });
+        }
+        if (url === "/v1/attachments/analysis/analysis-deter-1") {
+          return Promise.resolve({ data: { data: [] } });
+        }
+        return Promise.reject(new Error(`unexpected request: ${url}`));
+      });
+
+      const wrapper = mount(AnalysisDetailView, {
+        global: {
+          stubs: {
+            AnalysisVectorMap: { template: "<div data-test='analysis-map'></div>" },
+          },
+        },
+      });
+      await flushPromises();
+
+      expect(wrapper.text()).not.toContain("12,00%");
+      expect(wrapper.findAll("[data-test='legend-overlap']")).toHaveLength(0);
+      expect(wrapper.text()).toContain("Calculando % de sobreposição");
+
+      await vi.advanceTimersByTimeAsync(3000);
+      await flushPromises();
+
+      expect(detailCalls).toBe(2);
+      expect(wrapper.text()).toContain("12,00%");
+      const legendBadges = wrapper.findAll("[data-test='legend-overlap']");
+      expect(legendBadges.map((badge) => badge.text())).toEqual(["12,00%"]);
+      expect(wrapper.findAll(".analysis-intersection-item").every((item) => !item.text().includes("%"))).toBe(true);
+      expect(wrapper.text()).not.toContain("Calculando % de sobreposição");
+      wrapper.unmount();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("hides unused legend states for current analysis", async () => {

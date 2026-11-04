@@ -1063,9 +1063,7 @@ describe('AnalysisDetailService', () => {
       () => now,
     );
 
-    jest
-      .spyOn(service as any, 'fetchSicarCoordinates')
-      .mockResolvedValue(null);
+    jest.spyOn(service as any, 'fetchSicarCoordinates').mockResolvedValue(null);
     jest.spyOn(service as any, 'fetchBiomas').mockResolvedValue([]);
     const sicarMetaSpy = jest.spyOn(service as any, 'fetchSicarMeta');
     jest.spyOn(service as any, 'fetchDatasets').mockResolvedValue([]);
@@ -1091,6 +1089,127 @@ describe('AnalysisDetailService', () => {
     expect(detail.sicarStatus).toBeNull();
   });
 
+  it('applies stored overlap percentages to hit items only', () => {
+    const prisma = makePrismaMock();
+    const service = new AnalysisDetailService(
+      prisma as any,
+      { buildDocInfo: jest.fn() } as any,
+      () => now,
+    );
+
+    const result = (service as any).applyOverlapSummary(
+      [
+        {
+          title: 'Ambiental',
+          items: [
+            { datasetCode: 'PRODES_CERRADO_NB_2021', hit: true },
+            { datasetCode: 'UCS_PARQUE_NACIONAL', hit: true },
+            { datasetCode: 'PRODES_CERRADO_NB_2024', hit: false },
+            { datasetCode: 'CADASTRO_EMPREGADORES', hit: true },
+          ],
+        },
+      ],
+      {
+        version: 2,
+        subjectAreaM2: 1000,
+        legend: {},
+        items: {
+          PRODES_CERRADO_NB_2021: { overlapAreaM2: 120, overlapPct: 12 },
+          UCS_PARQUE_NACIONAL: { overlapAreaM2: 1000, overlapPct: 100 },
+          PRODES_CERRADO_NB_2024: { overlapAreaM2: 1, overlapPct: 0.1 },
+        },
+      },
+    );
+
+    expect(result[0].items).toEqual([
+      {
+        datasetCode: 'PRODES_CERRADO_NB_2021',
+        hit: true,
+        overlapAreaM2: 120,
+        overlapPct: 12,
+      },
+      {
+        datasetCode: 'UCS_PARQUE_NACIONAL',
+        hit: true,
+        overlapAreaM2: 1000,
+        overlapPct: 100,
+      },
+      { datasetCode: 'PRODES_CERRADO_NB_2024', hit: false },
+      { datasetCode: 'CADASTRO_EMPREGADORES', hit: true },
+    ]);
+  });
+
+  it('reports overlapStatus pending until the overlap summary is stored', async () => {
+    const prisma = makePrismaMock();
+    const baseAnalysis = {
+      id: 'analysis-radius-1',
+      carKey: null,
+      subjectType: 'RADIUS',
+      radiusCenterLat: -15.7,
+      radiusCenterLng: -47.9,
+      radiusM: 5000,
+      analysisDate: new Date('2026-01-31'),
+      analysisKind: AnalysisKind.STANDARD,
+      analysisDocs: [],
+      status: 'completed',
+      farm: null,
+      results: [],
+    };
+    const service = new AnalysisDetailService(
+      prisma as any,
+      { buildDocInfo: jest.fn() } as any,
+      () => now,
+    );
+    jest.spyOn(service as any, 'fetchDatasets').mockResolvedValue([]);
+    jest
+      .spyOn(service as any, 'fetchJustificationCoverage')
+      .mockResolvedValue(new Map());
+    jest.spyOn(service as any, 'fetchIndigenaPhases').mockResolvedValue([]);
+    jest.spyOn(service as any, 'fetchUcsCategories').mockResolvedValue([]);
+    jest
+      .spyOn(service as any, 'fetchIndigenaPhaseHits')
+      .mockResolvedValue(new Set());
+    jest
+      .spyOn(service as any, 'fetchUcsCategoryHits')
+      .mockResolvedValue(new Set());
+
+    prisma.analysis.findUnique.mockResolvedValueOnce({
+      ...baseAnalysis,
+      overlapSummary: null,
+    });
+    const pending = await service.getById('analysis-radius-1');
+    expect(pending.overlapStatus).toBe('pending');
+    expect(pending).not.toHaveProperty('overlapSummary');
+
+    prisma.analysis.findUnique.mockResolvedValueOnce({
+      ...baseAnalysis,
+      overlapSummary: { version: 1, subjectAreaM2: 10, items: {} },
+    });
+    const outdated = await service.getById('analysis-radius-1');
+    expect(outdated.overlapStatus).toBe('pending');
+    expect(outdated.legendOverlap).toEqual({});
+
+    prisma.analysis.findUnique.mockResolvedValueOnce({
+      ...baseAnalysis,
+      overlapSummary: {
+        version: 2,
+        subjectAreaM2: 10,
+        items: {},
+        legend: {
+          PRODES_2020: { overlapAreaM2: 1, overlapPct: 10 },
+          'UCS_parque x': { overlapAreaM2: 10, overlapPct: 100 },
+        },
+      },
+    });
+    const ready = await service.getById('analysis-radius-1');
+    expect(ready.overlapStatus).toBe('ready');
+    expect(ready.legendOverlap).toEqual({
+      PRODES_2020: 10,
+      'UCS_parque x': 100,
+    });
+    expect(ready).not.toHaveProperty('overlapSummary');
+  });
+
   it('exposes the persisted subject geometry for GEOMETRY analyses', async () => {
     const prisma = makePrismaMock();
     prisma.analysis.findUnique.mockResolvedValue({
@@ -1112,13 +1231,24 @@ describe('AnalysisDetailService', () => {
     );
     jest.spyOn(service as any, 'fetchSubjectGeometry').mockResolvedValue({
       type: 'MultiPolygon',
-      coordinates: [[[
-        [-49.2, -22.0],
-        [-49.1, -22.0],
-        [-49.1, -21.9],
-        [-49.2, -21.9],
-        [-49.2, -22.0],
-      ]]],
+      coordinates: [
+        [
+          [
+            [-49.2, -22.0],
+            [-49.1, -22.0],
+            [-49.1, -21.9],
+            [-49.2, -21.9],
+            [-49.2, -22.0],
+          ],
+        ],
+      ],
+    });
+    jest.spyOn(service as any, 'fetchGeometryMetadata').mockResolvedValue({
+      center: { lat: -21.95, lng: -49.15 },
+      municipalities: [
+        { municipio: 'Agudos', uf: 'SP' },
+        { municipio: 'Bauru', uf: 'SP' },
+      ],
     });
     jest.spyOn(service as any, 'fetchDatasets').mockResolvedValue([]);
     jest
@@ -1138,9 +1268,48 @@ describe('AnalysisDetailService', () => {
     expect(detail.subjectType).toBe('GEOMETRY');
     expect(detail.subjectGeometry?.type).toBe('MultiPolygon');
     expect(detail.subjectGeometry?.coordinates[0]?.[0]?.[0]).toEqual([
-      -49.2,
-      -22,
+      -49.2, -22,
     ]);
+    expect(detail.geometryCenter).toEqual({ lat: -21.95, lng: -49.15 });
+    expect(detail.municipalities).toEqual([
+      { municipio: 'Agudos', uf: 'SP' },
+      { municipio: 'Bauru', uf: 'SP' },
+    ]);
+    expect(detail.municipio).toBe('Agudos');
+    expect(detail.uf).toBe('SP');
+  });
+
+  it('returns unique municipalities and an interior center for a geometry analysis', async () => {
+    const prisma = makePrismaMock();
+    prisma.$queryRaw
+      .mockResolvedValueOnce([{ lat: '-21.9501', lng: '-49.1502' }])
+      .mockResolvedValueOnce([
+        { pack_json: { municipio: 'Bauru', uf: 'SP' } },
+        { pack_json: { municipio: 'Agudos', cod_estado: 'SP' } },
+        { pack_json: { municipio: 'Bauru', uf: 'SP' } },
+      ]);
+    const service = new AnalysisDetailService(
+      prisma as any,
+      { buildDocInfo: jest.fn() } as any,
+      () => now,
+    );
+
+    const metadata = await (service as any).fetchGeometryMetadata(
+      'landwatch',
+      'analysis-geometry-1',
+      '2026-01-31',
+    );
+
+    expect(metadata).toEqual({
+      center: { lat: -21.9501, lng: -49.1502 },
+      municipalities: [
+        { municipio: 'Agudos', uf: 'SP' },
+        { municipio: 'Bauru', uf: 'SP' },
+      ],
+    });
+    expect(prisma.$queryRaw.mock.calls[0][0].strings.join('')).toContain(
+      'ST_PointOnSurface',
+    );
   });
 
   it('returns subject geometry as canonical GeoJSON without PostGIS foreign members', async () => {
@@ -1149,13 +1318,17 @@ describe('AnalysisDetailService', () => {
       {
         geom: JSON.stringify({
           type: 'MultiPolygon',
-          coordinates: [[[
-            [-49.2, -22.0],
-            [-49.1, -22.0],
-            [-49.1, -21.9],
-            [-49.2, -21.9],
-            [-49.2, -22.0],
-          ]]],
+          coordinates: [
+            [
+              [
+                [-49.2, -22.0],
+                [-49.1, -22.0],
+                [-49.1, -21.9],
+                [-49.2, -21.9],
+                [-49.2, -22.0],
+              ],
+            ],
+          ],
           crs: {
             type: 'name',
             properties: { name: 'EPSG:4674' },
@@ -1173,13 +1346,17 @@ describe('AnalysisDetailService', () => {
       (service as any).fetchSubjectGeometry('analysis-geometry-1'),
     ).resolves.toEqual({
       type: 'MultiPolygon',
-      coordinates: [[[
-        [-49.2, -22.0],
-        [-49.1, -22.0],
-        [-49.1, -21.9],
-        [-49.2, -21.9],
-        [-49.2, -22.0],
-      ]]],
+      coordinates: [
+        [
+          [
+            [-49.2, -22.0],
+            [-49.1, -22.0],
+            [-49.1, -21.9],
+            [-49.2, -21.9],
+            [-49.2, -22.0],
+          ],
+        ],
+      ],
     });
   });
 
@@ -1189,13 +1366,17 @@ describe('AnalysisDetailService', () => {
       {
         geom: {
           type: 'MultiPolygon',
-          coordinates: [[[
-            [-49.2, -22.0],
-            [-49.1, -22.0],
-            [-49.1, -21.9],
-            [-49.2, -21.9],
-            [-49.2, -22.0],
-          ]]],
+          coordinates: [
+            [
+              [
+                [-49.2, -22.0],
+                [-49.1, -22.0],
+                [-49.1, -21.9],
+                [-49.2, -21.9],
+                [-49.2, -22.0],
+              ],
+            ],
+          ],
           crs: { type: 'name', properties: { name: 'EPSG:4674' } },
         },
       },
@@ -1210,13 +1391,17 @@ describe('AnalysisDetailService', () => {
       (service as any).fetchSubjectGeometry('analysis-geometry-1'),
     ).resolves.toEqual({
       type: 'MultiPolygon',
-      coordinates: [[[
-        [-49.2, -22.0],
-        [-49.1, -22.0],
-        [-49.1, -21.9],
-        [-49.2, -21.9],
-        [-49.2, -22.0],
-      ]]],
+      coordinates: [
+        [
+          [
+            [-49.2, -22.0],
+            [-49.1, -22.0],
+            [-49.1, -21.9],
+            [-49.2, -21.9],
+            [-49.2, -22.0],
+          ],
+        ],
+      ],
     });
   });
 

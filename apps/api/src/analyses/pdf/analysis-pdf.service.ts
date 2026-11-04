@@ -15,6 +15,7 @@ import {
 } from '../analysis-detail.service';
 import { AnalysisCacheService } from '../analysis-cache.service';
 import { ANALYSIS_CACHE_VERSION } from '../analysis-cache.constants';
+import { AnalysisOverlapService } from '../analysis-overlap.service';
 import { AttachmentsService } from '../../attachments/attachments.service';
 import {
   AnalysisPdfMapService,
@@ -41,6 +42,7 @@ import {
   formatDatasetLabel,
   formatDate,
   formatMunicipio,
+  formatOverlapPct,
   formatPrintDatasetLabel,
   formatStatusLabel,
   getAnalysisDatasetLegendKinds,
@@ -64,6 +66,8 @@ type AnalysisDetail = {
   farmName?: string | null;
   municipio?: string | null;
   uf?: string | null;
+  municipalities?: Array<{ municipio: string; uf: string | null }>;
+  geometryCenter?: { lat: number; lng: number } | null;
   sicarCoordinates?: { lat: number; lng: number } | null;
   biomas?: string[];
   sicarStatus?: string | null;
@@ -73,6 +77,8 @@ type AnalysisDetail = {
   analysisKind?: 'STANDARD' | 'DETER';
   intersectionCount?: number;
   datasetGroups?: DatasetGroup[];
+  legendOverlap?: Record<string, number>;
+  overlapStatus?: 'pending' | 'ready';
   results?: AnalysisResult[];
 };
 
@@ -100,6 +106,8 @@ type DatasetGroupItem = {
   totalHits?: number;
   justifiedHits?: number;
 };
+
+type LegendEntry = { label: string; color: string; overlapPct?: number };
 
 type DatasetGroup = {
   title: string;
@@ -141,6 +149,7 @@ export class AnalysisPdfService {
     private readonly cache: AnalysisCacheService,
     private readonly attachments: AttachmentsService,
     private readonly map: AnalysisPdfMapService,
+    private readonly overlap: AnalysisOverlapService,
   ) {}
 
   async generateForUser(
@@ -170,7 +179,7 @@ export class AnalysisPdfService {
   ): Promise<AnalysisPdfResult> {
     const startedAt = Date.now();
     const cached = await this.getCache(id);
-    const detail = (
+    let detail = (
       cached?.detail ? cached.detail : await this.detail.getById(id)
     ) as AnalysisDetail;
     if (detail.status !== 'completed') {
@@ -178,6 +187,22 @@ export class AnalysisPdfService {
         code: 'ANALYSIS_NOT_READY',
         message: 'Analysis must be completed before PDF generation',
       });
+    }
+
+    // PDF downloads can bypass the detail endpoint that schedules the backfill.
+    // Upgrade legacy summaries before rendering, including direct/public downloads.
+    if (detail.analysisKind !== 'DETER' && detail.overlapStatus === 'pending') {
+      const stored = await this.overlap.computeAndStore(id);
+      if (stored) {
+        await this.cache.invalidate(id);
+        detail = (await this.detail.getById(id)) as AnalysisDetail;
+      }
+      if (!stored || detail.overlapStatus !== 'ready') {
+        throw new ConflictException({
+          code: 'ANALYSIS_OVERLAP_NOT_READY',
+          message: 'Overlap percentages are not ready; retry PDF generation',
+        });
+      }
     }
 
     const [geojson, attachments] = await Promise.all([
@@ -200,7 +225,12 @@ export class AnalysisPdfService {
       ...(subjectFeature ? [subjectFeature] : []),
       ...this.geoJsonToMapFeatures(geojson),
     ];
-    const legend = this.buildLegend(mapFeatures, isRadius, isGeometry);
+    const legend = this.buildLegend(
+      mapFeatures,
+      isRadius,
+      isGeometry,
+      detail.legendOverlap,
+    );
     const mapScale = this.mapScale();
     const mapImage = await this.map.renderMap({
       features: mapFeatures,
@@ -402,7 +432,7 @@ export class AnalysisPdfService {
       qrCode: PDFImage;
       publicUrl: string;
       apiBaseUrl: string;
-      legend: Array<{ label: string; color: string }>;
+      legend: LegendEntry[];
     },
   ) {
     this.drawHeader(state, input.detail);
@@ -601,12 +631,19 @@ export class AnalysisPdfService {
     const isGeometry = detail.subjectType === 'GEOMETRY';
     const sicarAreaHa = this.sicarAreaHa(detail);
     const justified = getJustificationCoverageSummary(detail.datasetGroups);
+    const municipalityLabel = isGeometry ? 'Municípios:' : 'Município:';
+    const municipalityValue =
+      isGeometry && detail.municipalities?.length
+        ? detail.municipalities
+            .map((item) => formatMunicipio(item.municipio, item.uf))
+            .join(', ')
+        : formatMunicipio(detail.municipio, detail.uf);
     const rows = [
       [
         'Data:',
         formatDate(detail.analysisDate),
-        'Município:',
-        formatMunicipio(detail.municipio, detail.uf),
+        municipalityLabel,
+        municipalityValue,
       ],
       [
         'Bioma(s):',
@@ -617,7 +654,9 @@ export class AnalysisPdfService {
       isRadius
         ? [
             'Centro:',
-            detail.radius && detail.radius.lat != null && detail.radius.lng != null
+            detail.radius &&
+            detail.radius.lat != null &&
+            detail.radius.lng != null
               ? formatCoordinates({
                   lat: detail.radius.lat,
                   lng: detail.radius.lng,
@@ -627,12 +666,17 @@ export class AnalysisPdfService {
             detail.radius?.m != null ? `${detail.radius.m} m` : '-',
           ]
         : isGeometry
-          ? ['Base:', 'Geometria enviada por arquivo', '', '']
+          ? [
+              'Base:',
+              'Geometria enviada por arquivo',
+              'Centro:',
+              formatCoordinates(detail.geometryCenter ?? null),
+            ]
           : [
-            'Coordenadas do CAR:',
-            formatCoordinates(detail.sicarCoordinates ?? null),
-            '',
-            '',
+              'Coordenadas do CAR:',
+              formatCoordinates(detail.sicarCoordinates ?? null),
+              '',
+              '',
             ],
       isRadius
         ? ['', '', '', '']
@@ -782,7 +826,7 @@ export class AnalysisPdfService {
 
   private drawLegend(
     state: RenderState,
-    legend: Array<{ label: string; color: string }>,
+    legend: LegendEntry[],
     x: number,
     y: number,
     width: number,
@@ -813,29 +857,67 @@ export class AnalysisPdfService {
           }
           this.drawText(state, line, itemX + 12, itemY, 7.5, false, '#0f172a');
         });
+        const badge = this.legendBadge(state, item);
+        if (badge) {
+          const lastLine = lines[lines.length - 1] ?? '';
+          const badgeX =
+            itemX +
+            12 +
+            state.fonts.regular.widthOfTextAtSize(lastLine, 7.5) +
+            4;
+          const badgeY = rowY - (lines.length - 1) * 9;
+          this.drawRoundedRect(
+            state.page,
+            badgeX,
+            badgeY - 2,
+            badge.width,
+            9,
+            3,
+            '#f1f5f9',
+            '#e2e8f0',
+            0.5,
+          );
+          this.drawText(
+            state,
+            badge.text,
+            badgeX + 3,
+            badgeY,
+            6.5,
+            false,
+            '#334155',
+          );
+        }
       });
     });
   }
 
+  private legendBadge(state: Pick<RenderState, 'fonts'>, item: LegendEntry) {
+    if (typeof item.overlapPct !== 'number') return null;
+    const text = formatOverlapPct(item.overlapPct);
+    return {
+      text,
+      width: state.fonts.regular.widthOfTextAtSize(text, 6.5) + 6,
+    };
+  }
+
   private legendLayout(
     state: Pick<RenderState, 'fonts'>,
-    legend: Array<{ label: string; color: string }>,
+    legend: LegendEntry[],
     width: number,
   ) {
     const columns = legend.length <= 3 ? legend.length || 1 : 3;
     const colGap = 12;
     const colW = (width - colGap * (columns - 1)) / columns;
-    const rows: Array<
-      Array<{ item: { label: string; color: string }; lines: string[] }>
-    > = [];
+    const rows: Array<Array<{ item: LegendEntry; lines: string[] }>> = [];
     legend.forEach((item, index) => {
       const row = Math.floor(index / columns);
       rows[row] ??= [];
+      const badge = this.legendBadge(state, item);
       rows[row].push({
         item,
         lines: this.wrapTextAll(
           item.label,
-          Math.max(24, colW - 12),
+          Math.max(24, colW - 12 - (badge ? badge.width + 4 : 0)),
           state.fonts.regular,
           7.5,
         ),
@@ -853,17 +935,17 @@ export class AnalysisPdfService {
     };
   }
 
-  private legendRows(legend: Array<{ label: string; color: string }>) {
+  private legendRows(legend: LegendEntry[]) {
     const columns = legend.length <= 3 ? legend.length || 1 : 3;
     return Math.max(1, Math.ceil(legend.length / columns));
   }
 
-  private printMapHeightPx(legend: Array<{ label: string; color: string }>) {
+  private printMapHeightPx(legend: LegendEntry[]) {
     const rows = this.legendRows(legend);
     return Math.max(360, Math.min(480, 480 - Math.max(0, rows - 1) * 16));
   }
 
-  private printMapHeightPt(legend: Array<{ label: string; color: string }>) {
+  private printMapHeightPt(legend: LegendEntry[]) {
     return this.printMapHeightPx(legend) * PX;
   }
 
@@ -1651,8 +1733,9 @@ export class AnalysisPdfService {
     features: AnalysisPdfMapFeature[],
     isRadius = false,
     isGeometry = false,
+    legendOverlap: Record<string, number> = {},
   ) {
-    const entries: Array<{ label: string; color: string }> = [
+    const entries: LegendEntry[] = [
       {
         label: isRadius ? 'Raio' : isGeometry ? 'Arquivo' : 'CAR',
         color: '#ef4444',
@@ -1668,9 +1751,16 @@ export class AnalysisPdfService {
       entries.push({
         label: formatDatasetLabel(feature.datasetCode),
         color: colorForDataset(feature.datasetCode),
+        overlapPct: legendOverlap[feature.datasetCode],
       });
     }
-    entries.push(...ucsEntries.map(({ label, color }) => ({ label, color })));
+    entries.push(
+      ...ucsEntries.map(({ code, label, color }) => ({
+        label,
+        color,
+        overlapPct: legendOverlap[code],
+      })),
+    );
     return entries.slice(0, 12);
   }
 
@@ -1683,7 +1773,11 @@ export class AnalysisPdfService {
   }
 
   private formatRadiusSummary(
-    radius?: { lat: number | null; lng: number | null; m: number | null } | null,
+    radius?: {
+      lat: number | null;
+      lng: number | null;
+      m: number | null;
+    } | null,
   ) {
     const center =
       radius && radius.lat != null && radius.lng != null
@@ -1694,7 +1788,11 @@ export class AnalysisPdfService {
   }
 
   private buildRadiusCircleFeature(
-    radius?: { lat: number | null; lng: number | null; m: number | null } | null,
+    radius?: {
+      lat: number | null;
+      lng: number | null;
+      m: number | null;
+    } | null,
   ): AnalysisPdfMapFeature | null {
     if (
       !radius ||
@@ -1710,15 +1808,11 @@ export class AnalysisPdfService {
     const earthRadius = 6378137; // meters (WGS84)
     const latRad = (lat * Math.PI) / 180;
     const dLat = ((m / earthRadius) * 180) / Math.PI;
-    const dLng =
-      ((m / (earthRadius * Math.cos(latRad))) * 180) / Math.PI;
+    const dLng = ((m / (earthRadius * Math.cos(latRad))) * 180) / Math.PI;
     const ring: [number, number][] = [];
     for (let i = 0; i <= steps; i += 1) {
       const theta = (i / steps) * 2 * Math.PI;
-      ring.push([
-        lng + dLng * Math.cos(theta),
-        lat + dLat * Math.sin(theta),
-      ]);
+      ring.push([lng + dLng * Math.cos(theta), lat + dLat * Math.sin(theta)]);
     }
     return {
       datasetCode: 'RADIUS',

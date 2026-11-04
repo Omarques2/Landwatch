@@ -60,6 +60,16 @@ export function formatPrintDatasetLabel(label: string): string {
     .trim();
 }
 
+export function formatOverlapPct(pct: number): string {
+  if (!Number.isFinite(pct) || pct <= 0) return '0%';
+  if (pct < 0.01) return '<0,01%';
+  if (pct >= 99.995) return '100%';
+  return `${pct.toLocaleString('pt-BR', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}%`;
+}
+
 export function preferredPrintColumns(label: string): number {
   const normalized = formatPrintDatasetLabel(label);
   if (!normalized) return 5;

@@ -1,282 +1,295 @@
 <template>
-  <div class="analysis-public-root relative mx-auto flex max-w-6xl flex-col gap-6 px-4 py-4 sm:px-6 sm:py-6 overflow-hidden">
+  <div
+    class="analysis-public-root relative mx-auto flex max-w-6xl flex-col gap-6 px-4 py-4 sm:px-6 sm:py-6 overflow-hidden"
+  >
     <AnalysisWatermark />
     <div class="relative z-10">
-    <header class="public-header">
-      <div class="public-title-row">
-        <img :src="logoSrc" alt="SigFarm" class="public-logo" />
-        <div class="public-title">Sigfarm LandWatch - {{ reportTitle }}</div>
-      </div>
-      <div v-if="isPreventiveDeter" class="public-preventive-note">
-        Análise preventiva DETER. Este relatório é de prevenção e não substitui a análise socioambiental completa.
-      </div>
-      <template v-if="isLoading">
-        <div class="mt-3 flex flex-col items-center gap-2">
-          <div class="skeleton-line h-3 w-64 rounded-full"></div>
-          <div class="skeleton-line h-3 w-48 rounded-full"></div>
+      <header class="public-header">
+        <div class="public-title-row">
+          <img :src="logoSrc" alt="SigFarm" class="public-logo" />
+          <div class="public-title">Sigfarm LandWatch - {{ reportTitle }}</div>
         </div>
-      </template>
-      <template v-else>
-        <div class="public-subtitle">
-          <span>{{ displayFarmName }}</span>
-          <span class="public-divider">·</span>
-          <span>{{ isGeometryAnalysis ? "Base por arquivo" : analysis?.carKey ?? "-" }}</span>
-          <span
-            v-if="analysis?.sicarStatus"
-            class="public-badge"
-            :class="sicarStatusOk ? 'public-badge-ok' : 'public-badge-warn'"
-          >
-            <span class="public-badge-icon">{{ sicarStatusOk ? "✓" : "!" }}</span>
-            {{ formatStatusLabel(analysis?.sicarStatus).toUpperCase() }}
-          </span>
+        <div v-if="isPreventiveDeter" class="public-preventive-note">
+          Análise preventiva DETER. Este relatório é de prevenção e não substitui a análise socioambiental completa.
         </div>
-        <div v-if="docInfos.length" class="public-subtitle muted public-doc-list">
-          <div v-for="info in docInfos" :key="docKey(info)" class="public-doc-item">
-            <span class="public-doc-prefix">{{ docPrefix(info) }}</span>
+        <template v-if="isLoading">
+          <div class="mt-3 flex flex-col items-center gap-2">
+            <div class="skeleton-line h-3 w-64 rounded-full"></div>
+            <div class="skeleton-line h-3 w-48 rounded-full"></div>
+          </div>
+        </template>
+        <template v-else>
+          <div class="public-subtitle">
+            <span>{{ displayFarmName }}</span>
+            <span class="public-divider">·</span>
+            <span>{{ isGeometryAnalysis ? "Base por arquivo" : (analysis?.carKey ?? "-") }}</span>
             <span
+              v-if="analysis?.sicarStatus"
               class="public-badge"
-              :class="docBadgeOk(info) ? 'public-badge-ok' : 'public-badge-warn'"
+              :class="sicarStatusOk ? 'public-badge-ok' : 'public-badge-warn'"
             >
-              <span class="public-badge-icon">{{ docBadgeOk(info) ? "✓" : "!" }}</span>
-              {{ docBadgeText(info) }}
+              <span class="public-badge-icon">{{ sicarStatusOk ? "✓" : "!" }}</span>
+              {{ formatStatusLabel(analysis?.sicarStatus).toUpperCase() }}
             </span>
-            <div v-if="docFlagBadges(info).length" class="public-doc-flags">
-              <span
-                v-for="flag in docFlagBadges(info)"
-                :key="flag"
-                class="public-badge public-badge-warn"
-              >
-                <span class="public-badge-icon">!</span>
-                {{ flag }}
+          </div>
+          <div v-if="docInfos.length" class="public-subtitle muted public-doc-list">
+            <div v-for="info in docInfos" :key="docKey(info)" class="public-doc-item">
+              <span class="public-doc-prefix">{{ docPrefix(info) }}</span>
+              <span class="public-badge" :class="docBadgeOk(info) ? 'public-badge-ok' : 'public-badge-warn'">
+                <span class="public-badge-icon">{{ docBadgeOk(info) ? "✓" : "!" }}</span>
+                {{ docBadgeText(info) }}
               </span>
+              <div v-if="docFlagBadges(info).length" class="public-doc-flags">
+                <span v-for="flag in docFlagBadges(info)" :key="flag" class="public-badge public-badge-warn">
+                  <span class="public-badge-icon">!</span>
+                  {{ flag }}
+                </span>
+              </div>
+            </div>
+          </div>
+          <div class="mt-3 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
+            <button :class="publicActionButtonClass" @click="downloadPublicGeoJson">Baixar GeoJSON</button>
+            <button :class="publicActionButtonClass" :disabled="pdfDownloading" @click="downloadPublicPdf">
+              {{ pdfDownloading ? "Gerando PDF..." : "Baixar PDF" }}
+            </button>
+            <button v-if="hasPublicAttachments" :class="publicActionButtonClass" @click="openAttachmentsModal">
+              Ver anexos
+            </button>
+            <button v-if="hasPublicAttachments" :class="publicActionButtonClass" @click="downloadPublicAttachmentsZip">
+              Baixar ZIP anexos
+            </button>
+          </div>
+        </template>
+      </header>
+
+      <section class="public-card">
+        <div class="text-lg font-semibold">{{ mapSectionTitle }}</div>
+        <div v-if="isLoading" class="mt-4 grid gap-3 text-sm sm:grid-cols-2">
+          <div class="skeleton-line h-4 w-36 rounded-full"></div>
+          <div class="skeleton-line h-4 w-44 rounded-full"></div>
+          <div class="skeleton-line h-4 w-32 rounded-full"></div>
+          <div class="skeleton-line h-4 w-28 rounded-full"></div>
+          <div class="skeleton-line h-4 w-40 rounded-full"></div>
+          <div class="skeleton-line h-4 w-24 rounded-full"></div>
+        </div>
+        <div v-else class="mt-4 grid gap-3 text-sm sm:grid-cols-2">
+          <div><span class="font-semibold">Data:</span> {{ formatDate(analysis?.analysisDate) }}</div>
+          <div>
+            <span class="font-semibold">{{ isGeometryAnalysis ? "Municípios:" : "Município:" }}</span>
+            {{
+              isGeometryAnalysis
+                ? formatMunicipalities(analysis?.municipalities)
+                : formatMunicipio(analysis?.municipio, analysis?.uf)
+            }}
+          </div>
+          <div><span class="font-semibold">Bioma(s):</span> {{ formatBiomas(analysis?.biomas) }}</div>
+          <div><span class="font-semibold">Interseções:</span> {{ analysis?.intersectionCount ?? 0 }}</div>
+          <div>
+            <span class="font-semibold">{{ isGeometryAnalysis ? "Base:" : "Coordenadas do CAR:" }}</span>
+            {{
+              isGeometryAnalysis
+                ? "Geometria enviada por arquivo"
+                : formatCoordinates(analysis?.sicarCoordinates ?? null)
+            }}
+          </div>
+          <div v-if="isGeometryAnalysis">
+            <span class="font-semibold">Coordenada central:</span>
+            {{ formatCoordinates(analysis?.geometryCenter ?? null) }}
+          </div>
+          <div>
+            <span class="font-semibold">Área (ha):</span>
+            {{ formatAreaHa(sicarAreaHa) }}
+          </div>
+        </div>
+        <div class="mt-4">
+          <div
+            :class="
+              mapExpanded
+                ? 'fixed inset-0 z-[60] bg-background p-2 pb-safe-3'
+                : 'analysis-map-frame relative h-[420px] sm:h-[560px]'
+            "
+          >
+            <div
+              v-if="mapLoading || isLoading"
+              class="grid h-full place-items-center rounded-xl border border-dashed border-border bg-muted/20"
+            >
+              <div class="loading-spinner" aria-label="Carregando"></div>
+            </div>
+            <AnalysisVectorMap
+              v-else-if="vectorMap?.vectorSource"
+              ref="mapRef"
+              :vector-source="vectorMap?.vectorSource ?? null"
+              :legend-items="vectorMap?.legendItems ?? []"
+              :active-legend-code="activeLegendCode"
+              :subject-geometry="analysis?.subjectType === 'GEOMETRY' ? analysis?.subjectGeometry : null"
+              auth-mode="public"
+            />
+            <div
+              v-else-if="analysis?.status === 'completed'"
+              class="grid h-full place-items-center text-sm text-muted-foreground"
+            >
+              Nenhuma geometria disponível.
+            </div>
+            <UiButton
+              v-if="isCoarsePointer && vectorMap?.vectorSource && !mapLoading && !isLoading"
+              size="icon"
+              variant="outline"
+              class="absolute right-3 top-3 z-30 bg-background/92"
+              :aria-label="mapExpanded ? 'Recolher mapa' : 'Expandir mapa'"
+              @click="toggleMapExpanded"
+            >
+              <Minimize2 v-if="mapExpanded" class="h-4 w-4" />
+              <Maximize2 v-else class="h-4 w-4" />
+            </UiButton>
+          </div>
+          <div v-if="vectorMap?.vectorSource" class="mt-4">
+            <div class="text-sm font-semibold">Legenda</div>
+            <div class="analysis-screen-legend mt-2 flex flex-wrap gap-2 text-xs">
+              <button
+                v-for="item in legendEntries"
+                :key="item.code"
+                type="button"
+                class="inline-flex max-w-full items-center gap-2 rounded-md border px-2 py-1 text-left transition-colors"
+                :class="
+                  activeLegendCode === item.code
+                    ? 'border-border bg-accent text-foreground'
+                    : activeLegendCode
+                      ? 'border-border/60 bg-background text-muted-foreground'
+                      : 'border-border bg-background text-foreground hover:bg-muted'
+                "
+                @click="toggleLegendFilter(item.code)"
+              >
+                <span
+                  class="h-3 w-3 rounded-sm border"
+                  :style="{
+                    backgroundColor: activeLegendCode && activeLegendCode !== item.code ? '#cbd5e1' : item.color,
+                    borderColor: activeLegendCode && activeLegendCode !== item.code ? '#cbd5e1' : item.color,
+                  }"
+                ></span>
+                <span class="min-w-0 whitespace-normal break-words leading-snug">{{ item.label }}</span>
+                <span
+                  v-if="getLegendOverlapLabel(analysis?.legendOverlap, item.code)"
+                  data-test="legend-overlap"
+                  class="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground"
+                  >{{ getLegendOverlapLabel(analysis?.legendOverlap, item.code) }}</span
+                >
+              </button>
             </div>
           </div>
         </div>
-        <div class="mt-3 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
-          <button
-            :class="publicActionButtonClass"
-            @click="downloadPublicGeoJson"
-          >
-            Baixar GeoJSON
-          </button>
-          <button
-            :class="publicActionButtonClass"
-            :disabled="pdfDownloading"
-            @click="downloadPublicPdf"
-          >
-            {{ pdfDownloading ? "Gerando PDF..." : "Baixar PDF" }}
-          </button>
-          <button
-            v-if="hasPublicAttachments"
-            :class="publicActionButtonClass"
-            @click="openAttachmentsModal"
-          >
-            Ver anexos
-          </button>
-          <button
-            v-if="hasPublicAttachments"
-            :class="publicActionButtonClass"
-            @click="downloadPublicAttachmentsZip"
-          >
-            Baixar ZIP anexos
-          </button>
-        </div>
-      </template>
-    </header>
+      </section>
 
-    <section class="public-card">
-      <div class="text-lg font-semibold">{{ mapSectionTitle }}</div>
-      <div v-if="isLoading" class="mt-4 grid gap-3 text-sm sm:grid-cols-2">
-        <div class="skeleton-line h-4 w-36 rounded-full"></div>
-        <div class="skeleton-line h-4 w-44 rounded-full"></div>
-        <div class="skeleton-line h-4 w-32 rounded-full"></div>
-        <div class="skeleton-line h-4 w-28 rounded-full"></div>
-        <div class="skeleton-line h-4 w-40 rounded-full"></div>
-        <div class="skeleton-line h-4 w-24 rounded-full"></div>
-      </div>
-      <div v-else class="mt-4 grid gap-3 text-sm sm:grid-cols-2">
-        <div><span class="font-semibold">Data:</span> {{ formatDate(analysis?.analysisDate) }}</div>
-        <div>
-          <span class="font-semibold">Município:</span>
-          {{ formatMunicipio(analysis?.municipio, analysis?.uf) }}
-        </div>
-        <div><span class="font-semibold">Bioma(s):</span> {{ formatBiomas(analysis?.biomas) }}</div>
-        <div><span class="font-semibold">Interseções:</span> {{ analysis?.intersectionCount ?? 0 }}</div>
-        <div>
-          <span class="font-semibold">{{ isGeometryAnalysis ? "Base:" : "Coordenadas do CAR:" }}</span>
-          {{ isGeometryAnalysis ? "Geometria enviada por arquivo" : formatCoordinates(analysis?.sicarCoordinates ?? null) }}
-        </div>
-        <div>
-          <span class="font-semibold">Área (ha):</span>
-          {{ formatAreaHa(sicarAreaHa) }}
-        </div>
-      </div>
-      <div class="mt-4">
-        <div
-          :class="
-            mapExpanded
-              ? 'fixed inset-0 z-[60] bg-background p-2 pb-safe-3'
-              : 'analysis-map-frame relative h-[420px] sm:h-[560px]'
-          "
-        >
-          <div
-            v-if="mapLoading || isLoading"
-            class="grid h-full place-items-center rounded-xl border border-dashed border-border bg-muted/20"
-          >
-            <div class="loading-spinner" aria-label="Carregando"></div>
+      <section class="public-card">
+        <div class="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <div class="text-lg font-semibold">{{ intersectionsSectionTitle }}</div>
+            <div v-if="analysis?.overlapStatus === 'pending'" class="text-xs text-muted-foreground">
+              Calculando % de sobreposição…
+            </div>
           </div>
-          <AnalysisVectorMap
-            v-else-if="vectorMap?.vectorSource"
-            ref="mapRef"
-            :vector-source="vectorMap?.vectorSource ?? null"
-            :legend-items="vectorMap?.legendItems ?? []"
-            :active-legend-code="activeLegendCode"
-            :subject-geometry="analysis?.subjectType === 'GEOMETRY' ? analysis?.subjectGeometry : null"
-            auth-mode="public"
-          />
-          <div
-            v-else-if="analysis?.status === 'completed'"
-            class="grid h-full place-items-center text-sm text-muted-foreground"
-          >
-            Nenhuma geometria disponível.
-          </div>
-          <UiButton
-            v-if="isCoarsePointer && vectorMap?.vectorSource && !mapLoading && !isLoading"
-            size="icon"
-            variant="outline"
-            class="absolute right-3 top-3 z-30 bg-background/92"
-            :aria-label="mapExpanded ? 'Recolher mapa' : 'Expandir mapa'"
-            @click="toggleMapExpanded"
-          >
-            <Minimize2 v-if="mapExpanded" class="h-4 w-4" />
-            <Maximize2 v-else class="h-4 w-4" />
-          </UiButton>
+          <AnalysisDatasetStatusLegend :groups="analysis?.datasetGroups ?? null" class="ml-auto" />
         </div>
-        <div v-if="vectorMap?.vectorSource" class="mt-4">
-          <div class="text-sm font-semibold">Legenda</div>
-          <div class="analysis-screen-legend mt-2 flex flex-wrap gap-2 text-xs">
-            <button
-              v-for="item in legendEntries"
-              :key="item.code"
-              type="button"
-              class="inline-flex max-w-full items-center gap-2 rounded-md border px-2 py-1 text-left transition-colors"
-              :class="
-                activeLegendCode === item.code
-                  ? 'border-border bg-accent text-foreground'
-                  : activeLegendCode
-                    ? 'border-border/60 bg-background text-muted-foreground'
-                    : 'border-border bg-background text-foreground hover:bg-muted'
-              "
-              @click="toggleLegendFilter(item.code)"
+        <div v-if="isLoading" class="mt-4 grid gap-3">
+          <div class="skeleton-line h-4 w-40 rounded-full"></div>
+          <div class="intersections-grid grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+            <div class="h-10 rounded-lg border border-border bg-muted/30 animate-pulse"></div>
+            <div class="h-10 rounded-lg border border-border bg-muted/30 animate-pulse"></div>
+            <div class="h-10 rounded-lg border border-border bg-muted/30 animate-pulse"></div>
+          </div>
+        </div>
+        <div v-else-if="(analysis?.datasetGroups?.length ?? 0) === 0" class="mt-3 text-sm text-muted-foreground">
+          Sem interseções relevantes.
+        </div>
+        <div v-else class="mt-4 grid gap-6">
+          <div v-for="group in analysis?.datasetGroups ?? []" :key="group.title">
+            <div class="text-sm font-semibold text-muted-foreground">{{ group.title }}</div>
+            <div class="intersections-grid mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+              <div
+                v-for="item in group.items"
+                :key="item.datasetCode"
+                class="analysis-intersection-item flex items-start gap-3 rounded-lg border border-border px-3 py-2 text-sm"
               >
-              <span
-                class="h-3 w-3 rounded-sm border"
-                :style="{
-                  backgroundColor: activeLegendCode && activeLegendCode !== item.code ? '#cbd5e1' : item.color,
-                  borderColor: activeLegendCode && activeLegendCode !== item.code ? '#cbd5e1' : item.color,
-                }"
-              ></span>
-              <span class="min-w-0 whitespace-normal break-words leading-snug">{{ item.label }}</span>
+                <AnalysisDatasetStatusIcon
+                  :kind="datasetStatusKind(item)"
+                  :clickable="Boolean(isDatasetJustificationClickable(item))"
+                  :title="datasetStatusTitle(item)"
+                  :aria-label="
+                    isDatasetJustificationClickable(item) ? 'Abrir justificativas públicas do dataset' : null
+                  "
+                  @click="isDatasetJustificationClickable(item) ? openAttachmentsModal() : undefined"
+                />
+                <div class="min-w-0 flex-1">
+                  <span class="font-semibold">{{ formatDatasetLabelForItem(item) }}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <div v-if="attachmentsOpen" class="fixed inset-0 z-50 bg-black/40 p-4">
+        <div class="mx-auto flex h-full max-w-3xl flex-col rounded-2xl border border-border bg-background shadow-xl">
+          <div class="flex items-center justify-between border-b border-border px-6 py-5">
+            <div class="text-lg font-semibold">Anexos públicos da análise</div>
+            <button
+              class="rounded-lg border border-border px-3 py-1.5 text-xs font-semibold hover:bg-muted"
+              @click="attachmentsOpen = false"
+            >
+              Fechar
+            </button>
+          </div>
+          <div class="min-h-0 flex-1 overflow-auto px-6 py-5">
+            <div v-if="attachmentsLoading" class="text-sm text-muted-foreground">Carregando anexos...</div>
+            <div
+              v-else-if="publicAttachments.length === 0"
+              class="rounded-2xl border border-dashed border-border px-4 py-8 text-sm text-muted-foreground"
+            >
+              Nenhum anexo público disponível.
+            </div>
+            <div v-else class="grid gap-3">
+              <div
+                v-for="attachment in publicAttachments"
+                :key="attachment.id"
+                class="rounded-2xl border border-border bg-card p-4 text-sm"
+              >
+                <div class="flex flex-wrap items-start justify-between gap-3">
+                  <div class="min-w-0">
+                    <div class="line-clamp-2 break-words font-semibold">{{ attachment.originalFilename }}</div>
+                    <div class="mt-1 break-words text-xs text-muted-foreground">{{ attachment.categoryName }}</div>
+                  </div>
+                  <span
+                    class="inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold"
+                    :class="
+                      attachment.isJustification
+                        ? 'border-amber-200 bg-amber-50 text-amber-700'
+                        : 'border-sky-200 bg-sky-50 text-sky-700'
+                    "
+                  >
+                    {{ attachment.isJustification ? "Justificativa" : "Informativo" }}
+                  </span>
+                </div>
+                <div class="mt-3">
+                  <button
+                    class="rounded-lg border border-border px-3 py-1.5 text-xs font-semibold hover:bg-muted"
+                    @click="downloadPublicAttachment(attachment.id, attachment.originalFilename)"
+                  >
+                    Baixar
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="flex justify-end border-t border-border px-6 py-4 pb-safe-3">
+            <button
+              class="rounded-lg border border-border px-3 py-1.5 text-xs font-semibold hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+              :disabled="publicAttachments.length === 0"
+              @click="downloadPublicAttachmentsZip"
+            >
+              Baixar ZIP
             </button>
           </div>
         </div>
       </div>
-    </section>
-
-    <section class="public-card">
-      <div class="flex flex-wrap items-start justify-between gap-3">
-        <div class="text-lg font-semibold">{{ intersectionsSectionTitle }}</div>
-        <AnalysisDatasetStatusLegend :groups="analysis?.datasetGroups ?? null" class="ml-auto" />
-      </div>
-      <div v-if="isLoading" class="mt-4 grid gap-3">
-        <div class="skeleton-line h-4 w-40 rounded-full"></div>
-        <div class="intersections-grid grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-          <div class="h-10 rounded-lg border border-border bg-muted/30 animate-pulse"></div>
-          <div class="h-10 rounded-lg border border-border bg-muted/30 animate-pulse"></div>
-          <div class="h-10 rounded-lg border border-border bg-muted/30 animate-pulse"></div>
-        </div>
-      </div>
-      <div v-else-if="(analysis?.datasetGroups?.length ?? 0) === 0" class="mt-3 text-sm text-muted-foreground">
-        Sem interseções relevantes.
-      </div>
-      <div v-else class="mt-4 grid gap-6">
-        <div v-for="group in analysis?.datasetGroups ?? []" :key="group.title">
-          <div class="text-sm font-semibold text-muted-foreground">{{ group.title }}</div>
-          <div class="intersections-grid mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-            <div
-              v-for="item in group.items"
-              :key="item.datasetCode"
-              class="analysis-intersection-item flex items-start gap-3 rounded-lg border border-border px-3 py-2 text-sm"
-            >
-              <AnalysisDatasetStatusIcon
-                :kind="datasetStatusKind(item)"
-                :clickable="Boolean(isDatasetJustificationClickable(item))"
-                :title="datasetStatusTitle(item)"
-                :aria-label="isDatasetJustificationClickable(item) ? 'Abrir justificativas públicas do dataset' : null"
-                @click="isDatasetJustificationClickable(item) ? openAttachmentsModal() : undefined"
-              />
-              <div class="min-w-0 flex-1">
-                <span class="font-semibold">{{ formatDatasetLabelForItem(item) }}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <div v-if="attachmentsOpen" class="fixed inset-0 z-50 bg-black/40 p-4">
-      <div class="mx-auto flex h-full max-w-3xl flex-col rounded-2xl border border-border bg-background shadow-xl">
-        <div class="flex items-center justify-between border-b border-border px-6 py-5">
-          <div class="text-lg font-semibold">Anexos públicos da análise</div>
-          <button class="rounded-lg border border-border px-3 py-1.5 text-xs font-semibold hover:bg-muted" @click="attachmentsOpen = false">
-            Fechar
-          </button>
-        </div>
-        <div class="min-h-0 flex-1 overflow-auto px-6 py-5">
-          <div v-if="attachmentsLoading" class="text-sm text-muted-foreground">Carregando anexos...</div>
-          <div v-else-if="publicAttachments.length === 0" class="rounded-2xl border border-dashed border-border px-4 py-8 text-sm text-muted-foreground">
-            Nenhum anexo público disponível.
-          </div>
-          <div v-else class="grid gap-3">
-            <div
-              v-for="attachment in publicAttachments"
-              :key="attachment.id"
-              class="rounded-2xl border border-border bg-card p-4 text-sm"
-            >
-              <div class="flex flex-wrap items-start justify-between gap-3">
-                <div class="min-w-0">
-                  <div class="line-clamp-2 break-words font-semibold">{{ attachment.originalFilename }}</div>
-                  <div class="mt-1 break-words text-xs text-muted-foreground">{{ attachment.categoryName }}</div>
-                </div>
-                <span
-                  class="inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold"
-                  :class="attachment.isJustification ? 'border-amber-200 bg-amber-50 text-amber-700' : 'border-sky-200 bg-sky-50 text-sky-700'"
-                >
-                  {{ attachment.isJustification ? 'Justificativa' : 'Informativo' }}
-                </span>
-              </div>
-              <div class="mt-3">
-                <button
-                  class="rounded-lg border border-border px-3 py-1.5 text-xs font-semibold hover:bg-muted"
-                  @click="downloadPublicAttachment(attachment.id, attachment.originalFilename)"
-                >
-                  Baixar
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-        <div class="flex justify-end border-t border-border px-6 py-4 pb-safe-3">
-          <button
-            class="rounded-lg border border-border px-3 py-1.5 text-xs font-semibold hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
-            :disabled="publicAttachments.length === 0"
-            @click="downloadPublicAttachmentsZip"
-          >
-            Baixar ZIP
-          </button>
-        </div>
-      </div>
-    </div>
     </div>
   </div>
 </template>
@@ -289,6 +302,11 @@ import { unwrapData, type ApiEnvelope } from "@/api/envelope";
 import AnalysisDatasetStatusIcon from "@/components/analyses/AnalysisDatasetStatusIcon.vue";
 import AnalysisDatasetStatusLegend from "@/components/analyses/AnalysisDatasetStatusLegend.vue";
 import { formatDatasetLabel } from "@/features/analyses/analysis-colors";
+import {
+  getLegendOverlapLabel,
+  type AnalysisOverlapStatus,
+} from "@/features/analyses/analysis-overlap";
+import { useOverlapRefresh } from "@/composables/useOverlapRefresh";
 import {
   getAnalysisDatasetCoverageSummary,
   getAnalysisDatasetStatusKind,
@@ -336,6 +354,8 @@ type AnalysisDetail = {
   farmName?: string | null;
   municipio?: string | null;
   uf?: string | null;
+  municipalities?: Array<{ municipio: string; uf: string | null }>;
+  geometryCenter?: { lat: number; lng: number } | null;
   sicarCoordinates?: { lat: number; lng: number } | null;
   biomas?: string[];
   sicarStatus?: string | null;
@@ -349,8 +369,12 @@ type AnalysisDetail = {
       justificationStatus?: AnalysisJustificationStatus;
       totalHits?: number;
       justifiedHits?: number;
+      overlapPct?: number;
+      overlapAreaM2?: number;
     }>;
   }>;
+  overlapStatus?: AnalysisOverlapStatus | null;
+  legendOverlap?: Record<string, number>;
   docInfos?: DocInfo[];
   analysisDate: string;
   status: string;
@@ -389,13 +413,9 @@ function toggleMapExpanded() {
 const analysisId = computed(() => String(route.params.id ?? "").trim());
 const hasPublicAttachments = computed(() => publicAttachments.value.length > 0);
 
-const isPreventiveDeter = computed(
-  () => analysis.value?.analysisKind === "DETER",
-);
+const isPreventiveDeter = computed(() => analysis.value?.analysisKind === "DETER");
 
-const reportTitle = computed(() =>
-  isPreventiveDeter.value ? "Análise Preventiva DETER" : "Análise Socioambiental",
-);
+const reportTitle = computed(() => (isPreventiveDeter.value ? "Análise Preventiva DETER" : "Análise Socioambiental"));
 
 const mapSectionTitle = computed(() =>
   isPreventiveDeter.value ? "Mapa da análise preventiva DETER" : "Mapa da análise",
@@ -458,9 +478,7 @@ const docBadgeOk = (info: DocInfo) => {
   return true;
 };
 
-const legendEntries = computed(() =>
-  buildAnalysisLegendEntries(vectorMap.value, false, isGeometryAnalysis.value),
-);
+const legendEntries = computed(() => buildAnalysisLegendEntries(vectorMap.value, false, isGeometryAnalysis.value));
 
 const publicActionButtonClass =
   "rounded-md border border-border bg-white px-3 py-1 text-xs font-semibold transition-colors duration-150 hover:bg-muted hover:text-foreground active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-white";
@@ -488,6 +506,11 @@ function formatMunicipio(municipio?: string | null, uf?: string | null) {
   if (!municipio && !uf) return "-";
   if (municipio && uf) return `${municipio} - ${uf}`;
   return municipio ?? uf ?? "-";
+}
+
+function formatMunicipalities(municipalities?: Array<{ municipio: string; uf: string | null }> | null) {
+  if (!municipalities?.length) return "-";
+  return municipalities.map((item) => formatMunicipio(item.municipio, item.uf)).join(", ");
 }
 
 function formatBiomas(biomas?: string[] | null) {
@@ -566,12 +589,9 @@ function toggleLegendFilter(code: string) {
 }
 
 async function downloadPublicGeoJson() {
-  const res = await http.get<ApiEnvelope<Record<string, unknown>>>(
-    `/v1/public/analyses/${route.params.id}/geojson`,
-    {
-      headers: { "X-Skip-Auth": "1" },
-    },
-  );
+  const res = await http.get<ApiEnvelope<Record<string, unknown>>>(`/v1/public/analyses/${route.params.id}/geojson`, {
+    headers: { "X-Skip-Auth": "1" },
+  });
   const payload = unwrapData(res.data);
   const blob = new Blob([JSON.stringify(payload)], {
     type: "application/geo+json;charset=utf-8",
@@ -589,8 +609,7 @@ async function downloadPublicPdf() {
     });
     const headers = (res as { headers?: Record<string, unknown> }).headers ?? {};
     const filename =
-      filenameFromContentDisposition(headers["content-disposition"]) ||
-      `Sigfarm-LandWatch-${route.params.id}.pdf`;
+      filenameFromContentDisposition(headers["content-disposition"]) || `Sigfarm-LandWatch-${route.params.id}.pdf`;
     saveBlobAsFile(res.data as Blob, filename);
   } finally {
     pdfDownloading.value = false;
@@ -600,12 +619,9 @@ async function downloadPublicPdf() {
 async function loadPublicAttachments() {
   attachmentsLoading.value = true;
   try {
-    const res = await http.get<ApiEnvelope<PublicAttachment[]>>(
-      `/v1/public/analyses/${route.params.id}/attachments`,
-      {
-        headers: { "X-Skip-Auth": "1", "X-Skip-Org": "1" },
-      },
-    );
+    const res = await http.get<ApiEnvelope<PublicAttachment[]>>(`/v1/public/analyses/${route.params.id}/attachments`, {
+      headers: { "X-Skip-Auth": "1", "X-Skip-Org": "1" },
+    });
     publicAttachments.value = unwrapData(res.data);
   } catch {
     publicAttachments.value = [];
@@ -623,25 +639,19 @@ async function openAttachmentsModal() {
 }
 
 async function downloadPublicAttachment(attachmentId: string, filename: string) {
-  const res = await http.get(
-    `/v1/public/analyses/${route.params.id}/attachments/${attachmentId}/download`,
-    {
-      headers: { "X-Skip-Auth": "1", "X-Skip-Org": "1" },
-      responseType: "blob",
-    },
-  );
+  const res = await http.get(`/v1/public/analyses/${route.params.id}/attachments/${attachmentId}/download`, {
+    headers: { "X-Skip-Auth": "1", "X-Skip-Org": "1" },
+    responseType: "blob",
+  });
   saveBlobAsFile(res.data as Blob, filename);
 }
 
 async function downloadPublicAttachmentsZip() {
   if (!hasPublicAttachments.value) return;
-  const res = await http.get(
-    `/v1/public/analyses/${route.params.id}/attachments/zip`,
-    {
-      headers: { "X-Skip-Auth": "1", "X-Skip-Org": "1" },
-      responseType: "blob",
-    },
-  );
+  const res = await http.get(`/v1/public/analyses/${route.params.id}/attachments/zip`, {
+    headers: { "X-Skip-Auth": "1", "X-Skip-Org": "1" },
+    responseType: "blob",
+  });
   saveBlobAsFile(res.data as Blob, `analysis-${route.params.id}-public-attachments.zip`);
 }
 
@@ -655,6 +665,24 @@ function fixMojibake(value: string) {
     return value;
   }
 }
+
+const overlapRefresh = useOverlapRefresh({
+  fetchDetail: async () => {
+    const res = await http.get<ApiEnvelope<AnalysisDetail>>(`/v1/public/analyses/${analysisId.value}`, {
+      headers: { "X-Skip-Auth": "1" },
+    });
+    return unwrapData(res.data);
+  },
+  onUpdate: (detail) => {
+    if (!analysis.value || analysis.value.id !== detail.id) return;
+    analysis.value = {
+      ...analysis.value,
+      datasetGroups: detail.datasetGroups,
+      overlapStatus: detail.overlapStatus,
+      legendOverlap: detail.legendOverlap,
+    };
+  },
+});
 
 async function loadAnalysis() {
   const id = analysisId.value;
@@ -676,6 +704,7 @@ async function loadAnalysis() {
     ]);
     analysis.value = unwrapData(detailRes.data);
     vectorMap.value = vectorMapPayload;
+    overlapRefresh.schedule(analysis.value);
   } finally {
     mapLoading.value = false;
     isLoading.value = false;

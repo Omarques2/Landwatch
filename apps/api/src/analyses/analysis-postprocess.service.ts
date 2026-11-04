@@ -16,6 +16,7 @@ import { AttachmentsService } from '../attachments/attachments.service';
 import { AnalysisCacheService } from './analysis-cache.service';
 import { AnalysisDetailService } from './analysis-detail.service';
 import { AnalysisVectorMapService } from './analysis-vector-map.service';
+import { AnalysisOverlapService } from './analysis-overlap.service';
 import { ANALYSIS_CACHE_VERSION } from './analysis-cache.constants';
 
 type EnqueueJobInput = {
@@ -60,6 +61,7 @@ export class AnalysisPostprocessService
     private readonly cache: AnalysisCacheService,
     private readonly detail: AnalysisDetailService,
     private readonly vectorMap: AnalysisVectorMapService,
+    private readonly overlap: AnalysisOverlapService,
   ) {}
 
   onModuleInit() {
@@ -129,7 +131,22 @@ export class AnalysisPostprocessService
             }),
           ]
         : []),
+      ...(input.analysisKind === AnalysisKind.STANDARD
+        ? [this.enqueueOverlapMetrics(input.analysisId)]
+        : []),
     ]);
+  }
+
+  async enqueueOverlapMetrics(analysisId: string) {
+    const dedupeKey = `analysis:${analysisId}:overlap_metrics`;
+    await this.enqueue({
+      jobType: AnalysisPostprocessJobType.OVERLAP_METRICS,
+      analysisId,
+      dedupeKey,
+    });
+    // Only active jobs are unique: enqueue creates a fresh job if the previous
+    // one completed, or deduplicates against an already active job. Reopening
+    // completed jobs here would conflict with that newly created active job.
   }
 
   private runProcessDueJobsSafely(source: 'module_init' | 'interval') {
@@ -210,6 +227,9 @@ export class AnalysisPostprocessService
         case AnalysisPostprocessJobType.ANALYSIS_CACHE_BUILD:
           await this.runCacheBuild(job);
           break;
+        case AnalysisPostprocessJobType.OVERLAP_METRICS:
+          await this.runOverlapMetrics(job);
+          break;
         default:
           break;
       }
@@ -255,6 +275,14 @@ export class AnalysisPostprocessService
       analysisId: job.analysis_id,
       dedupeKey: `analysis:${job.analysis_id}:cache_build`,
     });
+  }
+
+  private async runOverlapMetrics(job: ClaimedJob) {
+    if (!job.analysis_id) return;
+    const stored = await this.overlap.computeAndStore(job.analysis_id);
+    if (stored) {
+      await this.cache.invalidate(job.analysis_id);
+    }
   }
 
   private async runCacheBuild(job: ClaimedJob) {

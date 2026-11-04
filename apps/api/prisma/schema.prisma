@@ -226,6 +226,7 @@ model Analysis {
   pdfError                      String?            @map("pdf_error")
   hasIntersections              Boolean            @default(false) @map("has_intersections")
   intersectionCount             Int                @default(0) @map("intersection_count")
+  overlapSummary                Json?              @map("overlap_summary")
   analysisKind                  AnalysisKind       @default(STANDARD) @map("analysis_kind")
   scheduleId                    String?            @map("schedule_id") @db.Uuid
 
@@ -281,6 +282,7 @@ enum AnalysisPostprocessJobType {
   ALERTS_BUILD
   ATTACHMENTS_EFFECTIVE_CAPTURE
   ANALYSIS_CACHE_BUILD
+  OVERLAP_METRICS
 
   @@map("analysis_postprocess_job_type")
   @@schema("app")

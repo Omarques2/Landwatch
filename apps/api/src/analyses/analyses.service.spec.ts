@@ -78,6 +78,7 @@ describe('AnalysesService', () => {
       },
       postprocess: {
         enqueue: jest.fn(),
+        enqueueOverlapMetrics: jest.fn().mockResolvedValue(undefined),
       },
       pdf: {
         generateForUser: jest.fn(),
@@ -215,13 +216,17 @@ describe('AnalysesService', () => {
       featureCount: 2,
       geometry: {
         type: 'MultiPolygon',
-        coordinates: [[[
-          [-49.2, -22.0],
-          [-49.1, -22.0],
-          [-49.1, -21.9],
-          [-49.2, -21.9],
-          [-49.2, -22.0],
-        ]]],
+        coordinates: [
+          [
+            [
+              [-49.2, -22.0],
+              [-49.1, -22.0],
+              [-49.1, -21.9],
+              [-49.2, -21.9],
+              [-49.2, -22.0],
+            ],
+          ],
+        ],
       },
     };
     deps.subjectParser.parse.mockResolvedValue(parsed);
@@ -648,6 +653,100 @@ describe('AnalysesService', () => {
     expect(deps.detail.getById).not.toHaveBeenCalled();
   });
 
+  it('invalidates legacy ready detail without legend metrics and enqueues its upgrade', async () => {
+    const prisma = makePrismaMock();
+    const deps = makeDeps();
+    deps.cache.get.mockResolvedValue({
+      cacheVersion: 20,
+      detail: { id: 'analysis-1', overlapStatus: 'ready' },
+    });
+    prisma.analysis.findUnique.mockResolvedValue({ status: 'completed' });
+    deps.detail.getById.mockResolvedValue({
+      id: 'analysis-1',
+      overlapStatus: 'pending',
+    });
+    const service = new AnalysesService(
+      prisma,
+      deps.runner as any,
+      deps.detail as any,
+      deps.cache as any,
+      deps.vectorMap as any,
+      deps.postprocess as any,
+      deps.pdf as any,
+      deps.landwatchStatus as any,
+      () => now,
+    );
+
+    expect(await service.getById('analysis-1')).toEqual({
+      id: 'analysis-1',
+      overlapStatus: 'pending',
+    });
+    expect(deps.cache.invalidate).toHaveBeenCalledWith('analysis-1');
+    expect(deps.cache.set).not.toHaveBeenCalled();
+    expect(deps.postprocess.enqueueOverlapMetrics).toHaveBeenCalledWith(
+      'analysis-1',
+    );
+  });
+
+  it('does not cache detail while overlap metrics are pending and enqueues them', async () => {
+    const prisma = makePrismaMock();
+    const deps = makeDeps();
+    deps.cache.get.mockResolvedValue(null);
+    prisma.analysis.findUnique.mockResolvedValue({ status: 'completed' });
+    deps.detail.getById.mockResolvedValue({
+      id: 'analysis-1',
+      overlapStatus: 'pending',
+    });
+    const service = new AnalysesService(
+      prisma,
+      deps.runner as any,
+      deps.detail as any,
+      deps.cache as any,
+      deps.vectorMap as any,
+      deps.postprocess as any,
+      deps.pdf as any,
+      deps.landwatchStatus as any,
+      () => now,
+    );
+
+    await service.getById('analysis-1');
+
+    expect(deps.cache.set).not.toHaveBeenCalled();
+    expect(deps.postprocess.enqueueOverlapMetrics).toHaveBeenCalledWith(
+      'analysis-1',
+    );
+  });
+
+  it('caches completed detail once overlap metrics are ready', async () => {
+    const prisma = makePrismaMock();
+    const deps = makeDeps();
+    deps.cache.get.mockResolvedValue(null);
+    prisma.analysis.findUnique.mockResolvedValue({ status: 'completed' });
+    deps.detail.getById.mockResolvedValue({
+      id: 'analysis-1',
+      overlapStatus: 'ready',
+    });
+    const service = new AnalysesService(
+      prisma,
+      deps.runner as any,
+      deps.detail as any,
+      deps.cache as any,
+      deps.vectorMap as any,
+      deps.postprocess as any,
+      deps.pdf as any,
+      deps.landwatchStatus as any,
+      () => now,
+    );
+
+    await service.getById('analysis-1');
+
+    expect(deps.cache.set).toHaveBeenCalledWith(
+      'analysis-1',
+      expect.objectContaining({ cacheVersion: ANALYSIS_CACHE_VERSION }),
+    );
+    expect(deps.postprocess.enqueueOverlapMetrics).not.toHaveBeenCalled();
+  });
+
   it('returns cached map when tolerance matches', async () => {
     const prisma = makePrismaMock();
     const deps = makeDeps();
@@ -852,7 +951,11 @@ describe('AnalysesService', () => {
     );
 
     await service.list(
-      { isPlatformAdmin: false, isPlatformUser: true, orgId: 'org-platform' } as any,
+      {
+        isPlatformAdmin: false,
+        isPlatformUser: true,
+        orgId: 'org-platform',
+      } as any,
       { page: 1, pageSize: 10 },
     );
 
@@ -949,10 +1052,11 @@ describe('AnalysesService', () => {
       () => now,
     );
 
-    await service.list(
-      { isPlatformUser: true, orgId: 'org-platform' } as any,
-      { page: 1, pageSize: 10, orgId: 'org-client' },
-    );
+    await service.list({ isPlatformUser: true, orgId: 'org-platform' } as any, {
+      page: 1,
+      pageSize: 10,
+      orgId: 'org-client',
+    });
 
     expect(prisma.analysis.findMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: { orgId: 'org-client' } }),

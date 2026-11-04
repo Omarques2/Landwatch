@@ -596,7 +596,7 @@ export class AnalysisVectorMapService {
     return false;
   }
 
-  private async fetchLegendItems(
+  async fetchLegendItems(
     id: string,
     analysisDate: string,
     analysisKind: AnalysisKind,

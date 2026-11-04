@@ -944,6 +944,12 @@ export class AnalysesService {
     }
 
     const detail = await this.detail.getById(id);
+    if (this.isOverlapPending(detail)) {
+      // Overlap percentages arrive via postprocess; keep detail uncached until
+      // then. Enqueue is deduped, so this also backfills older analyses.
+      await this.postprocess.enqueueOverlapMetrics(id);
+      return detail;
+    }
     if (status.status === 'completed') {
       await this.cache.set(id, {
         cacheVersion: ANALYSIS_CACHE_VERSION,
@@ -951,6 +957,14 @@ export class AnalysesService {
       });
     }
     return detail;
+  }
+
+  private isOverlapPending(detail: unknown) {
+    return (
+      !!detail &&
+      typeof detail === 'object' &&
+      (detail as { overlapStatus?: unknown }).overlapStatus === 'pending'
+    );
   }
 
   async getStatusById(id: string) {

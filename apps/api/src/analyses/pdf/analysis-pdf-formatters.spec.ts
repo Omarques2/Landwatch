@@ -3,6 +3,7 @@ import {
   buildPrintChipRows,
   buildPdfFilename,
   colorForDataset,
+  formatOverlapPct,
   formatPrintDatasetLabel,
   getAnalysisDatasetLegendKinds,
   getAnalysisDatasetStatusLabel,
@@ -10,6 +11,13 @@ import {
 } from './analysis-pdf-formatters';
 
 describe('analysis-pdf-formatters', () => {
+  it('formats overlap percentages in pt-BR', () => {
+    expect(formatOverlapPct(12.345)).toBe('12,35%');
+    expect(formatOverlapPct(0.004)).toBe('<0,01%');
+    expect(formatOverlapPct(0)).toBe('0%');
+    expect(formatOverlapPct(100.0000001)).toBe('100%');
+  });
+
   it('keeps print label and chip packing compatible with the client PDF', () => {
     expect(formatPrintDatasetLabel('  Prodes Mata Atlantica Nb 2024  ')).toBe(
       'Mata Atlantica Nb 2024',

@@ -12,8 +12,7 @@ vi.mock("@/components/maps/AnalysisVectorMap.vue", () => ({
         default: null,
       },
     },
-    template:
-      "<div data-test='analysis-vector-map'>active={{ activeLegendCode || 'none' }}</div>",
+    template: "<div data-test='analysis-vector-map'>active={{ activeLegendCode || 'none' }}</div>",
   }),
 }));
 
@@ -40,10 +39,7 @@ vi.mock("vue-router", () => ({
 import AnalysisPublicView from "@/views/AnalysisPublicView.vue";
 import { clearAnalysisMapCache } from "@/features/analyses/analysis-map-cache";
 
-function publicVectorMapPayload(
-  legendItems: Array<Record<string, unknown>> = [],
-  withSource = true,
-) {
+function publicVectorMapPayload(legendItems: Array<Record<string, unknown>> = [], withSource = true) {
   return {
     renderMode: "mvt",
     vectorSource: withSource
@@ -66,6 +62,58 @@ describe("AnalysisPublicView", () => {
     getMock.mockReset();
     window.sessionStorage.clear();
     clearAnalysisMapCache();
+  });
+
+  it("shows every municipality and the central coordinate for geometry analyses", async () => {
+    const getMock = http.get as unknown as ReturnType<typeof vi.fn>;
+    getMock.mockImplementation((url: string) => {
+      if (url === "/v1/public/analyses/analysis-public-1") {
+        return Promise.resolve({
+          data: {
+            data: {
+              id: "analysis-public-1",
+              carKey: "GEOMETRY",
+              subjectType: "GEOMETRY",
+              farmName: "Fazendas enviadas",
+              analysisDate: "2026-08-27",
+              status: "completed",
+              analysisKind: "STANDARD",
+              municipalities: [
+                { municipio: "Bauru", uf: "SP" },
+                { municipio: "Pederneiras", uf: "SP" },
+              ],
+              geometryCenter: { lat: -22.321654, lng: -48.765432 },
+              biomas: [],
+              intersectionCount: 0,
+              datasetGroups: [],
+              results: [],
+            },
+          },
+        });
+      }
+      if (url === "/v1/public/analyses/analysis-public-1/vector-map") {
+        return Promise.resolve({ data: { data: publicVectorMapPayload([], false) } });
+      }
+      if (url === "/v1/public/analyses/analysis-public-1/attachments") {
+        return Promise.resolve({ data: { data: [] } });
+      }
+      return Promise.reject(new Error(`unexpected request: ${url}`));
+    });
+
+    const wrapper = mount(AnalysisPublicView, {
+      global: {
+        stubs: {
+          AnalysisVectorMap: { template: "<div data-test='analysis-map'></div>" },
+          AnalysisWatermark: { template: "<div />" },
+        },
+      },
+    });
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("Municípios:");
+    expect(wrapper.text()).toContain("Bauru - SP, Pederneiras - SP");
+    expect(wrapper.text()).toContain("Coordenada central:");
+    expect(wrapper.text()).toContain("-22.321654, -48.765432");
   });
 
   it("hides attachment actions when public analysis has no attachments", async () => {
@@ -118,9 +166,7 @@ describe("AnalysisPublicView", () => {
     expect(wrapper.text()).not.toContain("Ver anexos");
     expect(wrapper.text()).not.toContain("Baixar ZIP anexos");
 
-    const actionButtons = wrapper
-      .findAll("button")
-      .filter((item) => ["Baixar GeoJSON"].includes(item.text().trim()));
+    const actionButtons = wrapper.findAll("button").filter((item) => ["Baixar GeoJSON"].includes(item.text().trim()));
     expect(actionButtons).toHaveLength(1);
     for (const button of actionButtons) {
       expect(button.classes()).toContain("transition-colors");
@@ -235,6 +281,77 @@ describe("AnalysisPublicView", () => {
     expect(wrapper.text()).not.toContain("Ativo");
   });
 
+  it("shows overlap percentages once the public detail reports them", async () => {
+    vi.useFakeTimers();
+    try {
+      let detailCalls = 0;
+      const getMock = http.get as unknown as ReturnType<typeof vi.fn>;
+      getMock.mockImplementation((url: string) => {
+        if (url === "/v1/public/analyses/analysis-public-1") {
+          detailCalls += 1;
+          const ready = detailCalls > 1;
+          return Promise.resolve({
+            data: {
+              data: {
+                id: "analysis-public-1",
+                carKey: "MT-123",
+                farmName: "Fazenda",
+                analysisDate: "2026-02-12",
+                status: "completed",
+                analysisKind: "STANDARD",
+                intersectionCount: 1,
+                overlapStatus: ready ? "ready" : "pending",
+                ...(ready ? { legendOverlap: { QUILOMBOLAS: 4.5 } } : {}),
+                datasetGroups: [
+                  {
+                    title: "Grupo",
+                    items: [{ datasetCode: "QUILOMBOLAS", hit: true, ...(ready ? { overlapPct: 4.5 } : {}) }],
+                  },
+                ],
+                results: [],
+              },
+            },
+          });
+        }
+        if (url === "/v1/public/analyses/analysis-public-1/vector-map") {
+          return Promise.resolve({
+            data: {
+              data: publicVectorMapPayload([
+                { code: "QUILOMBOLAS", kind: "dataset", label: null, datasetCode: "QUILOMBOLAS", featureIds: [] },
+              ]),
+            },
+          });
+        }
+        if (url === "/v1/public/analyses/analysis-public-1/attachments") {
+          return Promise.resolve({ data: { data: [] } });
+        }
+        return Promise.reject(new Error(`unexpected request: ${url}`));
+      });
+
+      const wrapper = mount(AnalysisPublicView, {
+        global: {
+          stubs: {
+            AnalysisVectorMap: { template: "<div data-test='analysis-map'></div>" },
+            AnalysisWatermark: { template: "<div />" },
+          },
+        },
+      });
+      await flushPromises();
+      expect(wrapper.text()).toContain("Calculando % de sobreposição");
+
+      await vi.advanceTimersByTimeAsync(3000);
+      await flushPromises();
+
+      expect(wrapper.text()).toContain("4,50%");
+      expect(wrapper.findAll("[data-test='legend-overlap']").map((badge) => badge.text())).toEqual(["4,50%"]);
+      expect(wrapper.findAll(".analysis-intersection-item").every((item) => !item.text().includes("%"))).toBe(true);
+      expect(wrapper.text()).not.toContain("Calculando % de sobreposição");
+      wrapper.unmount();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("downloads public geojson and attachments using only the analysis id", async () => {
     const getMock = http.get as unknown as ReturnType<typeof vi.fn>;
     const geojsonPayload = {
@@ -302,8 +419,7 @@ describe("AnalysisPublicView", () => {
         return Promise.resolve({
           data: new Blob(["pdf"], { type: "application/pdf" }),
           headers: {
-            "content-disposition":
-              'attachment; filename="Sigfarm-LandWatch-Publica.pdf"',
+            "content-disposition": 'attachment; filename="Sigfarm-LandWatch-Publica.pdf"',
           },
         });
       }
@@ -325,18 +441,12 @@ describe("AnalysisPublicView", () => {
         value: vi.fn(),
       });
     }
-    const createObjectUrlSpy = vi
-      .spyOn(URL, "createObjectURL")
-      .mockImplementation((blob: Blob | MediaSource) => {
-        exportedBlob = blob as Blob;
-        return "blob:mock";
-      });
-    const revokeObjectUrlSpy = vi
-      .spyOn(URL, "revokeObjectURL")
-      .mockImplementation(() => {});
-    const clickSpy = vi
-      .spyOn(HTMLAnchorElement.prototype, "click")
-      .mockImplementation(() => {});
+    const createObjectUrlSpy = vi.spyOn(URL, "createObjectURL").mockImplementation((blob: Blob | MediaSource) => {
+      exportedBlob = blob as Blob;
+      return "blob:mock";
+    });
+    const revokeObjectUrlSpy = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
 
     const wrapper = mount(AnalysisPublicView, {
       global: {
@@ -348,23 +458,16 @@ describe("AnalysisPublicView", () => {
     });
     await flushPromises();
 
-    const geojsonButton = wrapper
-      .findAll("button")
-      .find((item) => item.text().includes("Baixar GeoJSON"));
+    const geojsonButton = wrapper.findAll("button").find((item) => item.text().includes("Baixar GeoJSON"));
     expect(geojsonButton).toBeTruthy();
     await geojsonButton!.trigger("click");
     await flushPromises();
 
-    expect(getMock).toHaveBeenCalledWith(
-      "/v1/public/analyses/analysis-public-1/geojson",
-      {
-        headers: { "X-Skip-Auth": "1" },
-      },
-    );
+    expect(getMock).toHaveBeenCalledWith("/v1/public/analyses/analysis-public-1/geojson", {
+      headers: { "X-Skip-Auth": "1" },
+    });
 
-    const attachmentsButton = wrapper
-      .findAll("button")
-      .find((item) => item.text().includes("Ver anexos"));
+    const attachmentsButton = wrapper.findAll("button").find((item) => item.text().includes("Ver anexos"));
     expect(attachmentsButton).toBeTruthy();
     expect(attachmentsButton!.attributes("disabled")).toBeUndefined();
     await attachmentsButton!.trigger("click");
@@ -377,9 +480,7 @@ describe("AnalysisPublicView", () => {
       }),
     );
 
-    const pdfButton = wrapper
-      .findAll("button")
-      .find((item) => item.text().includes("Baixar PDF"));
+    const pdfButton = wrapper.findAll("button").find((item) => item.text().includes("Baixar PDF"));
     expect(pdfButton).toBeTruthy();
     await pdfButton!.trigger("click");
     await flushPromises();
@@ -401,9 +502,7 @@ describe("AnalysisPublicView", () => {
     await attachmentDownloadButton!.trigger("click");
     await flushPromises();
 
-    const zipButton = wrapper
-      .findAll("button")
-      .find((item) => item.text().includes("Baixar ZIP anexos"));
+    const zipButton = wrapper.findAll("button").find((item) => item.text().includes("Baixar ZIP anexos"));
     expect(zipButton).toBeTruthy();
     await zipButton!.trigger("click");
     await flushPromises();
