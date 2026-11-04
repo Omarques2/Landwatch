@@ -54,8 +54,9 @@ class BuildPmtilesTest(unittest.TestCase):
                 self.attempts = 0
                 self.positions = []
 
-            def upload_blob(self, _blob_path, handle, overwrite=True):
+            def upload_blob(self, _blob_path, handle, overwrite=True, **kwargs):
                 self.attempts += 1
+                self.kwargs = kwargs
                 self.positions.append(handle.tell())
                 if self.attempts == 1:
                     raise TimeoutError("timeout")
@@ -78,6 +79,42 @@ class BuildPmtilesTest(unittest.TestCase):
         self.assertEqual(size, 123)
         self.assertEqual(container.attempts, 2)
         self.assertEqual(container.positions, [0, 0])
+        self.assertEqual(container.kwargs.get("max_concurrency"), 4)
+
+    def test_blob_client_uploads_in_small_blocks_with_longer_timeouts(self):
+        captured = {}
+
+        class FakeContainer:
+            def get_container_properties(self):
+                return {}
+
+        class FakeService:
+            @classmethod
+            def from_connection_string(cls, connection_string, **kwargs):
+                captured.update(kwargs)
+                return cls()
+
+            def get_container_client(self, _name):
+                return FakeContainer()
+
+        blob_module = types.ModuleType("azure.storage.blob")
+        blob_module.BlobServiceClient = FakeService
+        modules = {
+            "azure": types.ModuleType("azure"),
+            "azure.storage": types.ModuleType("azure.storage"),
+            "azure.storage.blob": blob_module,
+        }
+        env = {
+            "LANDWATCH_PMTILES_BLOB_CONNECTION_STRING": "conn",
+            "LANDWATCH_PMTILES_BLOB_CONTAINER": "container",
+        }
+        with patch.dict(sys.modules, modules), patch.dict(os.environ, env):
+            build_pmtiles.ensure_blob_client()
+
+        self.assertEqual(captured["max_single_put_size"], 4 * 1024 * 1024)
+        self.assertEqual(captured["max_block_size"], 4 * 1024 * 1024)
+        self.assertGreaterEqual(captured["connection_timeout"], 60)
+        self.assertGreaterEqual(captured["read_timeout"], 300)
 
 
 if __name__ == "__main__":

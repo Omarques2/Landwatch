@@ -11,7 +11,7 @@ from .common import DatasetArtifact, ensure_dir, log_info, log_warn
 
 DEFAULT_PAGE_SIZE = 50000
 TIMEOUT = 60
-MAX_RETRIES = 3
+MAX_RETRIES = int(os.environ.get("PRODES_MAX_RETRIES", "5"))
 RETRY_BACKOFF = 5.0
 
 LAYERS = [
@@ -86,6 +86,7 @@ def fetch_layer(workspace: str, layer: str, year: int, page_size: int) -> gpd.Ge
     url = f"https://terrabrasilis.dpi.inpe.br/geoserver/{workspace}/wfs"
     all_feats = []
     index = 0
+    matched = None
 
     while True:
         params = {
@@ -97,18 +98,36 @@ def fetch_layer(workspace: str, layer: str, year: int, page_size: int) -> gpd.Ge
             "count": page_size,
             "startIndex": index,
             "CQL_FILTER": f"year={year}",
-            "sortBy": "year A",
+            # Sorting by the filtered year is a tie for every row, so the server
+            # returned overlapping pages (and silently dropped the rest).
+            "sortBy": "fid A",
         }
 
         resp = request_with_retry(url, params, workspace, layer, year, index)
         if resp is None:
-            break
-        feats = resp.json().get("features", [])
+            # A partial year would be ingested as if the missing polygons were
+            # removed; skip the year so the previous version stays active.
+            raise RuntimeError(
+                f"{workspace}:{layer} ano={year} falhou na pagina idx={index}; ano ignorado"
+            )
+        data = resp.json()
+        if matched is None:
+            matched = data.get("numberMatched")
+        feats = data.get("features", [])
         if not feats:
             break
         all_feats.extend(feats)
         index += len(feats)
         log_info(f"{workspace}:{layer} — {index} registros carregados para ano {year}")
+        if len(feats) < page_size:
+            break
+
+    unique = len({f.get("properties", {}).get("uuid") for f in all_feats})
+    if unique < len(all_feats) or (isinstance(matched, int) and unique != matched):
+        raise RuntimeError(
+            f"{workspace}:{layer} ano={year} veio incompleto "
+            f"({unique} unicos de {matched}); ano ignorado"
+        )
 
     if not all_feats:
         return gpd.GeoDataFrame()
@@ -160,7 +179,11 @@ def run(
 
             for year in years_to_fetch:
                 log_info(f"Processando {ws}:{layer} ano={year}")
-                gdf = fetch_layer(ws, layer, year, page_size)
+                try:
+                    gdf = fetch_layer(ws, layer, year, page_size)
+                except RuntimeError as exc:
+                    log_warn(str(exc))
+                    continue
                 if gdf.empty:
                     log_warn(f"GeoDataFrame vazio para {ws}:{layer} ano={year}")
                     continue

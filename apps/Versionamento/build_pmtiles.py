@@ -114,7 +114,16 @@ def ensure_blob_client():
         raise RuntimeError(
             "LANDWATCH_PMTILES_BLOB_CONNECTION_STRING and LANDWATCH_PMTILES_BLOB_CONTAINER are required",
         )
-    service = BlobServiceClient.from_connection_string(connection_string)
+    # Upload in small blocks: a single ~50MB PUT times out on slow uplinks and
+    # a retry would resend the whole file; blocks are retried individually.
+    block_size = 4 * 1024 * 1024
+    service = BlobServiceClient.from_connection_string(
+        connection_string,
+        max_single_put_size=block_size,
+        max_block_size=block_size,
+        connection_timeout=60,
+        read_timeout=300,
+    )
     container = service.get_container_client(container_name)
     try:
         container.get_container_properties()
@@ -362,7 +371,7 @@ def upload_pmtiles(container, blob_path: str, local_path: Path) -> Tuple[str, in
     for attempt in range(1, retries + 1):
         try:
             with local_path.open("rb") as handle:
-                container.upload_blob(blob_path, handle, overwrite=True)
+                container.upload_blob(blob_path, handle, overwrite=True, max_concurrency=4)
             break
         except Exception as exc:
             if attempt >= retries:
