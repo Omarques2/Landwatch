@@ -1,0 +1,52 @@
+<h2>Resultado da comparação: zoom nas imagens</h2>
+<p class="subtitle">Hoje só dá pra dar zoom na página inteira. Requisito mantido: antes/depois lado a lado, empilhando no celular. Sem dependência nova.</p>
+
+<div class="options">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Zoom sincronizado + tela cheia (recomendado)</h3>
+      <p>Roda do mouse / pinça / botões +− dão zoom dentro da imagem; arrastar move. As duas imagens andam juntas (mesmo ponto da fazenda). Botão ⛶ abre a comparação em tela cheia. Opacidade da sobreposição na mesma barra.</p>
+      <div class="mockup">
+        <div class="mockup-body">
+          <div style="display:flex;gap:8px;font-size:12px;align-items:center">
+            <b>12.345 m²</b>&nbsp;com aumento de SAVI · Antes 42 cenas · Depois 37 cenas
+          </div>
+          <div style="display:flex;gap:6px;font-size:12px;margin-top:6px;align-items:center">
+            [ − ] [ + ] [ ⟲ ] &nbsp; Sobreposição: ━━●━━━ 35% &nbsp; <span style="margin-left:auto">[ ⛶ Tela cheia ]</span>
+          </div>
+          <div class="split" style="margin-top:6px">
+            <div><div class="label">Antes · Landsat 5 · 01/06/2010 → 06/05/2012</div><div class="placeholder" style="height:120px">🛰 zoom 2× (arrasta)</div></div>
+            <div><div class="label">Depois · Landsat 8 + SAVI · 18/03/2013 → 01/01/2025</div><div class="placeholder" style="height:120px">🛰 mesmo enquadramento</div></div>
+          </div>
+          <div style="font-size:11px;margin-top:6px">🟥 redução &nbsp; 🟨 pouca mudança &nbsp; 🟩 aumento · Mediana do período</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>A + modo "deslizar" opcional</h3>
+      <p>Igual A, mais um alternador [Lado a lado | Deslizar]: no modo deslizar, as duas imagens ficam sobrepostas e uma barra vertical revela antes/depois. Bom para ver mudança no mesmo ponto; mais código.</p>
+      <div class="mockup">
+        <div class="mockup-body">
+          [ Lado a lado | <b>Deslizar</b> ]
+          <div style="display:flex;height:120px;margin-top:6px">
+            <div class="placeholder" style="flex:1;border-right:3px solid #333">Antes</div>
+            <div class="placeholder" style="flex:1">Depois</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Clicar abre visualizador (lightbox)</h3>
+      <p>Miniaturas lado a lado; clique abre a imagem grande com zoom. Mais simples, mas sem zoom sincronizado entre antes/depois.</p>
+    </div>
+  </div>
+</div>

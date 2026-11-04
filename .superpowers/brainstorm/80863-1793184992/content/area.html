@@ -1,0 +1,50 @@
+<h2>Seleção da área</h2>
+<p class="subtitle">Substitui o select "Origem da área" + campo + botão "Buscar" + lista. A área escolhida vale para as duas abas.</p>
+
+<div class="options">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Alternador segmentado (recomendado)</h3>
+      <p>Dois botões lado a lado. Fazenda: um único campo com busca enquanto digita (nome ou CAR), resultados abrem logo abaixo, sem botão "Buscar". Arquivo: área de arrastar-e-soltar. Depois de escolher, vira um "chip" com botão trocar.</p>
+      <div class="split">
+        <div class="mockup">
+          <div class="mockup-header">Fazenda — buscando</div>
+          <div class="mockup-body">
+            <div style="display:flex;gap:0"><button class="mock-button" style="opacity:.5">Arquivo</button><button class="mock-button">Fazenda</button></div>
+            <input class="mock-input" placeholder="🔍 Nome da fazenda ou CAR" value="santa" style="margin-top:8px;width:90%"/>
+            <div class="placeholder" style="text-align:left;margin-top:2px;font-size:12px">
+              <b>Fazenda Santa Rita</b><br/>MT-5103403-AB12… · Org X<br/><hr/>
+              <b>Santa Luzia</b><br/>GO-5208707-99F0… · Org Y
+            </div>
+          </div>
+        </div>
+        <div class="mockup">
+          <div class="mockup-header">Selecionado</div>
+          <div class="mockup-body">
+            <div style="display:flex;gap:0"><button class="mock-button" style="opacity:.5">Arquivo</button><button class="mock-button">Fazenda</button></div>
+            <div class="placeholder" style="text-align:left;margin-top:8px">✓ <b>Fazenda Santa Rita</b><br/><small>MT-5103403-AB12…</small> <span style="float:right">Trocar ✕</span></div>
+            <div class="placeholder" style="margin-top:12px">⬆ Arraste o arquivo ou clique<br/><small>ZIP (SHP), KML, KMZ, GeoJSON</small></div>
+            <p style="font-size:11px">(dropzone = visão da aba Arquivo)</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Tudo visível, sem alternador</h3>
+      <p>Busca de fazenda em cima, "ou" no meio, dropzone embaixo. Escolher um limpa o outro. Menos cliques, porém mais alto no painel lateral.</p>
+      <div class="mockup">
+        <div class="mockup-body">
+          <input class="mock-input" placeholder="🔍 Nome da fazenda ou CAR" style="width:90%"/>
+          <p style="text-align:center;margin:6px 0">— ou —</p>
+          <div class="placeholder">⬆ Arraste o arquivo ou clique<br/><small>ZIP (SHP), KML, KMZ, GeoJSON</small></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<p class="subtitle">Fora do escopo por ora: mapa de pré-visualização do contorno da área (posso incluir se quiser).</p>

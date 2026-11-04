@@ -1,0 +1,38 @@
+<h2>Acompanhamento do processamento</h2>
+<p class="subtitle">Aparece na área de resultado (direita) enquanto roda. Sem porcentagem inventada. Etapas = as que a API já envia hoje.</p>
+
+<div class="options">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Lista de etapas (recomendado)</h3>
+      <p>Etapas concluídas com ✓, atual com spinner, futuras apagadas. Contagens de imagens entram na etapa em que aparecem. Tempo decorrido no topo. Botão Cancelar.</p>
+      <div class="mockup">
+        <div class="mockup-body" style="font-size:13px;line-height:1.8">
+          <div style="display:flex"><b>Gerando comparação…</b><span style="margin-left:auto">2 min 14 s</span></div>
+          ✓ Conectando ao Earth Engine<br/>
+          ✓ Buscando imagens — Landsat 5: 42 · Landsat 8: 37<br/>
+          ◌ <b>Calculando a mudança de vegetação</b><br/>
+          <span style="opacity:.4">○ Gerando as imagens</span><br/>
+          <div style="height:4px;background:linear-gradient(90deg,#ccc 0 30%,#68b 30% 50%,#ccc 50%);margin:6px 0"></div>
+          <small>Pode levar alguns minutos.</small> <button class="mock-button" style="float:right">Cancelar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Linha única</h3>
+      <p>Spinner + mensagem da etapa atual + tempo + barra indeterminada. Mais enxuto, sem visão do que vem a seguir.</p>
+      <div class="mockup">
+        <div class="mockup-body" style="font-size:13px">
+          ◌ Calculando a mudança de vegetação · 2 min 14 s<br/>
+          <div style="height:4px;background:linear-gradient(90deg,#ccc 0 30%,#68b 30% 50%,#ccc 50%);margin:6px 0"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<p class="subtitle">Cancelar = aborta a requisição no navegador (mesmo mecanismo que já roda ao sair da página). Não interrompe o job no Earth Engine se ele já começou.</p>

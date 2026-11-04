@@ -1,0 +1,63 @@
+<h2>Estrutura geral da página /gee</h2>
+<p class="subtitle">Qual organização faz mais sentido? As duas operações viram abas no topo em todas as opções.</p>
+
+<div class="options">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Painel lateral + área de resultado (recomendado)</h3>
+      <p>Formulário compacto à esquerda (área → período → executar). Resultado ocupa o espaço grande à direita. Em celular, empilha.</p>
+      <div class="mockup">
+        <div class="mockup-body">
+          <div class="mock-nav">[ Imagem Sentinel-2 ] [ Mudança de vegetação ]</div>
+          <div style="display:flex;gap:8px;margin-top:8px">
+            <div class="mock-sidebar" style="width:32%;min-height:200px">
+              <b>1. Área</b><br/>[Arquivo | Fazenda]<br/>área escolhida ✓<br/><br/>
+              <b>2. Período</b><br/>[ início ] [ fim ]<br/><br/>
+              <button class="mock-button">Gerar</button>
+            </div>
+            <div class="mock-content" style="flex:1;min-height:200px">
+              <div class="placeholder" style="height:180px">Progresso → Resultado<br/>(imagens grandes, comparador)</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Coluna única em etapas</h3>
+      <p>Cards numerados em sequência vertical; resultado aparece abaixo do botão. Parecido com hoje, mas organizado.</p>
+      <div class="mockup">
+        <div class="mockup-body">
+          <div class="mock-nav">[ Imagem Sentinel-2 ] [ Mudança de vegetação ]</div>
+          <div class="placeholder" style="margin-top:8px">1. Área — [Arquivo | Fazenda]</div>
+          <div class="placeholder" style="margin-top:6px">2. Período — [ início ] [ fim ]</div>
+          <div style="margin-top:6px"><button class="mock-button">Gerar</button></div>
+          <div class="placeholder" style="margin-top:6px;height:90px">Resultado</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Mapa central</h3>
+      <p>Mapa grande mostra a área escolhida (arquivo ou fazenda) desde o início; formulário flutua sobre o mapa; resultado substitui o mapa. Mais trabalho, mais visual.</p>
+      <div class="mockup">
+        <div class="mockup-body">
+          <div class="mock-nav">[ Imagem Sentinel-2 ] [ Mudança de vegetação ]</div>
+          <div style="position:relative;margin-top:8px">
+            <div class="placeholder" style="height:200px">🗺 Mapa com contorno da área</div>
+            <div class="mock-sidebar" style="position:absolute;top:10px;left:10px;width:35%;min-height:120px">
+              Área / Período<br/><button class="mock-button">Gerar</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

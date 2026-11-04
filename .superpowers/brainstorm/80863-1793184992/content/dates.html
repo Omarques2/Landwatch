@@ -1,0 +1,52 @@
+<h2>Seletor de período</h2>
+<p class="subtitle">Problema hoje: input nativo de data, difícil de digitar. Sem dependência nova em nenhuma opção.</p>
+
+<div class="options">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Campo digitável DD/MM/AAAA + calendário + atalhos (recomendado)</h3>
+      <p>Digita só números, barras entram sozinhas, erro aparece ao sair do campo. Ícone 📅 abre o calendário do navegador para quem prefere clicar. Atalhos preenchem o intervalo de uma vez.</p>
+      <div class="mockup">
+        <div class="mockup-body">
+          <div style="display:flex;gap:8px">
+            <div><div class="label">Início</div><input class="mock-input" value="01/01/2024  📅" style="width:140px"/></div>
+            <div><div class="label">Fim</div><input class="mock-input" value="28/10/2026  📅" style="width:140px"/></div>
+          </div>
+          <div style="margin-top:8px;font-size:12px">
+            Atalhos (aba Sentinel-2): <button class="mock-button">30 dias</button> <button class="mock-button">3 meses</button> <button class="mock-button">12 meses</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Mês/Ano em selects</h3>
+      <p>Escolhe mês e ano (dia 1 implícito). Impossível digitar errado, mas perde precisão de dia — pode atrapalhar no Sentinel-2.</p>
+      <div class="mockup">
+        <div class="mockup-body">
+          Início: [ Jan ▾ ] [ 2024 ▾ ] &nbsp;&nbsp; Fim: [ Out ▾ ] [ 2026 ▾ ]
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<h3 style="margin-top:24px">Extra para a aba Mudança de vegetação (vale para A ou B)</h3>
+<p class="subtitle">Troca os parágrafos técnicos por uma linha do tempo que mostra o que cada satélite vai usar. Se o intervalo não cobre os dois, a faixa faltante fica vermelha com uma frase curta.</p>
+<div class="mockup">
+  <div class="mockup-body">
+    <div style="display:flex;height:22px;font-size:11px;color:#fff">
+      <div style="flex:28;background:#6b8;display:flex;align-items:center;padding-left:4px">Landsat 5 · 1984–2012</div>
+      <div style="flex:1;background:#ccc"></div>
+      <div style="flex:13;background:#68b;display:flex;align-items:center;padding-left:4px">Landsat 8 · 2013–hoje</div>
+    </div>
+    <div style="display:flex;height:8px;margin-top:2px">
+      <div style="flex:26"></div><div style="flex:2;background:#333"></div><div style="flex:1"></div><div style="flex:12;background:#333"></div><div style="flex:1"></div>
+    </div>
+    <p style="font-size:12px;margin-top:6px"><b>Antes:</b> 01/06/2010 → 05/05/2012 &nbsp;·&nbsp; <b>Depois:</b> 18/03/2013 → 31/12/2024</p>
+  </div>
+</div>
