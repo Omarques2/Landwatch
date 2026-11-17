@@ -135,6 +135,65 @@ describe('AnalysisSubjectParserService', () => {
     );
   });
 
+  it('falls back to the first point for CAR search when a KMZ has only a pin', async () => {
+    const zip = new JSZip();
+    zip.file(
+      'doc.kml',
+      `
+        <kml xmlns="http://www.opengis.net/kml/2.2" xmlns:gx="http://www.google.com/kml/ext/2.2">
+          <Document><Placemark><name>Minuana</name><Point>
+            <gx:drawOrder>1</gx:drawOrder>
+            <coordinates>-49.18290085903316,-7.369046586536931,0</coordinates>
+          </Point></Placemark></Document>
+        </kml>
+      `,
+    );
+    const kmz = await zip.generateAsync({ type: 'nodebuffer' });
+
+    await expect(
+      parser.parseCarSearch(
+        kmz,
+        'Minuana.kmz',
+        'application/vnd.google-earth.kmz',
+      ),
+    ).resolves.toEqual({
+      kind: 'point',
+      lat: -7.369046586536931,
+      lng: -49.18290085903316,
+    });
+  });
+
+  it('prefers polygons over points for CAR search', async () => {
+    const kml = Buffer.from(`
+      <kml xmlns="http://www.opengis.net/kml/2.2"><Folder>
+        <Placemark><Point><coordinates>-48.9,-19.6</coordinates></Point></Placemark>
+        <Placemark><Polygon><outerBoundaryIs><LinearRing><coordinates>
+          -48.9,-19.6 -48.8,-19.6 -48.8,-19.5 -48.9,-19.5 -48.9,-19.6
+        </coordinates></LinearRing></outerBoundaryIs></Polygon></Placemark>
+      </Folder></kml>
+    `);
+
+    const result = await parser.parseCarSearch(kml, 'area.kml');
+
+    expect(result.kind).toBe('geometry');
+  });
+
+  it('rejects CAR search files without polygon or point', async () => {
+    const kml = Buffer.from(`
+      <kml xmlns="http://www.opengis.net/kml/2.2">
+        <Placemark><LineString><coordinates>-49.2,-22 -49.1,-22</coordinates></LineString></Placemark>
+      </kml>
+    `);
+
+    await expect(parser.parseCarSearch(kml, 'linha.kml')).rejects.toEqual(
+      expect.objectContaining<BadRequestException>({
+        response: expect.objectContaining({
+          code: 'GEOMETRY_POLYGON_OR_POINT_REQUIRED',
+        }),
+      }),
+    );
+  });
+
   it('reads a KMZ document containing polygon features', async () => {
     const zip = new JSZip();
     zip.file(

@@ -262,6 +262,94 @@ describe("NewAnalysisView", () => {
     expect(http.get).toHaveBeenCalledWith("/v1/cars/map-searches/search-1/csv", { responseType: "blob" });
   });
 
+  it("envia o raio junto do arquivo para buscas por ponto (KMZ com pin)", async () => {
+    routePath = "/analyses/search";
+    (http.post as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      data: {
+        data: {
+          searchId: "search-point-1",
+          expiresAt: "2026-08-27T12:30:00.000Z",
+          renderMode: "mvt",
+          stats: { totalFeatures: 3 },
+          vectorSource: { tiles: [], bounds: [0, 0, 0, 0], minzoom: 0, maxzoom: 22, sourceLayer: "cars_search" },
+          searchCenter: { lat: -7.369047, lng: -49.182901 },
+          searchRadiusMeters: 5000,
+        },
+      },
+    });
+    const wrapper = mount(NewAnalysisView);
+
+    await wrapper.get('[data-testid="car-file-search-mode"]').trigger("click");
+    const file = new File(["kmz"], "Minuana.kmz", { type: "application/vnd.google-earth.kmz" });
+    const input = wrapper.get('[data-testid="car-search-file"]');
+    Object.defineProperty(input.element, "files", { value: [file] });
+    await input.trigger("change");
+    await wrapper.get('[data-testid="car-file-search-submit"]').trigger("click");
+    await flushPromises();
+
+    const [, body] = (http.post as unknown as ReturnType<typeof vi.fn>).mock.calls[0]!;
+    expect(body.get("radiusMeters")).toBe("5000");
+  });
+
+  it("abre modal e baixa KML só do CAR selecionado ou de todos", async () => {
+    routePath = "/analyses/search";
+    (http.post as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      data: {
+        data: {
+          searchId: "search-1",
+          expiresAt: "2026-08-27T12:30:00.000Z",
+          renderMode: "mvt",
+          stats: { totalFeatures: 2 },
+          vectorSource: { tiles: [], bounds: [0, 0, 0, 0], minzoom: 0, maxzoom: 22, sourceLayer: "cars_search" },
+          searchCenter: { lat: -10, lng: -50 },
+          searchRadiusMeters: 5000,
+        },
+      },
+    });
+    const kmlResponse = {
+      data: new Blob(["<kml/>"], { type: "application/vnd.google-earth.kml+xml" }),
+      headers: { "content-disposition": 'attachment; filename="busca.kml"' },
+    };
+    (http.get as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(kmlResponse);
+    if (!("createObjectURL" in URL)) {
+      Object.defineProperty(URL, "createObjectURL", { configurable: true, value: vi.fn() });
+    }
+    if (!("revokeObjectURL" in URL)) {
+      Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: vi.fn() });
+    }
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:cars-kml");
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    const wrapper = mount(NewAnalysisView, { global: { stubs: { teleport: true } } });
+    await wrapper.get('[data-testid="gps-lat"]').setValue("-10");
+    await wrapper.get('[data-testid="gps-lng"]').setValue("-50");
+    await wrapper
+      .findAll("button")
+      .find((button) => button.text().includes("Buscar CARs"))!
+      .trigger("click");
+    await flushPromises();
+
+    const carKey = "TO-1702109-8C7E2803199C43F0B15CC01B621D5913";
+    wrapper.findComponent({ name: "CarSelectMapStub" }).vm.$emit("update:selectedCarKey", carKey);
+    await flushPromises();
+
+    await wrapper.get('[data-testid="download-search-kml"]').trigger("click");
+    await wrapper.get('[data-testid="download-kml-selected"]').trigger("click");
+    await flushPromises();
+    expect(http.get).toHaveBeenCalledWith("/v1/cars/map-searches/search-1/kml", {
+      params: { carKey },
+      responseType: "blob",
+    });
+
+    await wrapper.get('[data-testid="download-search-kml"]').trigger("click");
+    await wrapper.get('[data-testid="download-kml-all"]').trigger("click");
+    await flushPromises();
+    expect(http.get).toHaveBeenLastCalledWith("/v1/cars/map-searches/search-1/kml", {
+      params: undefined,
+      responseType: "blob",
+    });
+  });
+
   it("separa latitude e longitude ao colar coordenadas decimais no campo de latitude", async () => {
     routePath = "/analyses/search";
     const wrapper = mount(NewAnalysisView);

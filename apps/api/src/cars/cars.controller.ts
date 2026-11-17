@@ -28,6 +28,7 @@ import { PointCarsQuery } from './dto/point-cars.query';
 import { AnalysisSubjectParserService } from '../analyses/analysis-subject-parser.service';
 
 const MAX_GEOMETRY_FILE_BYTES = 50 * 1024 * 1024;
+const DEFAULT_POINT_FILE_RADIUS_METERS = 5000;
 
 type UploadedGeometryFile = {
   buffer: Buffer;
@@ -120,6 +121,7 @@ export class CarsController {
   async createGeometryMapSearch(
     @Req() req: AuthedRequest,
     @UploadedFile() file: UploadedGeometryFile | undefined,
+    @Body() body?: { radiusMeters?: string | number },
   ) {
     if (!file?.buffer) {
       throw new BadRequestException({
@@ -128,7 +130,7 @@ export class CarsController {
       });
     }
     const actor = await this.actor(req);
-    const parsed = await this.subjectParser.parse(
+    const parsed = await this.subjectParser.parseCarSearch(
       file.buffer,
       file.originalname,
       file.mimetype,
@@ -143,7 +145,26 @@ export class CarsController {
         ? req.headers['x-forwarded-host'].split(',')[0]?.trim()
         : req.headers.host;
     const apiOrigin = host ? `${protocol}://${host}` : null;
-    return this.cars.createGeometryMapSearchForActor(actor, parsed, apiOrigin);
+    if (parsed.kind === 'point') {
+      // File with only a point (e.g. a Google Earth pin): search around it.
+      const radiusMeters = Number(body?.radiusMeters);
+      return this.cars.createMapSearchForActor(
+        actor,
+        {
+          lat: parsed.lat,
+          lng: parsed.lng,
+          radiusMeters: Number.isFinite(radiusMeters)
+            ? radiusMeters
+            : DEFAULT_POINT_FILE_RADIUS_METERS,
+        },
+        apiOrigin,
+      );
+    }
+    return this.cars.createGeometryMapSearchForActor(
+      actor,
+      parsed.subject,
+      apiOrigin,
+    );
   }
 
   @Get('map-searches/:searchId/csv')
@@ -160,6 +181,27 @@ export class CarsController {
       `attachment; filename="${csv.filename}"`,
     );
     return new StreamableFile(csv.buffer);
+  }
+
+  @Get('map-searches/:searchId/kml')
+  async downloadMapSearchKml(
+    @Req() req: AuthedRequest,
+    @Res({ passthrough: true }) res: Response,
+    @Param('searchId') searchId: string,
+    @Query('carKey') carKey?: string,
+  ) {
+    const actor = await this.actor(req);
+    const kml = await this.cars.getMapSearchKmlForActor(
+      actor,
+      searchId,
+      carKey?.trim() || null,
+    );
+    res.setHeader('Content-Type', kml.contentType);
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${kml.filename}"`,
+    );
+    return new StreamableFile(kml.buffer);
   }
 
   @Get('tiles/:searchId/:z/:x/:y.mvt')

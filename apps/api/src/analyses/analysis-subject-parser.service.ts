@@ -27,6 +27,15 @@ type GeoJsonFeatureCollection = {
   features?: GeoJsonFeature[];
 };
 
+type ReadCollections = {
+  collections: GeoJsonFeatureCollection[];
+  sourceFormat: 'KML' | 'SHP';
+};
+
+export type ParsedCarSearchInput =
+  | { kind: 'geometry'; subject: ParsedAnalysisSubject }
+  | { kind: 'point'; lat: number; lng: number };
+
 const MAX_COORDINATE_COUNT = 2_000_000;
 const LINE_STRING_CLOSURE_TOLERANCE_DEGREES = 0.0001;
 
@@ -81,6 +90,36 @@ function stripAltitude(value: unknown): unknown {
   return value.map(stripAltitude);
 }
 
+function firstPoint(
+  collections: GeoJsonFeatureCollection[],
+): { lat: number; lng: number } | null {
+  for (const collection of collections) {
+    for (const feature of collection.features ?? []) {
+      const geometry = feature.geometry;
+      const coordinates =
+        geometry?.type === 'Point'
+          ? geometry.coordinates
+          : geometry?.type === 'MultiPoint' &&
+              Array.isArray(geometry.coordinates)
+            ? (geometry.coordinates as unknown[])[0]
+            : null;
+      if (!Array.isArray(coordinates)) continue;
+      const [lng, lat] = coordinates as unknown[];
+      if (
+        typeof lng === 'number' &&
+        typeof lat === 'number' &&
+        Number.isFinite(lng) &&
+        Number.isFinite(lat) &&
+        Math.abs(lng) <= 180 &&
+        Math.abs(lat) <= 90
+      ) {
+        return { lat, lng };
+      }
+    }
+  }
+  return null;
+}
+
 function asFeatureCollection(value: unknown): GeoJsonFeatureCollection[] {
   if (Array.isArray(value)) {
     return value.flatMap((item) => asFeatureCollection(item));
@@ -125,6 +164,54 @@ export class AnalysisSubjectParserService {
     originalName: string,
     mimetype?: string,
   ): Promise<ParsedAnalysisSubject> {
+    const { collections, sourceFormat } = await this.readCollections(
+      buffer,
+      originalName,
+      mimetype,
+    );
+    return this.normalizeFeatures(collections, sourceFormat);
+  }
+
+  /**
+   * Same as parse(), but a file with no polygon falls back to its first point,
+   * so the CAR search can run as a coordinate (radius) search.
+   */
+  async parseCarSearch(
+    buffer: Buffer,
+    originalName: string,
+    mimetype?: string,
+  ): Promise<ParsedCarSearchInput> {
+    const { collections, sourceFormat } = await this.readCollections(
+      buffer,
+      originalName,
+      mimetype,
+    );
+    try {
+      return {
+        kind: 'geometry',
+        subject: this.normalizeFeatures(collections, sourceFormat),
+      };
+    } catch (error) {
+      const code = (error as BadRequestException)?.getResponse?.() as
+        | { code?: string }
+        | undefined;
+      if (code?.code !== 'GEOMETRY_POLYGON_REQUIRED') throw error;
+      const point = firstPoint(collections);
+      if (!point) {
+        throw geometryError(
+          'GEOMETRY_POLYGON_OR_POINT_REQUIRED',
+          'O arquivo precisa conter pelo menos um polígono ou um ponto.',
+        );
+      }
+      return { kind: 'point', ...point };
+    }
+  }
+
+  private async readCollections(
+    buffer: Buffer,
+    originalName: string,
+    mimetype?: string,
+  ): Promise<ReadCollections> {
     if (!buffer?.length) {
       throw geometryError(
         'GEOMETRY_FILE_EMPTY',
@@ -162,7 +249,7 @@ export class AnalysisSubjectParserService {
     );
   }
 
-  private parseKml(buffer: Buffer): ParsedAnalysisSubject {
+  private parseKml(buffer: Buffer): ReadCollections {
     let document: ReturnType<DOMParser['parseFromString']>;
     try {
       document = new DOMParser().parseFromString(
@@ -178,10 +265,10 @@ export class AnalysisSubjectParserService {
     }
 
     const collection = kml(document) as unknown as GeoJsonFeatureCollection;
-    return this.normalizeFeatures([collection], 'KML');
+    return { collections: [collection], sourceFormat: 'KML' };
   }
 
-  private async parseKmz(buffer: Buffer): Promise<ParsedAnalysisSubject> {
+  private async parseKmz(buffer: Buffer): Promise<ReadCollections> {
     let zip: JSZip;
     try {
       zip = await JSZip.loadAsync(buffer);
@@ -204,9 +291,7 @@ export class AnalysisSubjectParserService {
     return this.parseKml(await kmlFile.async('nodebuffer'));
   }
 
-  private async parseShapefileZip(
-    buffer: Buffer,
-  ): Promise<ParsedAnalysisSubject> {
+  private async parseShapefileZip(buffer: Buffer): Promise<ReadCollections> {
     let zip: JSZip;
     try {
       zip = await JSZip.loadAsync(buffer);
@@ -247,7 +332,7 @@ export class AnalysisSubjectParserService {
           buffer.byteOffset + buffer.byteLength,
         ) as ArrayBuffer,
       );
-      return this.normalizeFeatures(asFeatureCollection(parsed), 'SHP');
+      return { collections: asFeatureCollection(parsed), sourceFormat: 'SHP' };
     } catch {
       throw geometryError(
         'SHAPEFILE_INVALID',

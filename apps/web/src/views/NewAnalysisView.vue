@@ -355,7 +355,8 @@
             <Upload class="h-4 w-4" /> Selecionar KML, KMZ ou shapefile ZIP
           </span>
           <span class="text-xs text-muted-foreground">
-            O arquivo será usado apenas para localizar os CARs intersectados.
+            O arquivo será usado apenas para localizar os CARs intersectados. Se tiver só um ponto, a busca usa a
+            coordenada com raio de {{ searchRadiusKm }} km.
           </span>
           <span class="truncate text-xs font-medium">
             {{ carSearchGeometryFile?.name ?? "Nenhum arquivo selecionado" }}
@@ -403,6 +404,16 @@
           >
             <Loader2 v-if="csvBusy" class="mr-2 h-3.5 w-3.5 animate-spin" />
             {{ csvBusy ? "Gerando CSV" : "Baixar CSV" }}
+          </UiButton>
+          <UiButton
+            size="sm"
+            variant="outline"
+            data-testid="download-search-kml"
+            :disabled="!activeSearch || searchBusy || kmlBusy"
+            @click="openKmlDialog"
+          >
+            <Loader2 v-if="kmlBusy" class="mr-2 h-3.5 w-3.5 animate-spin" />
+            {{ kmlBusy ? "Gerando KML" : "Baixar KML" }}
           </UiButton>
         </div>
       </div>
@@ -490,6 +501,16 @@
           >
             <Loader2 v-if="csvBusy" class="mr-2 h-3.5 w-3.5 animate-spin" />
             {{ csvBusy ? "Gerando CSV" : "Baixar CSV" }}
+          </UiButton>
+          <UiButton
+            size="sm"
+            variant="outline"
+            data-testid="download-search-kml"
+            :disabled="!activeSearch || searchBusy || kmlBusy"
+            @click="openKmlDialog"
+          >
+            <Loader2 v-if="kmlBusy" class="mr-2 h-3.5 w-3.5 animate-spin" />
+            {{ kmlBusy ? "Gerando KML" : "Baixar KML" }}
           </UiButton>
           <label
             class="ml-auto inline-flex items-center gap-2 rounded-full border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground"
@@ -704,6 +725,32 @@
       </UiSheet>
     </section>
 
+    <UiDialog :open="kmlDialogOpen" @close="kmlDialogOpen = false">
+      <UiDialogHeader>
+        <UiDialogTitle>Baixar KML</UiDialogTitle>
+        <UiDialogDescription>
+          {{
+            analysisForm.carKey
+              ? "O KML deve conter todos os CARs da busca ou só o CAR selecionado?"
+              : "Nenhum CAR selecionado no mapa. O KML terá todos os CARs da busca."
+          }}
+        </UiDialogDescription>
+      </UiDialogHeader>
+      <UiDialogFooter class="flex flex-wrap items-center justify-end gap-2 p-4">
+        <UiButton variant="outline" @click="kmlDialogOpen = false"> Cancelar </UiButton>
+        <UiButton variant="outline" data-testid="download-kml-all" @click="downloadSearchKml('all')">
+          Todos os CARs
+        </UiButton>
+        <UiButton
+          v-if="analysisForm.carKey"
+          data-testid="download-kml-selected"
+          @click="downloadSearchKml('selected')"
+        >
+          Só o selecionado
+        </UiButton>
+      </UiDialogFooter>
+    </UiDialog>
+
     <UiDialog :open="confirmMissingOpen" @close="confirmMissingOpen = false">
       <UiDialogHeader>
         <UiDialogTitle>Continuar sem dados?</UiDialogTitle>
@@ -914,6 +961,8 @@ const searchBusy = ref(false);
 const mapLoading = ref(false);
 const pngBusy = ref(false);
 const csvBusy = ref(false);
+const kmlBusy = ref(false);
+const kmlDialogOpen = ref(false);
 const searchRadiusKm = ref(5);
 // Radius-mode pill: meters below 1 km (e.g. "500 m"), km otherwise ("2 km").
 const radiusPillLabel = computed(() => {
@@ -1372,6 +1421,8 @@ async function searchCarsByFile() {
   fallbackCars.value = [];
   const formData = new FormData();
   formData.append("file", carSearchGeometryFile.value!);
+  // Used by the API only when the file has just a point (coordinate search).
+  formData.append("radiusMeters", String(searchRadiusKm.value * 1000));
   try {
     const res = await http.post<ApiEnvelope<CarSearchVectorMapResponse>>("/v1/cars/map-searches/geometry", formData);
     const search = unwrapData(res.data);
@@ -1380,6 +1431,9 @@ async function searchCarsByFile() {
       center.lat = search.searchCenter.lat.toFixed(6);
       center.lng = search.searchCenter.lng.toFixed(6);
       parsedCenter.value = { ...search.searchCenter };
+    }
+    if (search.searchRadiusMeters) {
+      searchRadiusKm.value = Math.round(search.searchRadiusMeters / 1000);
     }
   } catch (err: any) {
     searchMessage.value =
@@ -1751,6 +1805,34 @@ async function downloadSearchCsv() {
       err?.response?.data?.error?.message ?? err?.response?.data?.message ?? "Falha ao exportar CSV.";
   } finally {
     csvBusy.value = false;
+  }
+}
+
+function openKmlDialog() {
+  if (!activeSearch.value?.searchId || searchBusy.value || kmlBusy.value) return;
+  kmlDialogOpen.value = true;
+}
+
+async function downloadSearchKml(scope: "all" | "selected") {
+  const searchId = activeSearch.value?.searchId;
+  kmlDialogOpen.value = false;
+  if (!searchId || kmlBusy.value) return;
+  const carKey = scope === "selected" ? analysisForm.carKey.trim() : "";
+  kmlBusy.value = true;
+  try {
+    const res = await http.get<Blob>(`/v1/cars/map-searches/${searchId}/kml`, {
+      params: carKey ? { carKey } : undefined,
+      responseType: "blob",
+    });
+    const filename =
+      filenameFromContentDisposition(res.headers?.["content-disposition"]) ??
+      `${carKey || buildSearchExportBaseName()}.kml`;
+    saveBlobAsFile(res.data, filename);
+  } catch (err: any) {
+    searchMessage.value =
+      err?.response?.data?.error?.message ?? err?.response?.data?.message ?? "Falha ao exportar KML.";
+  } finally {
+    kmlBusy.value = false;
   }
 }
 

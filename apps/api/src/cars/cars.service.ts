@@ -64,6 +64,25 @@ type CarCsvRow = {
   area_ha: number | string | null;
 };
 
+type CarKmlRow = CarCsvRow & {
+  kml: string | null;
+  attrs: Record<string, unknown> | null;
+};
+
+type MapSearchRowsOptions = {
+  withKml?: boolean;
+  carKey?: string | null;
+};
+
+function escapeXml(value: string) {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&apos;');
+}
+
 type ActiveCarLocationRow = {
   feature_key: string;
   lat: number | string | null;
@@ -760,7 +779,7 @@ export class CarsService {
     );
   }
 
-  async getMapSearchCsvForActor(actor: ActorContext, searchId: string) {
+  private async requireMapSearchParams(actor: ActorContext, searchId: string) {
     const session = await this.prisma.carMapSearchSession.findFirst({
       where: {
         id: searchId,
@@ -781,7 +800,19 @@ export class CarsService {
     const params = this.parseMapSearchParamsJson(session.paramsJson);
     const useActive = this.isCurrentSnapshot(params.analysisDate);
     await this.ensureMvReady(useActive);
-    const rows = await this.fetchMapSearchCsvRows(searchId, params, useActive);
+    return { params, useActive };
+  }
+
+  async getMapSearchCsvForActor(actor: ActorContext, searchId: string) {
+    const { params, useActive } = await this.requireMapSearchParams(
+      actor,
+      searchId,
+    );
+    const rows = await this.fetchMapSearchRows<CarCsvRow>(
+      searchId,
+      params,
+      useActive,
+    );
     const lines = ['CAR;AREA_HA'];
     for (const row of rows) {
       const car = this.escapeCsvCell(String(row.feature_key ?? ''));
@@ -797,14 +828,110 @@ export class CarsService {
     };
   }
 
-  private async fetchMapSearchCsvRows(
+  async getMapSearchKmlForActor(
+    actor: ActorContext,
+    searchId: string,
+    carKey: string | null,
+  ) {
+    const { params, useActive } = await this.requireMapSearchParams(
+      actor,
+      searchId,
+    );
+    const rows = await this.fetchMapSearchRows<CarKmlRow>(
+      searchId,
+      params,
+      useActive,
+      { withKml: true, carKey },
+    );
+    if (carKey && rows.length === 0) {
+      throw new BadRequestException({
+        code: 'CAR_NOT_IN_SEARCH',
+        message: 'O CAR selecionado não faz parte desta busca.',
+      });
+    }
+    const placemarks = rows
+      .filter((row) => row.kml)
+      .map((row) => {
+        const key = escapeXml(String(row.feature_key ?? ''));
+        const data = Object.entries(row.attrs ?? {})
+          .filter(([, value]) => value !== null && value !== undefined)
+          .map(
+            ([name, value]) =>
+              `<Data name="${escapeXml(name)}"><value>${escapeXml(String(value))}</value></Data>`,
+          );
+        if (row.area_ha != null) {
+          data.push(
+            `<Data name="area_calc_ha"><value>${escapeXml(String(row.area_ha))}</value></Data>`,
+          );
+        }
+        return [
+          '<Placemark>',
+          `<name>${key}</name>`,
+          '<styleUrl>#car</styleUrl>',
+          `<ExtendedData>${data.join('')}</ExtendedData>`,
+          row.kml,
+          '</Placemark>',
+        ].join('');
+      });
+    const docName = carKey ?? `Busca CAR ${params.analysisDate}`;
+    const content = [
+      '<?xml version="1.0" encoding="UTF-8"?>',
+      '<kml xmlns="http://www.opengis.net/kml/2.2">',
+      '<Document>',
+      `<name>${escapeXml(docName)}</name>`,
+      '<Style id="car"><LineStyle><color>ff00ffff</color><width>2</width></LineStyle><PolyStyle><color>4000ffff</color></PolyStyle></Style>',
+      ...placemarks,
+      '</Document>',
+      '</kml>',
+      '',
+    ].join('\n');
+    const filename = carKey
+      ? `${carKey.replace(/[^A-Za-z0-9_-]/g, '')}.kml`
+      : `busca-cars-${searchId.slice(0, 8)}.kml`;
+    return {
+      buffer: Buffer.from(content, 'utf8'),
+      filename,
+      contentType: 'application/vnd.google-earth.kml+xml; charset=utf-8',
+    };
+  }
+
+  private async fetchMapSearchRows<T extends CarCsvRow>(
     searchId: string,
     params: SavedCarMapSearchParams,
     useActive: boolean,
+    options: MapSearchRowsOptions = {},
   ) {
     const schema = this.getSchema();
     const tables = this.getTables(schema);
     const categoryCode = this.getCategoryCode();
+    const carKeyFilter = options.carKey
+      ? Prisma.sql`AND f.feature_key = ${options.carKey}`
+      : Prisma.empty;
+    const attrValidity = useActive
+      ? Prisma.sql`h_attr.valid_to IS NULL`
+      : Prisma.sql`h_attr.valid_from <= ${params.analysisDate}::date
+          AND (h_attr.valid_to IS NULL OR h_attr.valid_to > ${params.analysisDate}::date)`;
+    const attrJoin = options.withKml
+      ? Prisma.sql`
+          LEFT JOIN ${Prisma.raw(`"${schema}"."lw_feature_attr_pack_hist"`)} h_attr
+            ON h_attr.dataset_id = f.dataset_id
+           AND h_attr.feature_id = f.feature_id
+           AND ${attrValidity}
+          LEFT JOIN ${Prisma.raw(`"${schema}"."lw_attr_pack"`)} p
+            ON p.pack_id = h_attr.pack_id
+        `
+      : Prisma.empty;
+    // KML needs WGS84; area_ha is geodesic here (3857 area is inflated).
+    const kmlColumns = (geom3857: Prisma.Sql) =>
+      options.withKml
+        ? Prisma.sql`,
+          ST_AsKML(ST_Transform(${geom3857}, 4326), 7) AS kml,
+          p.pack_json AS attrs`
+        : Prisma.empty;
+    const areaColumn = (geom3857: Prisma.Sql) =>
+      options.withKml
+        ? Prisma.sql`ROUND((ST_Area(ST_Transform(${geom3857}, 4326)::geography) / 10000.0)::numeric, 4) AS area_ha`
+        : Prisma.sql`ROUND((ST_Area(${geom3857}) / 10000.0)::numeric, 2) AS area_ha`;
     if (useActive) {
       const subject =
         params.mode === 'geometry'
@@ -828,21 +955,25 @@ export class CarsService {
               g.geom_3857_raw && ST_Expand(subject.geom_3857, ${params.radiusMeters})
               AND ST_DWithin(g.geom_3857_raw, subject.geom_3857, ${params.radiusMeters})
             `;
-      return this.prisma.$queryRaw<CarCsvRow[]>(Prisma.sql`
+      const geom = Prisma.sql`g.geom_3857_raw`;
+      return this.prisma.$queryRaw<T[]>(Prisma.sql`
         WITH subject AS (${subject})
         SELECT
           f.feature_key,
-          ROUND((ST_Area(g.geom_3857_raw) / 10000.0)::numeric, 2) AS area_ha
+          ${areaColumn(geom)}
+          ${kmlColumns(geom)}
         FROM ${tables.geomTileActive} g
         JOIN ${tables.feature} f
           ON f.dataset_id = g.dataset_id
          AND f.feature_id = g.feature_id
         JOIN ${tables.dataset} d ON d.dataset_id = f.dataset_id
         JOIN ${tables.category} c ON c.category_id = d.category_id
+        ${attrJoin}
         CROSS JOIN subject
         WHERE c.code = ${categoryCode}
           AND g.geom_3857_raw IS NOT NULL
           AND ${spatialFilter}
+          ${carKeyFilter}
         ORDER BY f.feature_key
       `);
     }
@@ -870,11 +1001,12 @@ export class CarsService {
             ${transformedGeom} && ST_Expand(subject.geom_3857, ${params.radiusMeters})
             AND ST_DWithin(${transformedGeom}, subject.geom_3857, ${params.radiusMeters})
           `;
-    return this.prisma.$queryRaw<CarCsvRow[]>(Prisma.sql`
+    return this.prisma.$queryRaw<T[]>(Prisma.sql`
       WITH subject AS (${subject})
       SELECT
         f.feature_key,
-        ROUND((ST_Area(${transformedGeom}) / 10000.0)::numeric, 2) AS area_ha
+        ${areaColumn(transformedGeom)}
+        ${kmlColumns(transformedGeom)}
       FROM ${tables.geomHist} h
       JOIN ${tables.feature} f
         ON f.dataset_id = h.dataset_id
@@ -882,11 +1014,13 @@ export class CarsService {
       JOIN ${tables.dataset} d ON d.dataset_id = f.dataset_id
       JOIN ${tables.category} c ON c.category_id = d.category_id
       JOIN ${tables.geomStore} gs ON gs.geom_id = h.geom_id
+      ${attrJoin}
       CROSS JOIN subject
       WHERE c.code = ${categoryCode}
         AND h.valid_from <= ${params.analysisDate}::date
         AND (h.valid_to IS NULL OR h.valid_to > ${params.analysisDate}::date)
         AND ${spatialFilter}
+        ${carKeyFilter}
       ORDER BY f.feature_key
     `);
   }
