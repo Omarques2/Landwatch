@@ -1249,6 +1249,7 @@ export class AnalysisPdfService {
   private statusTone(kind: AnalysisDatasetStatusKind) {
     if (kind === 'hit') return '#dc2626';
     if (kind === 'partial') return '#d97706';
+    if (kind === 'justified') return '#2563eb';
     return '#059669';
   }
 

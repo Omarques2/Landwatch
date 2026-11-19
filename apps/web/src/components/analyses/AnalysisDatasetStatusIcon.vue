@@ -71,7 +71,7 @@ const toneClass = computed(() => {
   if (props.kind === "partial") {
     return "border-amber-300 bg-amber-500/15 text-amber-600";
   }
-  return "border-emerald-300 bg-emerald-500/15 text-emerald-600";
+  return "border-blue-300 bg-blue-500/15 text-blue-600";
 });
 
 function onClick() {

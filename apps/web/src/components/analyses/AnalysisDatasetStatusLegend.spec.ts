@@ -67,7 +67,7 @@ describe("AnalysisDatasetStatusLegend", () => {
 });
 
 describe("AnalysisDatasetStatusIcon", () => {
-  it("uses the same ok tone for justified items", () => {
+  it("uses a blue tone for justified items, distinct from ok", () => {
     const okWrapper = mount(AnalysisDatasetStatusIcon, {
       props: { kind: "ok" },
     });
@@ -82,9 +82,9 @@ describe("AnalysisDatasetStatusIcon", () => {
     expect(okClasses).toContain("bg-emerald-500/15");
     expect(okClasses).toContain("text-emerald-600");
 
-    expect(justifiedClasses).toContain("border-emerald-300");
-    expect(justifiedClasses).toContain("bg-emerald-500/15");
-    expect(justifiedClasses).toContain("text-emerald-600");
+    expect(justifiedClasses).toContain("border-blue-300");
+    expect(justifiedClasses).toContain("bg-blue-500/15");
+    expect(justifiedClasses).toContain("text-blue-600");
   });
 
   it("uses an amber tone for partial items", () => {
