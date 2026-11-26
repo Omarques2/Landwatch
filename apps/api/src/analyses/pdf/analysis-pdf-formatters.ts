@@ -177,7 +177,7 @@ export function getAnalysisDatasetStatusLabel(kind: AnalysisDatasetStatusKind) {
   if (kind === 'ok') return 'Sem interseção';
   if (kind === 'partial') return 'Parcialmente justificada';
   if (kind === 'hit') return 'Com interseção';
-  return 'Com justificativa';
+  return 'Laudo Técnico';
 }
 
 export function getAnalysisDatasetLegendKinds(

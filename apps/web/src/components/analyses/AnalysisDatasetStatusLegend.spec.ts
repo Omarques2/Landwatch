@@ -26,7 +26,7 @@ describe("AnalysisDatasetStatusLegend", () => {
 
     expect(labels).toEqual([
       "Sem interseção",
-      "Com justificativa",
+      "Laudo Técnico",
       "Parcialmente justificada",
       "Com interseção",
     ]);
@@ -61,7 +61,7 @@ describe("AnalysisDatasetStatusLegend", () => {
 
     expect(labels).toEqual([
       "Sem interseção",
-      "Com justificativa",
+      "Laudo Técnico",
     ]);
   });
 });

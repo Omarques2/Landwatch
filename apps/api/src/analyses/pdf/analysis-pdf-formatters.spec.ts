@@ -77,7 +77,7 @@ describe('analysis-pdf-formatters', () => {
       ]).map(getAnalysisDatasetStatusLabel),
     ).toEqual([
       'Sem interseção',
-      'Com justificativa',
+      'Laudo Técnico',
       'Parcialmente justificada',
       'Com interseção',
     ]);

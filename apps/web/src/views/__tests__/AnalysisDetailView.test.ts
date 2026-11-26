@@ -1191,7 +1191,7 @@ describe("AnalysisDetailView", () => {
 
     expect(wrapper.text()).toContain("Sem interseção");
     expect(wrapper.text()).toContain("Com interseção");
-    expect(wrapper.text()).toContain("Com justificativa");
+    expect(wrapper.text()).toContain("Laudo Técnico");
     expect(wrapper.text()).toContain("Parcialmente justificada");
   });
 
@@ -1329,7 +1329,7 @@ describe("AnalysisDetailView", () => {
     await flushPromises();
 
     expect(wrapper.text()).toContain("Sem interseção");
-    expect(wrapper.text()).toContain("Com justificativa");
+    expect(wrapper.text()).toContain("Laudo Técnico");
     expect(wrapper.text()).not.toContain("Com interseção");
     expect(wrapper.text()).not.toContain("Parcialmente justificada");
   });
